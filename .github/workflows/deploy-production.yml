@@ -41,19 +41,26 @@ jobs:
       - name: Create CF resources & capture IDs
         id: setup
         run: |
-          # D1 — may already exist
-          D1_OUT=$(npx wrangler d1 create el-rey-db 2>&1) || true
-          echo "D1 output: $D1_OUT"
+          # D1 — create if not exists, get ID from list as fallback
+          D1_OUT=$(npx wrangler d1 create el-rey-db --location=wnam 2>&1) || true
+          echo "D1 create: $D1_OUT"
           D1_ID=$(echo "$D1_OUT" | grep -oP 'database_id\s*=\s*"?\K[0-9a-f-]+' | head -1)
-          [ -z "$D1_ID" ] && D1_ID=$(echo "$D1_OUT" | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          if [ -z "$D1_ID" ]; then
+            echo "D1 may already exist, fetching from list..."
+            D1_LIST=$(npx wrangler d1 list --json 2>&1)
+            echo "D1 list: $D1_LIST"
+            D1_ID=$(echo "$D1_LIST" | grep -oP '"uuid"\s*:\s*"\K[0-9a-f-]+' | head -1)
+          fi
           echo "D1_ID=$D1_ID" >> $GITHUB_ENV
           echo "D1_ID=$D1_ID"
 
-          # KV — may already exist
+          # KV
           for ns in cache sessions rate-limit; do
             OUT=$(npx wrangler kv:namespace create "$ns" 2>&1) || true
-            ID=$(echo "$OUT" | grep -oP 'id\s*=\s*"?\K[0-9a-f]+' | head -1)
-            VAR="KV_$(echo $ns | tr '[:lower:]-' '[:upper:]_')"
+            echo "KV $ns: $OUT"
+            ID=$(echo "$OUT" | grep -oP '"id"\s*:\s*"\K[0-9a-f]+' | head -1)
+            [ -z "$ID" ] && ID=$(echo "$OUT" | grep -oP 'id\s*=\s*"?\K[0-9a-f]+' | head -1)
+            VAR="KV_$(echo $ns | tr '-' '_' | tr '[:lower:]' '[:upper:]')"
             echo "${VAR}=$ID" >> $GITHUB_ENV
             echo "${VAR}=$ID"
           done
