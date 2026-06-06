@@ -3,7 +3,7 @@
  * Processes stock deductions, batch updates, and stock movements.
  */
 export default {
-  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, _env: Env): Promise<void> {
     for (const message of batch.messages) {
       console.log("Processing inventory message:", message.body);
       // TODO: Implement inventory deduction logic

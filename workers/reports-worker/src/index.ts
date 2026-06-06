@@ -3,7 +3,7 @@
  * Generates heavy reports asynchronously and caches results.
  */
 export default {
-  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, _env: Env): Promise<void> {
     for (const message of batch.messages) {
       console.log("Processing report generation:", message.body);
       // TODO: Implement report generation logic
