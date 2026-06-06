@@ -188,7 +188,7 @@ export const INITIAL_SALES: Sale[] = [
     tax: 3.50,
     paymentMethod: 'efectivo',
     paymentStatus: 'completed',
-    operatorRole: 'Cajero',
+    operatorRole: 'cajero',
     operatorName: 'Rodrigo Gómez',
     customerName: 'Juan Pérez'
   },
@@ -203,7 +203,7 @@ export const INITIAL_SALES: Sale[] = [
     tax: 3.21,
     paymentMethod: 'tarjeta',
     paymentStatus: 'completed',
-    operatorRole: 'Cajero',
+    operatorRole: 'cajero',
     operatorName: 'Rodrigo Gómez',
     customerName: 'Laura Martinez'
   },
@@ -219,7 +219,7 @@ export const INITIAL_SALES: Sale[] = [
     tax: 5.28,
     paymentMethod: 'mercado_pago',
     paymentStatus: 'completed',
-    operatorRole: 'Admin',
+    operatorRole: 'admin',
     operatorName: 'Carlos Pastor (Dueño)',
     customerName: 'Sonia Díaz'
   },
@@ -234,7 +234,7 @@ export const INITIAL_SALES: Sale[] = [
     tax: 0.94,
     paymentMethod: 'paypal',
     paymentStatus: 'failed', // Failed simulated transaction for push notification alerts!
-    operatorRole: 'Cajero',
+    operatorRole: 'cajero',
     operatorName: 'Rodrigo Gómez',
     customerName: 'Cliente Anónimo'
   },
@@ -249,7 +249,7 @@ export const INITIAL_SALES: Sale[] = [
     tax: 1.04,
     paymentMethod: 'efectivo',
     paymentStatus: 'completed',
-    operatorRole: 'Cajero',
+    operatorRole: 'cajero',
     operatorName: 'Rodrigo Gómez'
   }
 ];

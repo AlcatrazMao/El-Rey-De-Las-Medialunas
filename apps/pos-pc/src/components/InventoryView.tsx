@@ -471,7 +471,7 @@ export const InventoryView: React.FC = () => {
                   <div>
                     <div className="flex justify-between items-start gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="text-2xl" img-emoji="true">{prod.image}</span>
+                        <span className="text-2xl" role="img" aria-hidden="true">{prod.image}</span>
                         <div>
                           <h3 className="font-extrabold text-sm text-gray-855 dark:text-zinc-50">{prod.name}</h3>
                           <span className="text-[10px] bg-amber-100/60 dark:bg-amber-950/20 text-amber-801 dark:text-amber-400 px-1.5 py-0.5 rounded uppercase font-bold text-[9px]">

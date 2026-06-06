@@ -604,7 +604,7 @@ export const POSView: React.FC = () => {
                   }`}
                 >
                   {/* Category overlay label */}
-                  <span className="absolute top-2 right-2 text-2xl" img-emoji="true">
+                  <span className="absolute top-2 right-2 text-2xl" role="img" aria-hidden="true">
                     {prod.image}
                   </span>
 
