@@ -28,7 +28,7 @@ export const MainHeadLayout: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-amber-700 dark:text-zinc-50 flex items-center gap-1.5 font-serif">
-              Miga & Horno <span className="text-amber-500 dark:text-amber-400 font-extrabold italic font-sans text-sm">Trigo de Oro</span>
+              El Rey De Las Medialunas
             </h1>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-500/10 dark:bg-emerald-950/20 dark:text-emerald-400">
