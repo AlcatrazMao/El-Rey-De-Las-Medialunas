@@ -239,8 +239,10 @@ export type AuditEntriesResponse = PaginatedResponse<AuditEntry>;
 export type {
   Branch,
   User,
+  UserBranch,
   Category,
   Product,
+  ProductAlias,
   ProductPrice,
   InventoryItem,
   InventoryBatch,
@@ -256,7 +258,11 @@ export type {
   ProductionBatch,
   Supplier,
   PurchaseOrder,
+  PurchaseOrderItem,
   TransferOrder,
+  TransferOrderItem,
   AuditEntry,
   SyncLog,
+  Session,
+  Timestamps,
 } from "./models";
