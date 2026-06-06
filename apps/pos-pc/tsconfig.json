@@ -7,6 +7,8 @@
     "rootDir": "src",
     "baseUrl": ".",
     "types": ["vite/client"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "paths": {
       "@/*": ["./src/*"]
     }

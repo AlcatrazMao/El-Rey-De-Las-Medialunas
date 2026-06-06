@@ -59,17 +59,23 @@ module.exports = {
   },
   overrides: [
     {
-      files: ["workers/**/*.ts"],
+      files: ["apps/**/*.ts", "apps/**/*.tsx"],
       rules: {
-        "no-console": "off",
+        "@typescript-eslint/no-unused-vars": "warn",
+        "no-alert": "warn",
+        "prefer-const": "warn",
+        "no-console": "warn",
+        "@typescript-eslint/no-explicit-any": "warn",
       },
+    },
+    {
+      files: ["workers/**/*.ts"],
+      rules: { "no-console": "off" },
     },
     {
       files: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
       env: { jest: true },
-      rules: {
-        "@typescript-eslint/no-explicit-any": "off",
-      },
+      rules: { "@typescript-eslint/no-explicit-any": "off" },
     },
   ],
   ignorePatterns: [
