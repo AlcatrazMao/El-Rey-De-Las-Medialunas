@@ -1,0 +1,56 @@
+.wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.searchIcon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--color-neutral-500);
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  padding-left: var(--space-8);
+  padding-right: var(--space-8);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-neutral-200);
+  font-family: var(--font-body);
+  font-size: 14px;
+  height: var(--touch-target-min);
+  background: white;
+  transition: border-color 0.2s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(139, 69, 19, 0.1);
+}
+
+.input::placeholder {
+  color: var(--color-neutral-500);
+}
+
+.clearButton {
+  position: absolute;
+  right: var(--space-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clearButton:hover {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
+}

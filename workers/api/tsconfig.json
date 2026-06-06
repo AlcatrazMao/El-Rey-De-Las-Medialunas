@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "composite": true,
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+    "types": ["@cloudflare/workers-types/2023-07-01"],
+    "paths": {
+      "@medialunas/shared": ["../../packages/shared/src"],
+      "@medialunas/shared/*": ["../../packages/shared/src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

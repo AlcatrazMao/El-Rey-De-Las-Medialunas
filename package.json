@@ -1,0 +1,34 @@
+{
+  "name": "el-rey-de-las-medialunas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ERP + POS system for El Rey De Las Medialunas bakery chain",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:api": "turbo dev --filter=@medialunas/api",
+    "dev:pos-pc": "turbo dev --filter=@medialunas/pos-pc",
+    "dev:pos-tablet": "turbo dev --filter=@medialunas/pos-tablet",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check",
+    "test": "turbo test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "db:migrate:local": "wrangler d1 migrations apply el-rey-db --local",
+    "db:migrate:prod": "wrangler d1 migrations apply el-rey-db",
+    "db:seed:local": "wrangler d1 execute el-rey-db --local --file=migrations/0002_seed_data.sql",
+    "deploy:api": "cd workers/api && wrangler deploy",
+    "deploy:inventory-worker": "cd workers/inventory-worker && wrangler deploy",
+    "deploy:reports-worker": "cd workers/reports-worker && wrangler deploy",
+    "deploy:sync-worker": "cd workers/sync-worker && wrangler deploy",
+    "clean": "rimraf --glob \"**/node_modules\" \"**/.turbo\" \"**/dist\" \"**/.wrangler\""
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "pnpm": {
+    "overrides": {}
+  }
+}

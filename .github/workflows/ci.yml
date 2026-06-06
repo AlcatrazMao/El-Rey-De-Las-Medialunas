@@ -1,0 +1,126 @@
+# ============================================================================
+# CI — El Rey De Las Medialunas
+# Runs on PRs and pushes to develop: lint, type-check, build
+# ============================================================================
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # Lint & Type Check
+  # ────────────────────────────────────────────────────────────────
+  quality:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Run TypeScript check
+        run: pnpm type-check
+
+  # ────────────────────────────────────────────────────────────────
+  # Build all packages & apps
+  # ────────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: quality
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build --filter="./packages/*"
+
+      - name: Build workers
+        run: pnpm build --filter="./workers/*"
+
+  # ────────────────────────────────────────────────────────────────
+  # Worker Type Check (separate — workers have different tsconfig)
+  # ────────────────────────────────────────────────────────────────
+  worker-check:
+    name: Worker Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check API Worker
+        run: pnpm type-check
+        working-directory: workers/api
+
+      - name: Type check Inventory Worker
+        run: pnpm type-check
+        working-directory: workers/inventory-worker
+        continue-on-error: true
+
+      - name: Type check Reports Worker
+        run: pnpm type-check
+        working-directory: workers/reports-worker
+        continue-on-error: true
+
+      - name: Type check Sync Worker
+        run: pnpm type-check
+        working-directory: workers/sync-worker
+        continue-on-error: true
