@@ -1,4 +1,4 @@
-import type { Env, Variables } from "../types/bindings";
+import type { Env } from "../types/bindings";
 
 export interface D1Client {
   db: D1Database;

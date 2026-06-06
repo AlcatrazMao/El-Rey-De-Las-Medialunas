@@ -1,12 +1,6 @@
 import { createMiddleware } from "hono/factory";
-import type { PermissionAction, PermissionModule } from "@medialunas/shared";
-import { hasPermission, type Role } from "@medialunas/shared";
+import { hasPermission, type PermissionAction, type PermissionModule, type Role } from "@medialunas/shared";
 import type { Env, Variables } from "../types/bindings";
-
-interface RbacConfig {
-  module: PermissionModule;
-  action: PermissionAction;
-}
 
 export function rbacMiddleware(module: PermissionModule, action: PermissionAction) {
   return createMiddleware<{ Bindings: Env; Variables: Variables }>(async (c, next) => {

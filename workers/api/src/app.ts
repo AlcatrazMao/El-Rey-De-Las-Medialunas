@@ -1,11 +1,8 @@
 import { Hono } from "hono";
 import type { Env, Variables } from "./types/bindings";
 import { corsMiddleware } from "./middleware/cors";
-import { authMiddleware } from "./middleware/auth";
-import { rbacMiddleware } from "./middleware/rbac";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { errorHandler } from "./middleware/error-handler";
-import { auditLogMiddleware } from "./middleware/audit-log";
 import { validate } from "./middleware/validate";
 import { authRoutes } from "./routes/auth";
 import { branchRoutes } from "./routes/branches";
