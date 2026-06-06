@@ -1,12 +1,162 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=JetBrains+Mono:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
-:root {
-  --color-primary: #8B4513;
-  --color-secondary: #D2691E;
-  --color-bg: #FFF8DC;
-  --color-text: #2C1810;
+@theme {
+  --font-sans: "Outfit", "Inter", system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Redefine gray to match Natural Tones cream/earth palette in light mode */
+  --color-gray-50: #FDFBF7;       /* Main warm canvas */
+  --color-gray-100: #F5F2ED;      /* Soft cream container background */
+  --color-gray-150: #EBE6DF;      /* Divider, borders */
+  --color-gray-200: #E5E0D8;      /* Structural border */
+  --color-gray-300: #D7CFC7;      /* Focus/secondary border */
+  --color-gray-400: #B6ABA0;      /* Inactive text/borders */
+  --color-gray-500: #8B7E74;      /* Secondary brownish text */
+  --color-gray-655: #726257;      /* Label text */
+  --color-gray-800: #4A3E3E;      /* Main body text readable charcoal-brown */
+  --color-gray-850: #332727;      /* Extra bold headings */
+  --color-gray-900: #261D1D;      /* Deepest wood-brown */
+
+  /* Map Amber to the theme's core Baking Brown tone */
+  --color-amber-50: #FFF9F0;      /* Highlights and light active state */
+  --color-amber-100: #FFF1DF;     /* Active state hover backgrounds */
+  --color-amber-200: #FCEBD3;
+  --color-amber-305: #F7D0A2;
+  --color-amber-450: #B78D6C;
+  --color-amber-500: #8B5E3C;     /* Primary brand color (Miga & Horno Brown) */
+  --color-amber-600: #724A2E;     /* Darker brown hover state */
+  --color-amber-700: #5D4037;     /* Display headers font-serif text */
+  --color-amber-850: #49312A;
+  --color-amber-955: #3A231C;
+
+  /* Map Orange to a warm terracotta/golden yolk tone */
+  --color-orange-50: #FFFBF7;
+  --color-orange-100: #FDEBD3;
+  --color-orange-500: #A67B5B;     /* Warm secondary accent */
+  --color-orange-650: #825838;
+  --color-orange-700: #5D4037;
+
+  /* Natural/Earthy Green instead of vivid green */
+  --color-emerald-50: #F3F6F3;
+  --color-emerald-100: #E3ECE4;
+  --color-emerald-500: #5F7D65;    /* Sage/Olive green for successful items */
+  --color-emerald-600: #4A634F;
+  --color-emerald-700: #394C3D;
+  --color-emerald-800: #29362C;
+  --color-emerald-950: #172019;
+
+  /* Natural Terracotta instead of pure Red */
+  --color-red-50: #FDF4F2;
+  --color-red-100: #F9E2DD;
+  --color-red-500: #B85C4F;       /* Warm pottery red */
+  --color-red-550: #A3483B;
+  --color-red-650: #8B382C;
+  --color-red-800: #5C251D;
+
+  /* Soft Slate Blue instead of Blue/Indigo */
+  --color-sky-50: #F1F5F7;
+  --color-sky-100: #E0E9ED;
+  --color-sky-500: #5C7C8A;       /* Warm ocean-slate */
+  --color-sky-600: #48636F;
+  --color-sky-800: #334750;
+
+  --color-indigo-50: #F0F2F5;
+  --color-indigo-100: #E1E4EB;
+  --color-indigo-500: #48546A;    /* Slate-charcoal */
+  --color-indigo-600: #374254;
+
+  --color-blue-50: #F0F3F6;
+  --color-blue-100: #E0E6ED;
+  --color-blue-500: #52637A;
+  --color-blue-605: #3F4F64;
+
+  /* Warm Espresso Dark Mode values targeting Tailwind's zinc scale */
+  --color-zinc-50: #ECE6E1;
+  --color-zinc-100: #DFD7D0;
+  --color-zinc-200: #C2B6AD;
+  --color-zinc-300: #A5968B;
+  --color-zinc-400: #8D7D72;
+  --color-zinc-500: #746459;
+  --color-zinc-600: #5D4E44;
+  --color-zinc-700: #4A3E36;
+  --color-zinc-800: #382D26;      /* Dark warm card background */
+  --color-zinc-805: #2E231C;      /* Border element dark */
+  --color-zinc-850: #231812;      /* Deep dark background */
+  --color-zinc-900: #1D130C;      /* Solid dark core background */
+  --color-zinc-950: #140C07;      /* Warm black background */
 }
 
+@layer utilities {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .scrollbar-none {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+
+  /* Keyframe animations for beautiful transitions */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.98) translateY(4px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  
+  .animate-fade-in {
+    animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* Pulse slow for POS status buttons */
+  @keyframes pulseSlow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.82; }
+  }
+
+  .animate-pulse-slow {
+    animation: pulseSlow 2s ease-in-out infinite;
+  }
+}
+
+/* Custom styles for paper receipts and inputs */
 body {
-  font-family: "Inter", system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #FDFBF7;
+  color: #4A3E3E;
+  font-family: "Outfit", "Inter", system-ui, sans-serif;
+}
+
+.dark body {
+  background-color: #140C07;
+  color: #ECE6E1;
+}
+
+.dialog-overlay {
+  background-color: rgba(20, 12, 7, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+/* Subtle warmth override on buttons and custom text selections */
+::selection {
+  background-color: #FCEBD3;
+  color: #8B5E3C;
+}
+
+/* Beautiful custom input outlines and ring focus */
+input:focus, select:focus, textarea:focus {
+  border-color: #8B5E3C !important;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(139, 94, 60, 0.15);
+}
+
+/* Transitions for light/dark swapping */
+* {
+  border-color: var(--color-gray-200);
+}
+.dark * {
+  border-color: var(--color-zinc-800);
 }
