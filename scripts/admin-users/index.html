@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Usuarios · El Rey De Las Medialunas</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',system-ui,sans-serif; background:#FDFBF7; color:#2C1810; min-height:100vh; }
+.container { max-width:900px; margin:0 auto; padding:24px 16px; }
+
+/* Header */
+.header { text-align:center; margin-bottom:32px; }
+.header h1 { font-family:'Playfair Display',Georgia,serif; font-size:2rem; color:#8B4513; }
+.header .sub { color:#8B7355; font-size:.85rem; margin-top:4px; }
+
+/* Connect card */
+.card { background:#fff; border:1px solid #F5DEB3; border-radius:16px; padding:20px; margin-bottom:20px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+.card-header { display:flex; align-items:center; gap:8px; margin-bottom:16px; font-weight:700; font-size:.9rem; color:#8B4513; }
+.card-header svg { width:20px; height:20px; }
+
+/* File input */
+.file-zone { border:2px dashed #D2691E; border-radius:12px; padding:24px; text-align:center; cursor:pointer; transition:all .2s; background:#FFF8DC; }
+.file-zone:hover { border-color:#8B4513; background:#FAF0E6; }
+.file-zone.drag { border-color:#8B4513; background:#F5DEB3; }
+.file-zone p { font-size:.85rem; color:#8B7355; margin-top:8px; }
+.file-zone input { display:none; }
+
+/* Status */
+.status { padding:8px 14px; border-radius:8px; font-size:.8rem; margin-top:12px; display:flex; align-items:center; gap:6px; }
+.status.connected { background:#E8F5E9; color:#2E7D32; }
+.status.disconnected { background:#FBE9E7; color:#BF360C; }
+
+/* Table */
+table { width:100%; border-collapse:collapse; font-size:.82rem; }
+th { text-align:left; padding:10px 8px; border-bottom:2px solid #F5DEB3; color:#8B4513; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
+td { padding:10px 8px; border-bottom:1px solid #FAF0E6; }
+tr:hover td { background:#FFF8DC; }
+
+.badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:.7rem; font-weight:700; }
+.badge-active { background:#E8F5E9; color:#2E7D32; }
+.badge-disabled { background:#FBE9E7; color:#BF360C; }
+.badge-verified { background:#E3F2FD; color:#1565C0; }
+
+/* Buttons */
+.btn { padding:8px 16px; border-radius:10px; font-size:.8rem; font-weight:700; border:none; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:6px; }
+.btn:active { transform:scale(.97); }
+.btn-primary { background:#8B4513; color:#fff; }
+.btn-primary:hover { background:#6B3410; }
+.btn-danger { background:none; color:#BF360C; }
+.btn-danger:hover { background:#FBE9E7; }
+.btn-sm { padding:4px 10px; font-size:.7rem; }
+
+/* Actions row */
+.actions { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+.actions .btn { font-size:.75rem; }
+
+/* Modal */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); backdrop-filter:blur(2px); z-index:100; align-items:center; justify-content:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:#fff; border-radius:16px; padding:24px; width:90%; max-width:440px; max-height:80vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,.15); }
+.modal h3 { font-size:1.1rem; color:#8B4513; margin-bottom:16px; }
+.modal label { display:block; font-size:.75rem; font-weight:700; color:#8B7355; margin-bottom:4px; margin-top:12px; }
+.modal input, .modal select { width:100%; padding:10px 12px; border:1px solid #F5DEB3; border-radius:10px; font-size:.85rem; font-family:inherit; background:#FFF8DC; }
+.modal input:focus, .modal select:focus { outline:none; border-color:#8B4513; box-shadow:0 0 0 3px rgba(139,69,19,.1); }
+.modal .btn-row { display:flex; gap:8px; margin-top:20px; }
+.modal .btn-row .btn { flex:1; justify-content:center; }
+
+/* Spinner */
+.spinner { width:20px; height:20px; border:2px solid #F5DEB3; border-top-color:#8B4513; border-radius:50%; animation:spin .6s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Empty */
+.empty { text-align:center; padding:40px 20px; color:#8B7355; }
+.empty svg { width:48px; height:48px; opacity:.3; margin-bottom:12px; }
+
+/* Toast */
+.toast { position:fixed; bottom:24px; right:24px; background:#2C1810; color:#FFF8DC; padding:12px 20px; border-radius:12px; font-size:.8rem; z-index:200; opacity:0; transform:translateY(20px); transition:all .3s; }
+.toast.show { opacity:1; transform:translateY(0); }
+.toast.error { background:#BF360C; }
+.toast.success { background:#2E7D32; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>🥐 Admin de Usuarios</h1>
+    <p class="sub">El Rey De Las Medialunas · Gestión de cuentas Firebase</p>
+  </div>
+
+  <!-- Connect -->
+  <div class="card">
+    <div class="card-header">🔑 Conectar Service Account</div>
+    <div class="file-zone" id="dropZone">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8B4513" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <p>Arrastrá el JSON de service account<br>o <b>hacé clic para seleccionar</b></p>
+      <input type="file" id="fileInput" accept=".json">
+    </div>
+    <div id="connectStatus"></div>
+  </div>
+
+  <!-- Actions -->
+  <div class="card" id="usersCard" style="display:none">
+    <div class="card-header">👥 Usuarios <span id="userCount" style="font-weight:400;color:#8B7355;font-size:.8rem;"></span></div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="openCreateModal()">+ Nuevo Usuario</button>
+      <button class="btn btn-sm" onclick="loadUsers()">🔄 Refrescar</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Email</th><th>Nombre</th><th>Estado</th><th>Creado</th><th style="width:100px"></th></tr></thead>
+        <tbody id="usersTable"></tbody>
+      </table>
+    </div>
+    <div id="emptyState" class="empty" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <p>No hay usuarios todavía</p>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle">Nuevo Usuario</h3>
+    <form id="userForm" onsubmit="handleSubmit(event)">
+      <input type="hidden" id="editUid">
+      <label>Email *</label>
+      <input type="email" id="fEmail" required placeholder="usuario@elreydelasmedialunas.com">
+      <label>Nombre</label>
+      <input type="text" id="fName" placeholder="Carlos Pastor">
+      <label>Contraseña <span id="pwdHint">*</span></label>
+      <input type="password" id="fPassword" placeholder="Mínimo 6 caracteres">
+      <label>Teléfono</label>
+      <input type="text" id="fPhone" placeholder="+54 11 5555-0001">
+      <label>Estado</label>
+      <select id="fDisabled">
+        <option value="false">Activo</option>
+        <option value="true">Deshabilitado</option>
+      </select>
+      <div class="btn-row">
+        <button type="button" class="btn" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="submitBtn">Crear Usuario</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'http://localhost:3456/api';
+let connected = false;
+
+// ── File drop ──────────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) connect(file.path);
+});
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files[0];
+  if (file) connect(file.path);
+});
+
+async function connect(filePath) {
+  try {
+    const res = await fetch(`${API}/init`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ filePath })
+    });
+    const data = await res.json();
+    if (data.status === 200) {
+      connected = true;
+      document.getElementById('connectStatus').innerHTML = 
+        `<div class="status connected">✅ Conectado · ${data.data.projectId} (${data.data.clientEmail})</div>`;
+      document.getElementById('usersCard').style.display = 'block';
+      loadUsers();
+    } else {
+      document.getElementById('connectStatus').innerHTML = 
+        `<div class="status disconnected">❌ ${data.error}</div>`;
+    }
+  } catch(e) {
+    document.getElementById('connectStatus').innerHTML = 
+      `<div class="status disconnected">❌ Error de conexión: ${e.message}</div>`;
+  }
+}
+
+// ── Load users ─────────────────────────────────────────────────────────
+async function loadUsers() {
+  if (!connected) return;
+  try {
+    const res = await fetch(`${API}/users`);
+    const data = await res.json();
+    if (data.status !== 200) return;
+    const users = data.data;
+    document.getElementById('userCount').textContent = `(${users.length})`;
+    const tbody = document.getElementById('usersTable');
+    const empty = document.getElementById('emptyState');
+    
+    if (users.length === 0) {
+      tbody.innerHTML = ''; empty.style.display = 'block'; return;
+    }
+    empty.style.display = 'none';
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td>
+          <div style="font-weight:600">${esc(u.email)}</div>
+          <div style="font-size:.7rem;color:#8B7355">${u.provider || 'email'}</div>
+        </td>
+        <td>${esc(u.displayName || '—')}</td>
+        <td>
+          <span class="badge ${u.disabled ? 'badge-disabled' : 'badge-active'}">${u.disabled ? 'Deshabilitado' : 'Activo'}</span>
+          ${u.emailVerified ? '<span class="badge badge-verified" style="margin-left:4px">Verificado</span>' : ''}
+        </td>
+        <td style="font-size:.75rem;color:#8B7355">${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
+        <td>
+          <button class="btn btn-sm" onclick="openEditModal('${u.uid}','${esc(u.email)}','${esc(u.displayName||'')}','${esc(u.phoneNumber||'')}',${u.disabled})" title="Editar">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.uid}','${esc(u.email)}')" title="Eliminar">🗑️</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) { toast('Error al cargar usuarios: '+e.message, 'error'); }
+}
+
+// ── Create / Edit ──────────────────────────────────────────────────────
+function openCreateModal() {
+  document.getElementById('modalTitle').textContent = 'Nuevo Usuario';
+  document.getElementById('submitBtn').textContent = 'Crear Usuario';
+  document.getElementById('editUid').value = '';
+  document.getElementById('fEmail').value = '';
+  document.getElementById('fName').value = '';
+  document.getElementById('fPassword').value = '';
+  document.getElementById('fPhone').value = '';
+  document.getElementById('fDisabled').value = 'false';
+  document.getElementById('pwdHint').textContent = '*';
+  document.getElementById('fPassword').required = true;
+  document.getElementById('modal').classList.add('show');
+}
+
+function openEditModal(uid, email, name, phone, disabled) {
+  document.getElementById('modalTitle').textContent = 'Editar Usuario';
+  document.getElementById('submitBtn').textContent = 'Guardar Cambios';
+  document.getElementById('editUid').value = uid;
+  document.getElementById('fEmail').value = email;
+  document.getElementById('fName').value = name;
+  document.getElementById('fPassword').value = '';
+  document.getElementById('fPhone').value = phone;
+  document.getElementById('fDisabled').value = String(disabled);
+  document.getElementById('pwdHint').textContent = '(dejar vacío para no cambiar)';
+  document.getElementById('fPassword').required = false;
+  document.getElementById('modal').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('show');
+}
+
+document.getElementById('modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+async function handleSubmit(e) {
+  e.preventDefault();
+  const uid = document.getElementById('editUid').value;
+  const email = document.getElementById('fEmail').value;
+  const password = document.getElementById('fPassword').value;
+  const displayName = document.getElementById('fName').value;
+  const phoneNumber = document.getElementById('fPhone').value;
+  const disabled = document.getElementById('fDisabled').value === 'true';
+
+  try {
+    if (uid) {
+      // Update
+      const updates = {};
+      if (email) updates.email = email;
+      if (displayName) updates.displayName = displayName;
+      if (password) updates.password = password;
+      if (phoneNumber) updates.phoneNumber = phoneNumber;
+      updates.disabled = disabled;
+      
+      const res = await fetch(`${API}/users/${uid}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(updates)
+      });
+      const data = await res.json();
+      if (data.status === 200) { toast('Usuario actualizado', 'success'); closeModal(); loadUsers(); }
+      else toast(data.error, 'error');
+    } else {
+      // Create
+      const res = await fetch(`${API}/users`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email, password, displayName, phoneNumber, disabled })
+      });
+      const data = await res.json();
+      if (data.status === 201) { toast('Usuario creado', 'success'); closeModal(); loadUsers(); }
+      else toast(data.error, 'error');
+    }
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+}
+
+// ── Delete ─────────────────────────────────────────────────────────────
+async function deleteUser(uid, email) {
+  if (!confirm(`¿Eliminar a ${email}?`)) return;
+  try {
+    const res = await fetch(`${API}/users/${uid}`, { method:'DELETE' });
+    const data = await res.json();
+    if (data.status === 200) { toast('Usuario eliminado', 'success'); loadUsers(); }
+    else toast(data.error, 'error');
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast ' + (type||'') + ' show';
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>

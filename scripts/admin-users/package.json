@@ -1,0 +1,8 @@
+{
+  "name": "admin-users",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^12.2.0"
+  }
+}
