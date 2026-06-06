@@ -14,6 +14,14 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+env:
+  CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+  CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+  D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+  KV_CACHE_ID: ${{ secrets.KV_CACHE_ID }}
+  KV_SESSIONS_ID: ${{ secrets.KV_SESSIONS_ID }}
+  KV_RATE_LIMIT_ID: ${{ secrets.KV_RATE_LIMIT_ID }}
+
 jobs:
   # ────────────────────────────────────────────────────────────────
   # Quality Gate
@@ -77,46 +85,13 @@ jobs:
           command: d1 migrations apply el-rey-db --env production
 
   # ────────────────────────────────────────────────────────────────
-  # Worker Secrets — Sync from GitHub to Cloudflare
-  # ────────────────────────────────────────────────────────────────
-  worker-secrets:
-    name: Sync Worker Secrets
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: quality
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set Firebase Service Account in API Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: workers/api
-          command: secret put FIREBASE_SERVICE_ACCOUNT
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-
-      - name: Set Firebase Project ID in API Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: workers/api
-          command: secret put FIREBASE_PROJECT_ID
-        env:
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-
-  # ────────────────────────────────────────────────────────────────
   # Deploy Workers — Production
   # ────────────────────────────────────────────────────────────────
   deploy-workers:
     name: Deploy Workers (Production)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [migrate-d1, worker-secrets]
+    needs: migrate-d1
 
     steps:
       - name: Checkout
