@@ -27,6 +27,7 @@ interface AppContextType {
   supplyRequests: SupplyRequest[];
   currentCashSession: CashSession | null;
   cashSessionsHistory: CashSession[];
+  setSales: React.Dispatch<React.SetStateAction<Sale[]>>;
   
   // State setter wraps
   setActiveUserRole: (role: UserRole) => void;
@@ -1201,6 +1202,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supplyRequests,
         currentCashSession,
         cashSessionsHistory,
+        setSales,
         setActiveUserRole,
         setDeviceMode,
         setDarkMode,

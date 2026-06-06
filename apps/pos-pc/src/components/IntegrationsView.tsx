@@ -91,7 +91,7 @@ export const IntegrationsView: React.FC = () => {
                     <div className="space-y-1 bg-gray-50 dark:bg-zinc-950/30 p-2.5 rounded-xl border border-gray-100 dark:border-zinc-850 font-mono text-[9px]">
                       <div className="flex items-center justify-between text-zinc-400">
                         <span className="truncate">PUBL_KEY = pk_live_***95a</span>
-                        <HelpCircle className="h-3 w-3 cursor-help text-zinc-405 shrink-0" title="Identificador de cuenta productora" />
+                        <HelpCircle className="h-3 w-3 cursor-help text-zinc-405 shrink-0" />
                       </div>
                       <div className="flex items-center justify-between text-zinc-400 mt-1">
                         <span className="truncate flex items-center gap-1"><EyeOff className="h-3 w-3 opacity-60" /> SECR_KEY = ••••••••••••••••</span>
