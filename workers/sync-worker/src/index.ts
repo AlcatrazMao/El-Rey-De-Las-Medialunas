@@ -3,7 +3,7 @@
  * Processes client sync requests with conflict resolution.
  */
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, _env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/v1/sync/push" && request.method === "POST") {
