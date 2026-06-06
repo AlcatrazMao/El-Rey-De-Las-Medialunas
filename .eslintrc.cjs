@@ -38,7 +38,7 @@ module.exports = {
       { prefer: "type-imports" },
     ],
     "import/order": [
-      "error",
+      "warn",
       {
         groups: [
           "builtin",

@@ -8,7 +8,6 @@ import type {
   User,
 } from "@medialunas/shared/types/api";
 import type { ApiClient } from "../client";
-import type { AuthResponse } from "../types";
 
 export class AuthEndpoints {
   constructor(private client: ApiClient) {}
