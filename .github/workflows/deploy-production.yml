@@ -89,9 +89,7 @@ jobs:
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           VITE_APP_ENV: production
-        run: |
-          pnpm build --filter=@medialunas/pos-pc
-          pnpm build --filter=@medialunas/pos-tablet
+        run: pnpm build --filter=@medialunas/pos-pc
 
       - name: Deploy to Firebase
         uses: FirebaseExtended/action-hosting-deploy@v0
