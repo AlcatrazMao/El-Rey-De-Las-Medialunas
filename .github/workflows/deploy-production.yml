@@ -41,20 +41,22 @@ jobs:
       - name: Create CF resources & capture IDs
         id: setup
         run: |
-          set -e
-          # D1
-          D1_OUT=$(npx wrangler d1 create el-rey-db 2>&1)
-          D1_ID=$(echo "$D1_OUT" | grep -oP 'database_id = \K[^\s]+' || echo "$D1_OUT" | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          # D1 — may already exist
+          D1_OUT=$(npx wrangler d1 create el-rey-db 2>&1) || true
+          echo "D1 output: $D1_OUT"
+          D1_ID=$(echo "$D1_OUT" | grep -oP 'database_id\s*=\s*"?\K[0-9a-f-]+' | head -1)
+          [ -z "$D1_ID" ] && D1_ID=$(echo "$D1_OUT" | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
           echo "D1_ID=$D1_ID" >> $GITHUB_ENV
-          echo "D1: $D1_ID"
+          echo "D1_ID=$D1_ID"
 
-          # KV
-          KV_CACHE=$(npx wrangler kv:namespace create "cache" 2>&1 | grep -oP 'id = "\K[^"]+' | head -1)
-          echo "KV_CACHE=$KV_CACHE" >> $GITHUB_ENV
-          KV_SESSIONS=$(npx wrangler kv:namespace create "sessions" 2>&1 | grep -oP 'id = "\K[^"]+' | head -1)
-          echo "KV_SESSIONS=$KV_SESSIONS" >> $GITHUB_ENV
-          KV_RATE=$(npx wrangler kv:namespace create "rate-limit" 2>&1 | grep -oP 'id = "\K[^"]+' | head -1)
-          echo "KV_RATE_LIMIT=$KV_RATE" >> $GITHUB_ENV
+          # KV — may already exist
+          for ns in cache sessions rate-limit; do
+            OUT=$(npx wrangler kv:namespace create "$ns" 2>&1) || true
+            ID=$(echo "$OUT" | grep -oP 'id\s*=\s*"?\K[0-9a-f]+' | head -1)
+            VAR="KV_$(echo $ns | tr '[:lower:]-' '[:upper:]_')"
+            echo "${VAR}=$ID" >> $GITHUB_ENV
+            echo "${VAR}=$ID"
+          done
 
           # Queues
           npx wrangler queues create inventory-processing 2>&1 || true
