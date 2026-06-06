@@ -61,15 +61,17 @@ jobs:
           fi
 
           echo "=== Deploying Workers ==="
-          for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker workers/admin-users; do
+          for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker; do
             echo "--- $dir ---"
             (cd $dir && npx wrangler deploy --env production)
           done
+          echo "--- workers/admin-users ---"
+          (cd workers/admin-users && npx wrangler deploy)
 
           echo "=== Setting Admin Worker Secrets ==="
-          printf "%s" "${{ secrets.AUTH_SECRET }}" | (cd workers/admin-users && npx wrangler secret put AUTH_SECRET --env production)
-          printf "%s" "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_SERVICE_ACCOUNT --env production)
-          printf "%s" "${{ secrets.FIREBASE_API_KEY }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_API_KEY --env production)
+          printf "%s" "${{ secrets.AUTH_SECRET }}" | (cd workers/admin-users && npx wrangler secret put AUTH_SECRET)
+          printf "%s" "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_SERVICE_ACCOUNT)
+          printf "%s" "${{ secrets.FIREBASE_API_KEY }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_API_KEY)
 
       - name: Build Frontend
         env:
