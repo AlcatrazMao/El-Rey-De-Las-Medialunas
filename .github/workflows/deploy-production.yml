@@ -1,175 +1,78 @@
 # ============================================================================
 # Deploy Production — El Rey De Las Medialunas
-# Triggered on push to main. Deploys Workers + D1 + Frontend.
-# No environment gates — direct deployment.
 # ============================================================================
 name: Deploy Production
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:  # Manual trigger from Actions tab
+  workflow_dispatch:
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
 env:
-  CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-  CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-  D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
-  KV_CACHE_ID: ${{ secrets.KV_CACHE_ID }}
-  KV_SESSIONS_ID: ${{ secrets.KV_SESSIONS_ID }}
-  KV_RATE_LIMIT_ID: ${{ secrets.KV_RATE_LIMIT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
 jobs:
-  # ────────────────────────────────────────────────────────────────
-  # Quality Gate
   # ────────────────────────────────────────────────────────────────
   quality:
     name: Quality Gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@9 --activate
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Type check
-        run: pnpm type-check
-
-      - name: Build
-        run: pnpm build
+      - uses: actions/checkout@v4
+      - run: corepack enable && corepack prepare pnpm@9 --activate
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: pnpm install
+      - run: pnpm lint
+      - run: pnpm type-check
+      - run: pnpm build
 
   # ────────────────────────────────────────────────────────────────
-  # D1 Migrations — Production
-  # ────────────────────────────────────────────────────────────────
-  migrate-d1:
-    name: D1 Migrations (Production)
+  deploy-all:
+    name: Deploy (D1 + Workers + Frontend)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     needs: quality
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: List pending migrations
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: d1 migrations list el-rey-db --env production
+      - run: corepack enable && corepack prepare pnpm@9 --activate
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: pnpm install
 
-      - name: Apply D1 migrations
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: d1 migrations apply el-rey-db --env production
-
-  # ────────────────────────────────────────────────────────────────
-  # Deploy Workers — Production
-  # ────────────────────────────────────────────────────────────────
-  deploy-workers:
-    name: Deploy Workers (Production)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: migrate-d1
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
+      - name: Setup Cloudflare resources
         run: |
-          corepack enable
-          corepack prepare pnpm@9 --activate
+          npx wrangler d1 create el-rey-db 2>/dev/null || echo "D1 already exists"
+          npx wrangler kv:namespace create "cache" 2>/dev/null || echo "KV cache already exists"
+          npx wrangler kv:namespace create "sessions" 2>/dev/null || echo "KV sessions already exists"
+          npx wrangler kv:namespace create "rate-limit" 2>/dev/null || echo "KV rate-limit already exists"
+          npx wrangler queues create inventory-processing 2>/dev/null || echo "Queue already exists"
+          npx wrangler queues create report-generation 2>/dev/null || echo "Queue already exists"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: D1 Migrations
+        run: npx wrangler d1 migrations apply el-rey-db --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build workers
-        run: pnpm build --filter="./workers/*"
-
-      - name: Deploy API Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: workers/api
-          command: deploy --env production
-
-      - name: Deploy Inventory Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: workers/inventory-worker
-          command: deploy --env production
-
-      - name: Deploy Reports Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: workers/reports-worker
-          command: deploy --env production
-
-      - name: Deploy Sync Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: workers/sync-worker
-          command: deploy --env production
-
-  # ────────────────────────────────────────────────────────────────
-  # Deploy Frontend to Firebase Hosting
-  # ────────────────────────────────────────────────────────────────
-  deploy-frontend:
-    name: Deploy Frontend (Production)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: quality
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
+      - name: Build & Deploy Workers
         run: |
-          corepack enable
-          corepack prepare pnpm@9 --activate
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: pnpm install
+          cd workers/api && npx wrangler deploy && cd ../..
+          cd workers/inventory-worker && npx wrangler deploy && cd ../..
+          cd workers/reports-worker && npx wrangler deploy && cd ../..
+          cd workers/sync-worker && npx wrangler deploy && cd ../..
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
       - name: Build POS PC
         run: pnpm build --filter=@medialunas/pos-pc
@@ -178,7 +81,7 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-          VITE_API_URL: ${{ vars.PROD_API_URL || 'https://api.elreydelasmedialunas.workers.dev' }}
+          VITE_API_URL: ${{ vars.PROD_API_URL || '' }}
           VITE_APP_ENV: production
 
       - name: Deploy POS PC to Firebase
@@ -196,7 +99,7 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-          VITE_API_URL: ${{ vars.PROD_API_URL || 'https://api.elreydelasmedialunas.workers.dev' }}
+          VITE_API_URL: ${{ vars.PROD_API_URL || '' }}
           VITE_APP_ENV: production
 
       - name: Deploy POS Tablet to Firebase

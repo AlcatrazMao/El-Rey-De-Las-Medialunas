@@ -6,7 +6,6 @@ name = "el-rey-de-las-medialunas"
 main = "workers/api/src/index.ts"
 compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
-account_id = "${CF_ACCOUNT_ID}"
 workers_dev = true
 
 # ---------------------------------------------------------------------------
@@ -15,7 +14,7 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "el-rey-db"
-database_id = "${D1_DATABASE_ID}"
+database_id = "el-rey-db"
 migrations_dir = "migrations"
 
 # ---------------------------------------------------------------------------
@@ -23,15 +22,15 @@ migrations_dir = "migrations"
 # ---------------------------------------------------------------------------
 [[kv_namespaces]]
 binding = "CACHE"
-id = "${KV_CACHE_ID}"
+id = "cache"
 
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "${KV_SESSIONS_ID}"
+id = "sessions"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "${KV_RATE_LIMIT_ID}"
+id = "rate-limit"
 
 # ---------------------------------------------------------------------------
 # Queues (API Worker produces to these)

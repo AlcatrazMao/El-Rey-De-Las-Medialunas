@@ -7,24 +7,15 @@ main = "src/index.ts"
 compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
 
-# ---------------------------------------------------------------------------
-# D1 Database Binding
-# ---------------------------------------------------------------------------
 [[d1_databases]]
 binding = "DB"
 database_name = "el-rey-db"
-database_id = "${D1_DATABASE_ID}"
+database_id = "el-rey-db"
 
-# ---------------------------------------------------------------------------
-# KV Namespace (sync state tracking)
-# ---------------------------------------------------------------------------
 [[kv_namespaces]]
 binding = "SYNC_STATE"
-id = "${KV_CACHE_ID}"
+id = "cache"
 
-# ---------------------------------------------------------------------------
-# Environments
-# ---------------------------------------------------------------------------
 [env.staging.vars]
 APP_ENV = "staging"
 
