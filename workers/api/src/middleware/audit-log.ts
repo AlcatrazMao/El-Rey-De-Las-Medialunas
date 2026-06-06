@@ -19,7 +19,7 @@ export function auditLogMiddleware() {
     const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("X-Forwarded-For") ?? "unknown";
     const userAgent = c.req.header("User-Agent") ?? "unknown";
 
-    const auditEntry = {
+    const auditEntry: Record<string, unknown> = {
       user_id: userId,
       branch_id: branchId,
       action: `${method} ${path}`,

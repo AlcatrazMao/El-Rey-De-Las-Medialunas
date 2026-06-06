@@ -10,12 +10,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"],
-  "references": [
-    { "path": "../../packages/shared" },
-    { "path": "../../packages/ui" },
-    { "path": "../../packages/db-client" },
-    { "path": "../../packages/api-client" },
-    { "path": "../../packages/sync-engine" }
-  ]
+  "include": ["src"]
 }
