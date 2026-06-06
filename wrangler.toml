@@ -14,34 +14,8 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "el-rey-db"
-database_id = "el-rey-db"
+database_id = "${D1_ID}"
 migrations_dir = "migrations"
-
-# ---------------------------------------------------------------------------
-# KV Namespaces
-# ---------------------------------------------------------------------------
-[[kv_namespaces]]
-binding = "CACHE"
-id = "cache"
-
-[[kv_namespaces]]
-binding = "SESSIONS"
-id = "sessions"
-
-[[kv_namespaces]]
-binding = "RATE_LIMIT"
-id = "rate-limit"
-
-# ---------------------------------------------------------------------------
-# Queues (API Worker produces to these)
-# ---------------------------------------------------------------------------
-[[queues.producers]]
-binding = "INVENTORY_QUEUE"
-queue = "inventory-processing"
-
-[[queues.producers]]
-binding = "REPORTS_QUEUE"
-queue = "report-generation"
 
 # ---------------------------------------------------------------------------
 # Environment Variables
