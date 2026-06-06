@@ -54,10 +54,19 @@ jobs:
           echo "D1_ID=$D1_ID"
 
           # ── KV: get IDs from list ──
-          KV_LIST=$(npx wrangler kv:namespace list --json 2>&1)
-          KV_CACHE=$(echo "$KV_LIST" | grep -oP '"id":"\K[0-9a-f]{32}(?=","title":"[^"]*cache)' | head -1)
-          KV_SESSIONS=$(echo "$KV_LIST" | grep -oP '"id":"\K[0-9a-f]{32}(?=","title":"[^"]*sessions)' | head -1)
-          KV_RATE_LIMIT=$(echo "$KV_LIST" | grep -oP '"id":"\K[0-9a-f]{32}(?=","title":"[^"]*rate.limit)' | head -1)
+          KV_JSON=$(npx wrangler kv:namespace list --json 2>&1)
+          echo "$KV_JSON"
+          # Extract IDs matching titles containing cache/sessions/rate-limit
+          KV_CACHE=$(echo "$KV_JSON" | grep -oP '"id":"\K[0-9a-f]{32}(?=".*cache)' | head -1)
+          KV_SESSIONS=$(echo "$KV_JSON" | grep -oP '"id":"\K[0-9a-f]{32}(?=".*sessions)' | head -1)
+          KV_RATE_LIMIT=$(echo "$KV_JSON" | grep -oP '"id":"\K[0-9a-f]{32}(?=".*rate.limit)' | head -1)
+          # Fallback: if grep by title fails, take by index order
+          if [ -z "$KV_CACHE" ]; then
+            IDS=($(echo "$KV_JSON" | grep -oP '[0-9a-f]{32}'))
+            KV_CACHE=${IDS[0]}
+            KV_SESSIONS=${IDS[1]}
+            KV_RATE_LIMIT=${IDS[2]}
+          fi
           export KV_CACHE KV_SESSIONS KV_RATE_LIMIT
           echo "KV_CACHE=$KV_CACHE KV_SESSIONS=$KV_SESSIONS KV_RATE_LIMIT=$KV_RATE_LIMIT"
 
