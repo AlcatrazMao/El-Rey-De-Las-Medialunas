@@ -12,10 +12,9 @@
     "CF_ACCOUNT_ID",
     "CF_API_TOKEN",
     "D1_DATABASE_ID",
-    "R2_BUCKET_NAME",
-    "KV_NAMESPACE_ID",
-    "QUEUE_INVENTORY_ID",
-    "QUEUE_REPORTS_ID"
+    "KV_CACHE_ID",
+    "KV_SESSIONS_ID",
+    "KV_RATE_LIMIT_ID"
   ],
   "tasks": {
     "build": {
@@ -26,12 +25,8 @@
       "cache": false,
       "persistent": true
     },
-    "lint": {
-      "dependsOn": ["^build"]
-    },
-    "type-check": {
-      "dependsOn": ["^build"]
-    },
+    "lint": {},
+    "type-check": {},
     "test": {
       "dependsOn": ["build"],
       "inputs": ["src/**/*.tsx", "src/**/*.ts", "test/**/*.ts", "test/**/*.tsx"]

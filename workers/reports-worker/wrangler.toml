@@ -22,3 +22,12 @@ database_id = "${D1_DATABASE_ID}"
 queue = "report-generation"
 max_retries = 2
 max_batch_size = 5
+
+# ---------------------------------------------------------------------------
+# Environments
+# ---------------------------------------------------------------------------
+[env.staging.vars]
+APP_ENV = "staging"
+
+[env.production.vars]
+APP_ENV = "production"

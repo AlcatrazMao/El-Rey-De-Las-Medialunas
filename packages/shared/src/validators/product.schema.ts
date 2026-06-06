@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const hexId = z.string().regex(
+  /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i,
+  "ID inválido"
+);
+
 export const unitEnum = z.enum(["unit", "kg", "g", "l", "ml", "dozen", "pack"]);
 
 export const createProductSchema = z
@@ -20,8 +25,8 @@ export const createProductSchema = z
     description: z.string().max(2000).optional().nullable(),
     image_url: z.string().url().optional().nullable(),
     thumbnail_url: z.string().url().optional().nullable(),
-    category_id: z.string().uuid("ID de categoría inválido"),
-    branch_id: z.string().uuid("ID de sucursal inválido"),
+    category_id: hexId,
+    branch_id: hexId,
     unit: unitEnum.default("unit"),
     price: z
       .number()

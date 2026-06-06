@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const hexId = z.string().regex(
+  /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i,
+  "ID inválido"
+);
+
 const paymentMethodEnum = z.enum([
   "cash",
   "credit_card",
@@ -9,8 +14,8 @@ const paymentMethodEnum = z.enum([
 ]);
 
 export const saleItemSchema = z.object({
-  product_id: z.string().uuid("ID de producto inválido"),
-  batch_id: z.string().uuid().optional().nullable(),
+  product_id: hexId,
+  batch_id: hexId.optional().nullable(),
   quantity: z
     .number()
     .positive("La cantidad debe ser mayor a 0")
@@ -43,8 +48,8 @@ export const salePaymentSchema = z.object({
 
 export const createSaleSchema = z
   .object({
-    branch_id: z.string().uuid("ID de sucursal inválido"),
-    customer_id: z.string().uuid().optional().nullable(),
+    branch_id: hexId,
+    customer_id: hexId.optional().nullable(),
     items: z
       .array(saleItemSchema)
       .min(1, "La venta debe tener al menos un ítem")

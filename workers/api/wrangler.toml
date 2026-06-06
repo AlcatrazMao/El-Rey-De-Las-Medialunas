@@ -49,5 +49,8 @@ queue = "report-generation"
 APP_NAME = "El Rey De Las Medialunas"
 APP_ENV = "development"
 
+[env.staging.vars]
+APP_ENV = "staging"
+
 [env.production.vars]
 APP_ENV = "production"
