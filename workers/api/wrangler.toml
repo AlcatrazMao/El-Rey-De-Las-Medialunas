@@ -8,34 +8,23 @@ compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
-# ---------------------------------------------------------------------------
-# D1 Database Binding — set via CF_D1_ID env var or create first
-# ---------------------------------------------------------------------------
-# wrangler d1 create el-rey-db  (run once to get the ID)
 [[d1_databases]]
 binding = "DB"
 database_name = "el-rey-db"
-database_id = "${CF_D1_ID}"
+database_id = "${D1_ID}"
 
-# ---------------------------------------------------------------------------
-# KV Namespaces — set via env vars or create first
-# ---------------------------------------------------------------------------
-# wrangler kv:namespace create "cache" / "sessions" / "rate-limit"
 [[kv_namespaces]]
 binding = "CACHE"
-id = "${CF_KV_CACHE_ID}"
+id = "${KV_CACHE}"
 
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "${CF_KV_SESSIONS_ID}"
+id = "${KV_SESSIONS}"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "${CF_KV_RATE_LIMIT_ID}"
+id = "${KV_RATE_LIMIT}"
 
-# ---------------------------------------------------------------------------
-# Queue Producers
-# ---------------------------------------------------------------------------
 [[queues.producers]]
 binding = "INVENTORY_QUEUE"
 queue = "inventory-processing"
@@ -44,14 +33,8 @@ queue = "inventory-processing"
 binding = "REPORTS_QUEUE"
 queue = "report-generation"
 
-# ---------------------------------------------------------------------------
-# Environment Variables
-# ---------------------------------------------------------------------------
 [vars]
 APP_NAME = "El Rey De Las Medialunas"
-
-[env.staging.vars]
-APP_ENV = "staging"
 
 [env.production.vars]
 APP_ENV = "production"

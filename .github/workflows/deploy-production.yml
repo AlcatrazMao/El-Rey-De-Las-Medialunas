@@ -12,12 +12,7 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
-env:
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-
 jobs:
-  # ────────────────────────────────────────────────────────────────
   quality:
     name: Quality Gate
     runs-on: ubuntu-latest
@@ -30,30 +25,40 @@ jobs:
       - run: pnpm install
       - run: pnpm lint
       - run: pnpm type-check
-      - run: pnpm build
 
-  # ────────────────────────────────────────────────────────────────
-  deploy-all:
-    name: Deploy (D1 + Workers + Frontend)
+  deploy:
+    name: Deploy All
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     needs: quality
     steps:
       - uses: actions/checkout@v4
-
       - run: corepack enable && corepack prepare pnpm@9 --activate
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - run: pnpm install
 
-      - name: Setup Cloudflare resources
+      - name: Create CF resources & capture IDs
+        id: setup
         run: |
-          npx wrangler d1 create el-rey-db 2>/dev/null || echo "D1 already exists"
-          npx wrangler kv:namespace create "cache" 2>/dev/null || echo "KV cache already exists"
-          npx wrangler kv:namespace create "sessions" 2>/dev/null || echo "KV sessions already exists"
-          npx wrangler kv:namespace create "rate-limit" 2>/dev/null || echo "KV rate-limit already exists"
-          npx wrangler queues create inventory-processing 2>/dev/null || echo "Queue already exists"
-          npx wrangler queues create report-generation 2>/dev/null || echo "Queue already exists"
+          set -e
+          # D1
+          D1_OUT=$(npx wrangler d1 create el-rey-db 2>&1)
+          D1_ID=$(echo "$D1_OUT" | grep -oP 'database_id = \K[^\s]+' || echo "$D1_OUT" | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          echo "D1_ID=$D1_ID" >> $GITHUB_ENV
+          echo "D1: $D1_ID"
+
+          # KV
+          KV_CACHE=$(npx wrangler kv:namespace create "cache" 2>&1 | grep -oP 'id = "\K[^"]+' | head -1)
+          echo "KV_CACHE=$KV_CACHE" >> $GITHUB_ENV
+          KV_SESSIONS=$(npx wrangler kv:namespace create "sessions" 2>&1 | grep -oP 'id = "\K[^"]+' | head -1)
+          echo "KV_SESSIONS=$KV_SESSIONS" >> $GITHUB_ENV
+          KV_RATE=$(npx wrangler kv:namespace create "rate-limit" 2>&1 | grep -oP 'id = "\K[^"]+' | head -1)
+          echo "KV_RATE_LIMIT=$KV_RATE" >> $GITHUB_ENV
+
+          # Queues
+          npx wrangler queues create inventory-processing 2>&1 || true
+          npx wrangler queues create report-generation 2>&1 || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -63,46 +68,34 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          D1_ID: ${{ env.D1_ID }}
 
-      - name: Build & Deploy Workers
+      - name: Deploy Workers
         run: |
-          cd workers/api && npx wrangler deploy && cd ../..
-          cd workers/inventory-worker && npx wrangler deploy && cd ../..
-          cd workers/reports-worker && npx wrangler deploy && cd ../..
-          cd workers/sync-worker && npx wrangler deploy && cd ../..
+          for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker; do
+            echo "Deploying $dir..."
+            (cd $dir && npx wrangler deploy)
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          D1_ID: ${{ env.D1_ID }}
+          KV_CACHE: ${{ env.KV_CACHE }}
+          KV_SESSIONS: ${{ env.KV_SESSIONS }}
+          KV_RATE_LIMIT: ${{ env.KV_RATE_LIMIT }}
 
-      - name: Build POS PC
-        run: pnpm build --filter=@medialunas/pos-pc
+      - name: Build & Deploy Frontend
+        run: |
+          pnpm build --filter=@medialunas/pos-pc
+          pnpm build --filter=@medialunas/pos-tablet
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-          VITE_API_URL: ${{ vars.PROD_API_URL || '' }}
           VITE_APP_ENV: production
 
-      - name: Deploy POS PC to Firebase
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
-          channelId: live
-
-      - name: Build POS Tablet
-        run: pnpm build --filter=@medialunas/pos-tablet
-        env:
-          VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-          VITE_API_URL: ${{ vars.PROD_API_URL || '' }}
-          VITE_APP_ENV: production
-
-      - name: Deploy POS Tablet to Firebase
+      - name: Deploy to Firebase
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
