@@ -68,7 +68,7 @@ jobs:
           npx wrangler queues create report-generation 2>&1 || true
 
           # ── D1 Migrations ──
-          npx wrangler d1 migrations apply el-rey-db --remote
+          npx wrangler d1 migrations apply el-rey-db --remote --database-id "$D1_ID"
 
           # ── Deploy Workers ──
           for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker; do
