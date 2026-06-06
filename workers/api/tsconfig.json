@@ -2,9 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
     "declaration": true,
-    "composite": true,
     "lib": ["ES2022"],
     "types": ["@cloudflare/workers-types/2023-07-01"],
     "paths": {

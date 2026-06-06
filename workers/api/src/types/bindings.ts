@@ -20,4 +20,7 @@ export interface Variables {
   userEmail: string;
   requestId: string;
   sessionId?: string;
+  validatedBody?: unknown;
+  validatedQuery?: unknown;
+  validatedParams?: unknown;
 }
