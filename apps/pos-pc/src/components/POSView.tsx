@@ -456,6 +456,8 @@ export const POSView: React.FC = () => {
           paymentMethod,
           customerDoc,
           customerName,
+          undefined, // customerId (TODO: add customer selector)
+          selectedSellerId || undefined,
           simulateFailedPayment
         );
 

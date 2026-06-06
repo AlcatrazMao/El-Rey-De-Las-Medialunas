@@ -52,13 +52,8 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export const CustomersView: React.FC = () => {
-  const { sales, addSystemNotification } = useApp();
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    try {
-      const saved = localStorage.getItem('pan_erp_customers');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  const { sales, addSystemNotification, customers: contextCustomers, setCustomers } = useApp();
+  const customers = contextCustomers;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -69,7 +64,6 @@ export const CustomersView: React.FC = () => {
 
   const saveCustomers = (list: Customer[]) => {
     setCustomers(list);
-    localStorage.setItem('pan_erp_customers', JSON.stringify(list));
   };
 
   const handleCreate = () => {

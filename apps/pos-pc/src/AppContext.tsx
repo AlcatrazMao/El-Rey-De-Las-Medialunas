@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from './config/firebase';
-import { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession } from './types';
+import { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 import {
   INITIAL_INGREDIENTS,
   INITIAL_PRODUCTS,
@@ -27,17 +27,21 @@ interface AppContextType {
   supplyRequests: SupplyRequest[];
   currentCashSession: CashSession | null;
   cashSessionsHistory: CashSession[];
+  customers: Customer[];
   setSales: React.Dispatch<React.SetStateAction<Sale[]>>;
   selectedSellerId: string;
   setSelectedSellerId: (id: string) => void;
   logout: () => void;
+  setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
+  addCustomer: (c: Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'timeline' | 'total_purchases' | 'last_purchase_date' | 'current_debt'>) => void;
+  updateCustomer: (id: string, data: Partial<Customer>) => void;
   
   setActiveUserRole: (role: UserRole) => void;
   setActiveTab: (tab: string) => void;
   setBatches: React.Dispatch<React.SetStateAction<ProductBatch[]>>;
   
   // Actions
-  addSale: (items: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, simulateFail?: boolean) => { success: boolean; invoice?: Sale; error?: string };
+  addSale: (items: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail?: boolean) => { success: boolean; invoice?: Sale; error?: string };
   addExpense: (expense: Omit<Expense, 'id' | 'date'>) => void;
   addIngredient: (ingredient: Omit<Ingredient, 'id'>) => void;
   updateIngredientStock: (id: string, newStock: number) => void;
@@ -302,6 +306,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
+  const [customers, setCustomers] = useState<Customer[]>(() => {
+    try { const saved = localStorage.getItem('pan_erp_customers'); return saved ? JSON.parse(saved) : []; }
+    catch { return []; }
+  });
 
   // Map firebaseUser to local user
   const firebaseMappedUser: User = {
@@ -315,6 +323,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
 
   const logout = () => {
     signOut(auth);
+  };
+
+  const addCustomer = (data: Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'timeline' | 'total_purchases' | 'last_purchase_date' | 'current_debt'>) => {
+    const now = new Date().toISOString();
+    const newCustomer: Customer = {
+      ...data,
+      id: `cust_${Date.now()}`,
+      created_at: now, updated_at: now,
+      timeline: [{ id: `tl_${Date.now()}`, date: now, type: 'status_change', description: 'Cliente creado', user: 'Sistema' }],
+      total_purchases: 0, last_purchase_date: '', current_debt: 0
+    };
+    setCustomers(prev => [newCustomer, ...prev]);
+    addSystemNotification('👤 Cliente Creado', `${newCustomer.name} fue registrado.`, 'success');
+  };
+
+  const updateCustomer = (id: string, data: Partial<Customer>) => {
+    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...data, updated_at: new Date().toISOString() } : c));
   };
 
   // Save changes to localStorage on any state update
@@ -425,6 +450,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     localStorage.setItem('pan_erp_active_user_id', activeUserId);
   }, [activeUserId]);
 
+  useEffect(() => {
+    localStorage.setItem('pan_erp_customers', JSON.stringify(customers));
+  }, [customers]);
+
   // Use Firebase-mapped user
   const activeUser = firebaseMappedUser;
 
@@ -524,6 +553,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     paymentMethod: Sale['paymentMethod'],
     customDoc?: string,
     customName?: string,
+    customerId?: string,
+    sellerId?: string,
     simulateFail: boolean = false
   ) => {
     if (cartItems.length === 0) {
@@ -653,6 +684,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     const sequenceStr = String(sales.filter(s => s.paymentStatus === 'completed').length + 346).padStart(7, '0');
     const invoiceNumber = `FC-A-001-${sequenceStr}`;
 
+    // Determine operator: use selected seller, fallback to active user
+    const seller = sellerId ? users.find(u => u.id === sellerId) : null;
+    const operatorName = seller ? seller.name : activeUser.name;
+    const operatorRole = seller ? seller.role : activeUser.role;
+
     const newSaleInstance: Sale = {
       id: `sale_${Date.now()}`,
       invoiceNumber,
@@ -662,10 +698,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       tax: calculatedTax,
       paymentMethod,
       paymentStatus: 'completed',
-      operatorRole: activeUser.role,
-      operatorName: activeUser.name,
+      operatorRole,
+      operatorName,
       customerName: customName || 'Consumidor Final',
-      customerDoc: customDoc
+      customerDoc: customDoc,
+      customerId: customerId || undefined
     };
 
     // Deduct available product batches using FIFO/FEFO
@@ -1188,10 +1225,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
         supplyRequests,
         currentCashSession,
         cashSessionsHistory,
+        customers,
         setSales,
         selectedSellerId,
         setSelectedSellerId,
         logout,
+        setCustomers,
+        addCustomer,
+        updateCustomer,
         setActiveUserRole,
         setActiveTab,
         setBatches,
