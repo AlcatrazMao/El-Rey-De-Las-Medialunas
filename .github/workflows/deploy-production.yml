@@ -43,50 +43,33 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          # ── Get D1 UUID (filter by name "el-rey-db") ──
-          D1_JSON=$(npx wrangler d1 list --json 2>&1) || D1_JSON="[]"
-          echo "$D1_JSON"
-          D1_ID=$(echo "$D1_JSON" | grep -oP '"uuid":"\K[0-9a-f-]+(?=","name":"el-rey-db")' | head -1)
-          # Fallback: try other field order
-          [ -z "$D1_ID" ] && D1_ID=$(echo "$D1_JSON" | grep -oP '"name":"el-rey-db","uuid":"\K[0-9a-f-]+' | head -1)
-          # Fallback: just take any UUID-like string after "el-rey-db"
-          [ -z "$D1_ID" ] && D1_ID=$(echo "$D1_JSON" | grep -oP 'el-rey-db[^}]*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid":"\K[0-9a-f-]+(?=","name":"el-rey-db")' | head -1)
+          [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"name":"el-rey-db","uuid":"\K[0-9a-f-]+' | head -1)
           echo "D1_ID=$D1_ID"
 
-          # ── Get KV UUIDs ──
           KV_JSON=$(npx wrangler kv:namespace list --json 2>&1) || KV_JSON="[]"
-          echo "$KV_JSON"
-          # Extract UUIDs — take first 3
           KV_IDS=($(echo "$KV_JSON" | grep -oP '[0-9a-f]{32}' || true))
-          KV0=${KV_IDS[0]:-}
-          KV1=${KV_IDS[1]:-}
-          KV2=${KV_IDS[2]:-}
-          echo "KV: $KV0 $KV1 $KV2"
+          KV0=${KV_IDS[0]:-}; KV1=${KV_IDS[1]:-}; KV2=${KV_IDS[2]:-}
 
-          # ── Inject IDs into wrangler.toml files ──
           [ -n "$D1_ID" ] && find workers -name wrangler.toml -exec sed -i "s/D1_ID_PLACEHOLDER/$D1_ID/g" {} \; && sed -i "s/D1_ID_PLACEHOLDER/$D1_ID/g" wrangler.toml
           [ -n "$KV0" ] && find workers -name wrangler.toml -exec sed -i "s/KV_CACHE_PLACEHOLDER/$KV0/g" {} \;
           [ -n "$KV1" ] && find workers -name wrangler.toml -exec sed -i "s/KV_SESSIONS_PLACEHOLDER/$KV1/g" {} \;
           [ -n "$KV2" ] && find workers -name wrangler.toml -exec sed -i "s/KV_RATE_LIMIT_PLACEHOLDER/$KV2/g" {} \;
 
-          # ── D1 Migrations ──
           if [ -n "$D1_ID" ]; then
             npx wrangler d1 migrations apply el-rey-db --remote
-          else
-            echo "WARNING: D1_ID not found, skipping migrations"
           fi
 
-          # ── Set Admin Worker Secrets ──
-          echo "Setting admin worker secrets..."
-          printf "%s" "${{ secrets.AUTH_SECRET }}" | (cd workers/admin-users && npx wrangler secret put AUTH_SECRET 2>&1) || true
-          printf "%s" "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_SERVICE_ACCOUNT 2>&1) || true
-          printf "%s" "${{ secrets.FIREBASE_API_KEY }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_API_KEY 2>&1) || true
-
-          # ── Deploy Workers ──
+          echo "=== Deploying Workers ==="
           for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker workers/admin-users; do
-            echo "=== Deploying $dir ==="
+            echo "--- $dir ---"
             (cd $dir && npx wrangler deploy --env production)
           done
+
+          echo "=== Setting Admin Worker Secrets ==="
+          printf "%s" "${{ secrets.AUTH_SECRET }}" | (cd workers/admin-users && npx wrangler secret put AUTH_SECRET)
+          printf "%s" "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_SERVICE_ACCOUNT)
+          printf "%s" "${{ secrets.FIREBASE_API_KEY }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_API_KEY)
 
       - name: Build Frontend
         env:
@@ -97,12 +80,12 @@ jobs:
           VITE_APP_ENV: production
         run: pnpm build --filter=@medialunas/pos-pc
 
-      - name: Firebase Auth & Deploy
+      - name: Deploy to Firebase
         env:
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           echo "$FIREBASE_SA" > /tmp/fb-key.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/fb-key.json
-          FB_PROJECT=$(python3 -c "import json,sys; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
-          echo "Deploying to Firebase project: $FB_PROJECT"
+          FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
           npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT"
