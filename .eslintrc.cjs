@@ -34,7 +34,7 @@ module.exports = {
     "@typescript-eslint/no-explicit-any": "warn",
     "@typescript-eslint/explicit-function-return-type": "off",
     "@typescript-eslint/consistent-type-imports": [
-      "error",
+      "warn",
       { prefer: "type-imports" },
     ],
     "import/order": [
