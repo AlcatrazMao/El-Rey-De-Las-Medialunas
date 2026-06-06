@@ -77,7 +77,7 @@ jobs:
           fi
 
           # ── Deploy Workers ──
-          for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker; do
+          for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker workers/admin-users; do
             echo "=== Deploying $dir ==="
             (cd $dir && npx wrangler deploy --env production)
           done
