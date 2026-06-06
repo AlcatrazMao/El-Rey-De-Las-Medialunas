@@ -6,7 +6,7 @@ export default {
     return app.fetch(request, env, ctx);
   },
 
-  async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, _env: Env, ctx: ExecutionContext): Promise<void> {
     const messages = batch.messages;
     ctx.waitUntil(
       (async () => {

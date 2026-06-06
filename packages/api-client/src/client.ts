@@ -1,5 +1,4 @@
-import type { ApiClientOptions, ApiResponse, RequestOptions } from "./types";
-import { ApiError } from "./types";
+import { ApiError, type ApiClientOptions, type ApiResponse, type RequestOptions } from "./types";
 
 const DEFAULT_RETRIES = 3;
 const BASE_DELAY_MS = 1000;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Icon, IconName } from '../atoms/Icon';
+import { Icon, type IconName } from '../atoms/Icon';
 import { Badge } from '../atoms/Badge';
 import styles from './Sidebar.module.css';
 
