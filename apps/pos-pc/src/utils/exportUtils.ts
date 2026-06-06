@@ -131,10 +131,8 @@ export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 
     <body onload="window.print();">
       <div class="invoice-box">
         <div class="text-center">
-          <div class="logo-text">🥐 PANADERÍA EL TRIGO DE ORO 🥐</div>
-          <p style="margin: 2px 0; font-size: 11px;">Av. San Martín 1542, Buenos Aires</p>
-          <p style="margin: 2px 0; font-size: 11px;">CUIT: 30-74895612-9 | Resp. Inscripto</p>
-          <p style="margin: 2px 0; font-size: 11px;">Tel: (011) 4589-2314</p>
+          <div class="logo-text">🥐 El Rey De Las Medialunas 🥐</div>
+          <p style="margin: 2px 0; font-size: 11px;">CUIT: 30-00000000-0 · IVA Resp. Inscripto</p>
           <div style="font-size: ${isReceipt ? '13px' : '18px'}; font-weight: bold; margin: 10px 0 5px 0;">
             ${isReceipt ? 'TICKET DIGITAL DE COMPRA' : 'FACTURA ELECTRÓNICA CLASE A'}
           </div>

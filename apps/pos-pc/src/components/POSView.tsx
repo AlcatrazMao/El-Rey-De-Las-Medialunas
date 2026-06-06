@@ -889,9 +889,9 @@ export const POSView: React.FC = () => {
 
             {/* Simulated Receipt paper layout */}
             <div className="p-5 flex-1 overflow-y-auto max-h-[50vh] bg-amber-50/20 dark:bg-zinc-950/20 text-xs font-mono">
-              <div className="text-center font-sans">
-                <p className="font-extrabold uppercase">🥐 TRIGO DE ORO 🥐</p>
-                <p className="text-[10px] text-gray-400">Av. San Martín 1542, CABA</p>
+               <div className="text-center font-sans">
+                <p className="font-extrabold uppercase">🥐 El Rey De Las Medialunas 🥐</p>
+                <p className="text-[10px] text-gray-400">Factura electrónica · POS</p>
                 <p className="text-[9px] text-gray-400 mt-1">Sincronizado vía Nube ERP</p>
               </div>
 

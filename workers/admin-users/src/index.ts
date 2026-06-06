@@ -97,8 +97,6 @@ async function handleRequest(req: Request, env: Env, url: URL) {
 
   const token = await getAccessToken(env);
   const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
-  const baseUrl = `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}`;
-  const idToken = token; // For some endpoints we need the OAuth2 token directly
 
   // ── List users ──
   if (method === 'GET' && path === '/api/users') {

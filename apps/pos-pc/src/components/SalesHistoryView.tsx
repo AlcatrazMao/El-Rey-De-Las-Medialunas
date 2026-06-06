@@ -288,8 +288,8 @@ export const SalesHistoryView: React.FC = () => {
             {/* Simulated scroll details paper style */}
             <div className="flex-1 overflow-y-auto max-h-[45vh] bg-amber-50/15 dark:bg-zinc-950/20 p-4 rounded-xl border border-dotted border-gray-300 dark:border-zinc-800 font-mono text-xs text-gray-800 dark:text-zinc-300">
               <div className="text-center">
-                <p className="font-extrabold text-sm text-amber-600 dark:text-amber-500">🌾 TRIGO DE ORO 🌾</p>
-                <p className="text-[10px] text-gray-400">Av. San Martín 1542, CABA</p>
+                <p className="font-extrabold text-sm text-amber-600 dark:text-amber-500">🥐 El Rey De Las Medialunas 🥐</p>
+                <p className="text-[10px] text-gray-400">Factura electrónica</p>
                 <p className="border-b border-dashed border-gray-300 dark:border-zinc-800 my-2" />
               </div>
 

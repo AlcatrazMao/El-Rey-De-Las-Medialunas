@@ -842,8 +842,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     localStorage.removeItem('pan_erp_notifications');
     localStorage.removeItem('pan_erp_gateways');
     localStorage.removeItem('pan_erp_active_user_id');
-    localStorage.removeItem('pan_erp_device_mode');
-    localStorage.removeItem('pan_erp_dark_mode');
     localStorage.removeItem('pan_erp_batches');
     localStorage.removeItem('pan_erp_withdrawal_requests');
     localStorage.removeItem('pan_erp_supply_requests');
