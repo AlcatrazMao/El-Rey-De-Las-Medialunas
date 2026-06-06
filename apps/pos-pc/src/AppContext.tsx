@@ -299,7 +299,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       console.error('Error parsing cash sessions history from localStorage:', e);
-      localStorage.removeItem('pan_erp_cash_sessions_history');
+    localStorage.removeItem('pan_erp_cash_sessions_history');
+    localStorage.removeItem('pan_erp_customers');
       return [];
     }
   });
@@ -376,41 +377,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     );
     
     if (expiredAutoBatches.length > 0) {
-      let updatedRequests = [...withdrawalRequests];
       let addedAny = false;
       
-      expiredAutoBatches.forEach(b => {
-        const exists = updatedRequests.some(r => r.batchId === b.id && r.status === 'pending');
-        if (!exists) {
-          const prodObj = products.find(p => p.id === b.productId);
-          const reqId = `req_auto_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-          
-          updatedRequests.unshift({
-            id: reqId,
-            batchId: b.id,
-            productId: b.productId,
-            productName: prodObj ? prodObj.name : 'Bakery Item',
-            batchNumber: b.batchNumber,
-            quantity: b.stock,
-            reason: 'Baja automática generada por fecha límite de caducidad.',
-            requestedBy: 'Chequeo Automatizado ERP',
-            status: 'pending',
-            date: new Date().toISOString()
-          });
-          
-          addedAny = true;
-          
-          addSystemNotification(
-            '⏳ Lote Expirado (Automático)',
-            `El lote ${b.batchNumber} de "${prodObj?.name || 'Pan'}" ha expirado. Solicitud enviada a administración.`,
-            'warning'
-          );
-        }
+      setWithdrawalRequests(prev => {
+        let updated = [...prev];
+        expiredAutoBatches.forEach(b => {
+          const exists = updated.some(r => r.batchId === b.id && r.status === 'pending');
+          if (!exists) {
+            const prodObj = products.find(p => p.id === b.productId);
+            const reqId = `req_auto_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+            updated.unshift({
+              id: reqId,
+              batchId: b.id,
+              productId: b.productId,
+              productName: prodObj ? prodObj.name : 'Bakery Item',
+              batchNumber: b.batchNumber,
+              quantity: b.stock,
+              reason: 'Baja automática generada por fecha límite de caducidad.',
+              requestedBy: 'Chequeo Automatizado ERP',
+              status: 'pending',
+              date: new Date().toISOString()
+            });
+            addedAny = true;
+            addSystemNotification(
+              '⏳ Lote Expirado (Automático)',
+              `El lote ${b.batchNumber} de "${prodObj?.name || 'Pan'}" ha expirado. Solicitud enviada a administración.`,
+              'warning'
+            );
+          }
+        });
+        return addedAny ? updated : prev;
       });
-      
-      if (addedAny) {
-        setWithdrawalRequests(updatedRequests);
-      }
     }
   }, [batches, products]);
 
@@ -454,8 +451,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     localStorage.setItem('pan_erp_customers', JSON.stringify(customers));
   }, [customers]);
 
-  // Use Firebase-mapped user
-  const activeUser = firebaseMappedUser;
+  // Use local user if selected via dropdown, otherwise Firebase-mapped user
+  const activeUser = (users && users.length > 0 && activeUserId)
+    ? (users.find(u => u.id === activeUserId) || firebaseMappedUser)
+    : firebaseMappedUser;
 
   const setActiveUserRole = (role: UserRole) => {
     const found = users.find(u => u.role === role);
@@ -528,6 +527,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
         osc.start();
         osc.stop(audioCtx.currentTime + 0.05);
       }
+      // Close AudioContext after sounds finish to prevent memory leak
+      const maxDuration = type === 'error' ? 500 : type === 'success' ? 500 : 300;
+      setTimeout(() => audioCtx.close(), maxDuration);
     } catch (e) {
       // Audio context issue (e.g. user hasn't interacted yet)
       console.log('Audio notification delayed due to browser interaction policies.');
@@ -898,6 +900,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     setWithdrawalRequests([]);
     setCurrentCashSession(null);
     setCashSessionsHistory([]);
+    setCustomers([]);
     setSupplyRequests([
       {
         id: 'sup_req_1',

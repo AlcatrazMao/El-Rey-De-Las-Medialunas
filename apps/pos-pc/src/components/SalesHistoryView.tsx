@@ -26,7 +26,9 @@ export const SalesHistoryView: React.FC = () => {
     products,
     updateProductStock,
     ingredients,
-    updateIngredientStock
+    updateIngredientStock,
+    batches,
+    setBatches
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,13 +44,21 @@ export const SalesHistoryView: React.FC = () => {
       return;
     }
 
-    // Restore products stock
+    // Restore products stock & batches
     sale.items.forEach(item => {
       const dbProd = products.find(p => p.id === item.productId);
       if (dbProd) {
         updateProductStock(dbProd.id, dbProd.stock + item.quantity);
         
-        // Restore ingredients stock consumed in recipies
+        // Restore batch stock (same FIFO order, reversed)
+        setBatches(prev => prev.map(b => {
+          if (b.productId === item.productId && b.quantity > b.stock) {
+            return { ...b, stock: b.stock + Math.min(item.quantity, b.quantity - b.stock) };
+          }
+          return b;
+        }));
+        
+        // Restore ingredients stock consumed in recipes
         dbProd.ingredients.forEach(recipeIng => {
           const dbIng = ingredients.find(i => i.id === recipeIng.ingredientId);
           if (dbIng) {
