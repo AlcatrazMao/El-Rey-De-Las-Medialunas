@@ -57,18 +57,19 @@ jobs:
           for ns in cache sessions rate-limit; do
             OUT=$(npx wrangler kv:namespace create "$ns" 2>&1) || true
             echo "$OUT"
-            ID=$(echo "$OUT" | grep -oP '[0-9a-f]{32}' | head -1)
+            ID=$(echo "$OUT" | grep -oP 'id\s*=\s*"?\K[0-9a-f]{32}' | head -1)
+            [ -z "$ID" ] && ID=$(echo "$OUT" | grep -oP '"id"\s*:\s*"\K[0-9a-f]{32}' | head -1)
             VAR="KV_$(echo $ns | tr '-' '_' | tr '[:lower:]' '[:upper:]')"
             export ${VAR}=$ID
             echo "${VAR}=$ID"
           done
 
           # ── Queues ──
-          npx wrangler queues create inventory-processing 2>&1 || true
-          npx wrangler queues create report-generation 2>&1 || true
+          npx wrangler queues create inventory-processing --delivery-delay=0 2>&1 || true
+          npx wrangler queues create report-generation --delivery-delay=0 2>&1 || true
 
           # ── D1 Migrations ──
-          npx wrangler d1 migrations apply el-rey-db --remote --database-id "$D1_ID"
+          npx wrangler d1 migrations apply "$D1_ID" --remote
 
           # ── Deploy Workers ──
           for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker; do
