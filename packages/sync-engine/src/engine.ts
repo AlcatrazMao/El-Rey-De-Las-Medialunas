@@ -1,7 +1,6 @@
 import { NetworkMonitor } from "./network-monitor";
 import { pushChanges } from "./push";
 import { pullChanges } from "./pull";
-import { SyncQueue } from "./queue";
 import type {
   SyncResult,
   PushSummary,
@@ -27,7 +26,6 @@ export class SyncEngine {
   private branchId: string;
   private options: Required<SyncEngineOptions>;
   private networkMonitor: NetworkMonitor;
-  private syncQueue: SyncQueue;
   private isRunning = false;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -43,7 +41,6 @@ export class SyncEngine {
     };
 
     this.networkMonitor = new NetworkMonitor(config.healthCheckUrl);
-    this.syncQueue = new SyncQueue(this.db);
   }
 
   get isOnline(): boolean {
