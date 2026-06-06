@@ -7,8 +7,10 @@
     "rootDir": "src",
     "baseUrl": ".",
     "types": ["vite/client"],
+    "strict": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./src/*"]
     }
