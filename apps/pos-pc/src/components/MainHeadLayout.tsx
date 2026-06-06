@@ -2,10 +2,6 @@ import React from 'react';
 import { useApp } from '../AppContext';
 import { NotificationCenter } from './NotificationCenter';
 import {
-  Sun,
-  Moon,
-  Monitor,
-  Tablet,
   Users,
   RotateCcw,
   Wifi,
@@ -18,10 +14,6 @@ export const MainHeadLayout: React.FC = () => {
   const {
     activeUser,
     setActiveUserRole,
-    deviceMode,
-    setDeviceMode,
-    darkMode,
-    setDarkMode,
     resetAllData,
     users
   } = useApp();
@@ -40,96 +32,57 @@ export const MainHeadLayout: React.FC = () => {
             </h1>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-500/10 dark:bg-emerald-950/20 dark:text-emerald-400">
-                <Wifi className="h-2.5 w-2.5 animate-pulse" /> Sincronizado en Nube
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                </span>
+                Online
               </span>
-              <span className="text-[10px] text-gray-550 dark:text-zinc-500 font-medium">v2.4</span>
+              <NotificationCenter />
             </div>
           </div>
         </div>
 
         {/* Universal Controls bar */}
         <div className="flex flex-wrap items-center justify-center gap-3 w-full md:w-auto">
-          {/* Emulated Device switcher with explanatory badge */}
-          <div className="bg-gray-105 dark:bg-zinc-904 p-0.5 rounded-lg border border-gray-200 dark:border-zinc-800 flex items-center">
-            <button
-              id="btn-devmode-pc"
-              onClick={() => setDeviceMode('PC')}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                deviceMode === 'PC'
-                  ? 'bg-amber-500 text-white shadow-xs'
-                  : 'text-gray-500 dark:text-zinc-400 hover:text-gray-800 dark:hover:text-zinc-200'
-              }`}
-              title="Modo PC: Panel de administración completo y contabilidad"
-            >
-              <Monitor className="h-3.5 w-3.5" /> Computadora
-            </button>
-            <button
-              id="btn-devmode-tablet"
-              onClick={() => setDeviceMode('Tablet')}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                deviceMode === 'Tablet'
-                  ? 'bg-amber-500 text-white shadow-xs animate-pulse-slow'
-                  : 'text-gray-500 dark:text-zinc-400 hover:text-gray-800 dark:hover:text-zinc-200'
-              }`}
-              title="Modo Tablet/Caja: Punto de Venta (POS) simplificado estilo McDonald's"
-            >
-              <Tablet className="h-3.5 w-3.5" /> Tablet / Celular
-            </button>
-          </div>
-
           {/* User selector simulation */}
           <div className="relative group">
             <div className="flex items-center gap-2 bg-gray-100 dark:bg-zinc-900 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer">
               <img
-                src={activeUser.avatar}
+                src={activeUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(activeUser.name)}&background=8B5E3C&color=fff&bold=true`}
                 alt={activeUser.name}
-                className="w-5 h-5 rounded-full object-cover border border-amber-300"
-                referrerPolicy="no-referrer"
+                className="w-6 h-6 rounded-full object-cover border border-amber-500/30"
               />
-              <span className="text-xs font-semibold text-gray-700 dark:text-zinc-300">
-                {activeUser.name.split(' ')[0]} ({activeUser.role.toUpperCase()})
-              </span>
-              <ChevronDown className="h-3 w-3 text-gray-400" />
+              <span className="text-sm font-semibold text-gray-700 dark:text-zinc-200 truncate max-w-[120px]">{activeUser.name}</span>
+              <span className="text-[9px] bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-md uppercase font-black tracking-wider">{activeUser.role}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
             </div>
 
-            {/* User switch dropdown content */}
-            <div className="absolute right-0 mt-1 w-52 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-xl shadow-xl hidden group-hover:block hover:block z-50 p-2">
-              <p className="text-[10px] text-gray-400 dark:text-zinc-500 px-3 py-1 border-b border-gray-100 dark:border-zinc-850 font-bold tracking-wider uppercase mb-1">
-                Cambiar de Operador
-              </p>
+            {/* Dropdown list of users */}
+            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 p-2">
               {users.map(u => (
                 <button
                   key={u.id}
-                  id={`btn-user-switch-${u.role}`}
                   onClick={() => setActiveUserRole(u.role)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-2.5 transition-colors cursor-pointer ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors text-left ${
                     activeUser.id === u.id
-                      ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 font-bold'
-                      : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800/60'
+                      ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                      : 'text-gray-600 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800'
                   }`}
                 >
-                  <img src={u.avatar} alt={u.name} className="w-5 h-5 rounded-full object-cover border border-gray-300 shrink-0" referrerPolicy="no-referrer" />
-                  <div className="min-w-0">
-                    <p className="truncate">{u.name.split(' ')[0]}</p>
-                    <p className="text-[9px] text-gray-400 capitalize">{u.role === 'admin' ? 'Dueño / Admin' : u.role === 'cajero' ? 'Cajero de Turno' : 'Panadera Maestra'}</p>
+                  <img
+                    src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=8B5E3C&color=fff&bold=true`}
+                    alt={u.name}
+                    className="w-6 h-6 rounded-full object-cover border border-gray-200 dark:border-zinc-700"
+                  />
+                  <div className="flex-1 text-left">
+                    <div className="font-bold">{u.name}</div>
+                    <div className="text-[9px] text-gray-400 dark:text-zinc-500 uppercase tracking-wider">{u.role}</div>
                   </div>
                 </button>
               ))}
             </div>
           </div>
-
-          {/* Quick Notification tray */}
-          <NotificationCenter />
-
-          {/* Dark Mode toggle button */}
-          <button
-            id="btn-dark-toggle"
-            onClick={() => setDarkMode(!darkMode)}
-            className="p-2 rounded-full border border-gray-200 dark:border-zinc-800 hover:bg-amber-100 dark:hover:bg-amber-950/40 text-gray-600 dark:text-gray-300 transition-colors cursor-pointer"
-            aria-label="Alternar Modo Oscuro"
-          >
-            {darkMode ? <Sun className="h-4.5 w-4.5 text-amber-400 animate-pulse" /> : <Moon className="h-4.5 w-4.5 text-zinc-600" />}
-          </button>
 
           {/* System reset */}
           <button
@@ -142,7 +95,7 @@ export const MainHeadLayout: React.FC = () => {
             className="p-2 rounded-full border border-gray-200 dark:border-zinc-800 hover:bg-red-50 dark:hover:bg-red-950/20 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
             title="Restablecer base de datos del ERP"
           >
-            <RotateCcw className="h-4.5 w-4.5" />
+            <RotateCcw className="h-4 w-4" />
           </button>
         </div>
       </div>

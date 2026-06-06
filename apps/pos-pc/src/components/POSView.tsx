@@ -29,7 +29,10 @@ export const POSView: React.FC = () => {
     addSystemNotification,
     ingredients,
     currentCashSession,
-    setActiveTab
+    setActiveTab,
+    selectedSellerId,
+    setSelectedSellerId,
+    users
   } = useApp();
 
   const [selectedCategory, setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
@@ -501,7 +504,17 @@ export const POSView: React.FC = () => {
             <span className="text-xl" role="img" aria-label="croissant">🥖</span>
             <h2 className="font-extrabold text-gray-800 dark:text-zinc-100 text-lg">Selección de Panificados</h2>
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            {/* Vendedor */}
+            <select
+              value={selectedSellerId || activeUser.id}
+              onChange={(e) => setSelectedSellerId(e.target.value)}
+              className="text-xs font-bold bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/30 rounded-lg px-2 py-1.5 text-amber-700 dark:text-amber-300 max-w-[140px] truncate"
+            >
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name.split(' ')[0]}</option>
+              ))}
+            </select>
             {/* Quick search & Laser simulation */}
             <div className="relative flex-1 sm:w-64">
               <input

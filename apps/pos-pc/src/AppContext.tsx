@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { signOut } from 'firebase/auth';
+import { auth } from './config/firebase';
 import { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession } from './types';
 import {
   INITIAL_INGREDIENTS,
@@ -19,8 +21,6 @@ interface AppContextType {
   notifications: PushNotification[];
   gateways: PaymentGateway[];
   activeUser: User;
-  deviceMode: 'PC' | 'Tablet';
-  darkMode: boolean;
   activeTab: string;
   batches: ProductBatch[];
   withdrawalRequests: BatchWithdrawalRequest[];
@@ -28,11 +28,11 @@ interface AppContextType {
   currentCashSession: CashSession | null;
   cashSessionsHistory: CashSession[];
   setSales: React.Dispatch<React.SetStateAction<Sale[]>>;
+  selectedSellerId: string;
+  setSelectedSellerId: (id: string) => void;
+  logout: () => void;
   
-  // State setter wraps
   setActiveUserRole: (role: UserRole) => void;
-  setDeviceMode: (mode: 'PC' | 'Tablet') => void;
-  setDarkMode: (dark: boolean) => void;
   setActiveTab: (tab: string) => void;
   setBatches: React.Dispatch<React.SetStateAction<ProductBatch[]>>;
   
@@ -90,7 +90,7 @@ const safeParse = <T,>(key: string, fallback: T): T => {
   }
 };
 
-export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: import('firebase/auth').User }> = ({ children, firebaseUser }) => {
   // Initialize state from local storage or defaults
   const [ingredients, setIngredients] = useState<Ingredient[]>(() => 
     safeParse('pan_erp_ingredients', INITIAL_INGREDIENTS)
@@ -300,15 +300,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  const [deviceMode, setDeviceMode] = useState<'PC' | 'Tablet'>(() => {
-    return (localStorage.getItem('pan_erp_device_mode') as 'PC' | 'Tablet') || 'PC';
-  });
-
-  const [darkMode, setDarkMode] = useState<boolean>(() => {
-    return localStorage.getItem('pan_erp_dark_mode') === 'true';
-  });
-
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [selectedSellerId, setSelectedSellerId] = useState<string>('');
+
+  // Map firebaseUser to local user
+  const firebaseMappedUser: User = {
+    id: firebaseUser.uid,
+    name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
+    role: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner')) ? 'admin' 
+          : firebaseUser.email?.includes('cajero') ? 'cajero' : 'panadero',
+    avatar: firebaseUser.photoURL || '',
+    customPanels: []
+  };
+
+  const logout = () => {
+    signOut(auth);
+  };
 
   // Save changes to localStorage on any state update
   useEffect(() => {
@@ -418,23 +425,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('pan_erp_active_user_id', activeUserId);
   }, [activeUserId]);
 
-  useEffect(() => {
-    localStorage.setItem('pan_erp_device_mode', deviceMode);
-  }, [deviceMode]);
-
-  useEffect(() => {
-    localStorage.setItem('pan_erp_dark_mode', darkMode.toString());
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [darkMode]);
-
-  // Derive active user
-  const activeUser = (users && users.length > 0)
-    ? (users.find(u => u.id === activeUserId) || users[0])
-    : USERS[0];
+  // Use Firebase-mapped user
+  const activeUser = firebaseMappedUser;
 
   const setActiveUserRole = (role: UserRole) => {
     const found = users.find(u => u.role === role);
@@ -866,8 +858,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications(INITIAL_NOTIFICATIONS);
     setGateways(PAYMENT_GATEWAYS);
     setActiveUserId('user_admin');
-    setDeviceMode('PC');
-    setDarkMode(false);
     setActiveTab('dashboard');
     setBatches([]);
     setWithdrawalRequests([]);
@@ -1194,8 +1184,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         notifications,
         gateways,
         activeUser,
-        deviceMode,
-        darkMode,
         activeTab,
         batches,
         withdrawalRequests,
@@ -1203,9 +1191,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentCashSession,
         cashSessionsHistory,
         setSales,
+        selectedSellerId,
+        setSelectedSellerId,
+        logout,
         setActiveUserRole,
-        setDeviceMode,
-        setDarkMode,
         setActiveTab,
         setBatches,
         addSale,
