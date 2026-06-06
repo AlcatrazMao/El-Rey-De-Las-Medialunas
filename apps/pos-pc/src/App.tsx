@@ -13,6 +13,7 @@ import { IntegrationsView } from './components/IntegrationsView';
 import { CajeroMermaView } from './components/CajeroMermaView';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { CashSessionView } from './components/CashSessionView';
+import { CustomersView } from './components/CustomersView';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -25,7 +26,8 @@ import {
   Wallet,
   Menu,
   LogOut,
-  User as UserIcon
+  User as UserIcon,
+  Users
 } from 'lucide-react';
 
 function ERPLayout() {
@@ -43,6 +45,7 @@ function ERPLayout() {
       case 'integrations': return <IntegrationsView />;
       case 'merma_requests': return <CajeroMermaView />;
       case 'supply_requests': return <PanaderoSupplyView />;
+      case 'customers': return <CustomersView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <InventoryView />;
@@ -73,7 +76,8 @@ function ERPLayout() {
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
           { id: 'history', label: 'Historial', icon: <ReceiptText className="h-4 w-4" /> },
           { id: 'accounting', label: 'Egresos', icon: <HandCoins className="h-4 w-4" /> },
-          { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> }
+          { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },
+          { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> }
         ];
     }
   };

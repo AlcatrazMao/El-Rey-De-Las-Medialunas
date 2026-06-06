@@ -43,13 +43,44 @@ export interface Sale {
   date: string;
   items: SaleItem[];
   total: number;
-  tax: number; // e.g. IVA 21% or 10.5%
+  tax: number;
   paymentMethod: 'efectivo' | 'tarjeta' | 'mercado_pago' | 'paypal';
   paymentStatus: 'completed' | 'failed' | 'pending';
   operatorRole: string;
   operatorName: string;
   customerName?: string;
   customerDoc?: string;
+  customerId?: string;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  tax_id: string;
+  type: 'consumidor_final' | 'frecuente' | 'mayorista' | 'empresa';
+  condicion_fiscal: 'consumidor_final' | 'responsable_inscripto' | 'monotributista' | 'exento';
+  price_list_number: number;
+  credit_limit: number;
+  current_debt: number;
+  status: 'active' | 'inactive';
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  total_purchases: number;
+  last_purchase_date: string;
+  timeline: CustomerTimelineEntry[];
+}
+
+export interface CustomerTimelineEntry {
+  id: string;
+  date: string;
+  type: 'sale' | 'note' | 'payment' | 'status_change';
+  description: string;
+  amount?: number;
+  user: string;
 }
 
 export interface Expense {
