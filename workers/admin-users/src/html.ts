@@ -3,7 +3,7 @@ export const HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin Usuarios · El Rey De Las Medialunas</title>
+<title>Admin Usuarios - El Rey De Las Medialunas</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:Inter,system-ui,sans-serif;background:#FDFBF7;color:#2C1810;min-height:100vh}
@@ -46,31 +46,29 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 .toast.show{opacity:1;transform:translateY(0)}
 .toast.error{background:#BF360C}
 .toast.success{background:#2E7D32}
-.auth-box{margin-bottom:16px}
-.auth-box input{width:250px}
 </style>
 </head>
 <body>
 <div class="container">
 <div class="header">
-<h1>🥐 Admin de Usuarios</h1>
-<p class="sub">El Rey De Las Medialunas · Firebase Auth</p>
+<h1>Admin de Usuarios</h1>
+<p class="sub">El Rey De Las Medialunas - Firebase Auth</p>
 </div>
 
 <div class="card">
-<div class="card-header">🔑 Conectar</div>
-<div class="auth-box" style="display:flex;gap:8px;align-items:center">
+<div class="card-header">Conectar</div>
+<div style="display:flex;gap:8px;align-items:center">
 <input type="password" id="authSecret" placeholder="Clave de administrador" style="width:200px">
-<button class="btn btn-primary" onclick="connect()">Conectar</button>
+<button class="btn btn-primary" id="btnConnect">Conectar</button>
 </div>
 <div id="connectStatus"></div>
 </div>
 
 <div class="card" id="usersCard" style="display:none">
-<div class="card-header">👥 Usuarios <span id="userCount" style="font-weight:400;color:#8B7355;font-size:.8rem"></span></div>
+<div class="card-header">Usuarios <span id="userCount" style="font-weight:400;color:#8B7355;font-size:.8rem"></span></div>
 <div class="actions">
-<button class="btn btn-primary" onclick="openCreateModal()">+ Nuevo</button>
-<button class="btn btn-sm" onclick="loadUsers()">🔄 Refrescar</button>
+<button class="btn btn-primary" id="btnNew">+ Nuevo</button>
+<button class="btn btn-sm" id="btnRefresh">Refrescar</button>
 </div>
 <div style="overflow-x:auto">
 <table><thead><tr><th>Email</th><th>Nombre</th><th>Estado</th><th>Creado</th><th style="width:100px"></th></tr></thead><tbody id="usersTable"></tbody></table>
@@ -81,95 +79,144 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 <div class="modal-overlay" id="modal">
 <div class="modal">
 <h3 id="modalTitle">Nuevo Usuario</h3>
-<form onsubmit="handleSubmit(event)">
+<form id="userForm">
 <input type="hidden" id="editUid">
 <label>Email *</label><input type="email" id="fEmail" required>
 <label>Nombre</label><input type="text" id="fName">
 <label>Contraseña <span id="pwdHint">*</span></label><input type="password" id="fPassword" minlength="6">
 <label>Estado</label><select id="fDisabled"><option value="false">Activo</option><option value="true">Deshabilitado</option></select>
 <div class="btn-row">
-<button type="button" class="btn" onclick="closeModal()">Cancelar</button>
+<button type="button" class="btn" id="btnCancel">Cancelar</button>
 <button type="submit" class="btn btn-primary" id="submitBtn">Crear</button>
 </div></form></div></div>
 <div class="toast" id="toast"></div>
 
 <script>
-let AUTH = '';
-function connect() {
-  AUTH = document.getElementById('authSecret').value;
-  if (!AUTH) return toast('Ingresá la clave','error');
-  loadUsers().then(() => {
-    document.getElementById('connectStatus').innerHTML='<div class="badge badge-active" style="font-size:.8rem;padding:6px 12px">✅ Conectado</div>';
-    document.getElementById('usersCard').style.display='block';
-    document.getElementById('authSecret').type='password';
-  }).catch(e => {
-    document.getElementById('connectStatus').innerHTML='<div class="badge badge-disabled" style="font-size:.8rem;padding:6px 12px">❌ Clave incorrecta</div>';
+let AUTH = "";
+
+document.getElementById("btnConnect").onclick = function() {
+  AUTH = document.getElementById("authSecret").value;
+  if (!AUTH) return toast("Ingresa la clave","error");
+  loadUsers().then(function() {
+    document.getElementById("connectStatus").innerHTML = "<div class=badge badge-active style=font-size:.8rem;padding:6px 12px>Conectado</div>";
+    document.getElementById("usersCard").style.display = "block";
+  }).catch(function() {
+    document.getElementById("connectStatus").innerHTML = "<div class=badge badge-disabled style=font-size:.8rem;padding:6px 12px>Clave incorrecta</div>";
   });
-}
+};
+
+document.getElementById("btnRefresh").onclick = loadUsers;
+document.getElementById("btnNew").onclick = openCreateModal;
+document.getElementById("btnCancel").onclick = closeModal;
+document.getElementById("modal").onclick = function(e) { if (e.target === this) closeModal(); };
+document.getElementById("userForm").onsubmit = handleSubmit;
+
 async function api(method, path, body) {
-  const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + AUTH };
-  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-  const data = await res.json();
+  var headers = { "Content-Type": "application/json", "Authorization": "Bearer " + AUTH };
+  var res = await fetch(path, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined });
+  var data = await res.json();
   if (!res.ok && data.error) throw new Error(data.error);
   return data;
 }
+
 async function loadUsers() {
   try {
-    const data = await api('GET', '/api/users');
-    const users = data.data || [];
-    document.getElementById('userCount').textContent = '('+users.length+')';
-    document.getElementById('emptyState').style.display = users.length ? 'none' : 'block';
-    document.getElementById('usersTable').innerHTML = users.map(u =>
-      '<tr><td><div style="font-weight:600">'+esc(u.email)+'</div></td>'+
-      '<td>'+esc(u.displayName||'—')+'</td>'+
-      '<td><span class="badge '+(u.disabled?'badge-disabled':'badge-active')+'">'+(u.disabled?'Deshabilitado':'Activo')+'</span>'+
-      (u.emailVerified?'<span class="badge badge-verified" style="margin-left:4px">OK</span>':'')+'</td>'+
-      '<td style="font-size:.75rem;color:#8B7355">'+(u.created?new Date(u.created).toLocaleDateString():'—')+'</td>'+
-      '<td><button class="btn btn-sm" onclick="openEditModal(\''+u.uid+'\',\''+esc(u.email)+'\',\''+esc(u.displayName||'')+'\','+u.disabled+')">✏️</button>'+
-      '<button class="btn btn-sm btn-danger" onclick="del(\''+u.uid+'\',\''+esc(u.email)+'\')">🗑️</button></td></tr>'
-    ).join('');
-  } catch(e) { toast(e.message, 'error'); }
+    var data = await api("GET", "/api/users");
+    var users = data.data || [];
+    document.getElementById("userCount").textContent = "(" + users.length + ")";
+    document.getElementById("emptyState").style.display = users.length ? "none" : "block";
+    var html = "";
+    for (var i = 0; i < users.length; i++) {
+      var u = users[i];
+      html += "<tr>" +
+        "<td><div style=font-weight:600>" + esc(u.email) + "</div></td>" +
+        "<td>" + esc(u.displayName || "-") + "</td>" +
+        "<td><span class=badge " + (u.disabled ? "badge-disabled" : "badge-active") + ">" + (u.disabled ? "Deshabilitado" : "Activo") + "</span>" +
+        (u.emailVerified ? "<span class=badge badge-verified style=margin-left:4px>OK</span>" : "") + "</td>" +
+        "<td style=font-size:.75rem;color:#8B7355>" + (u.created ? new Date(u.created).toLocaleDateString() : "-") + "</td>" +
+        "<td>" +
+        "<button class=btn btn-sm data-action=edit data-uid=" + u.uid + " data-email=" + esc(u.email) + " data-name=" + esc(u.displayName || "") + " data-disabled=" + u.disabled + ">Editar</button>" +
+        "<button class=btn btn-sm btn-danger data-action=delete data-uid=" + u.uid + " data-email=" + esc(u.email) + ">Eliminar</button>" +
+        "</td></tr>";
+    }
+    document.getElementById("usersTable").innerHTML = html;
+  } catch (e) { toast(e.message, "error"); }
 }
+
+document.getElementById("usersTable").onclick = function(e) {
+  var btn = e.target.closest("button");
+  if (!btn) return;
+  var action = btn.getAttribute("data-action");
+  var uid = btn.getAttribute("data-uid");
+  var email = btn.getAttribute("data-email");
+  if (action === "edit") {
+    var name = btn.getAttribute("data-name");
+    var disabled = btn.getAttribute("data-disabled") === "true";
+    openEditModal(uid, email, name, disabled);
+  } else if (action === "delete") {
+    del(uid, email);
+  }
+};
+
 function openCreateModal() {
-  document.getElementById('modalTitle').textContent='Nuevo Usuario';
-  document.getElementById('submitBtn').textContent='Crear';
-  document.getElementById('editUid').value='';
-  document.getElementById('fEmail').value=''; document.getElementById('fName').value='';
-  document.getElementById('fPassword').value=''; document.getElementById('fDisabled').value='false';
-  document.getElementById('pwdHint').textContent='*'; document.getElementById('fPassword').required=true;
-  document.getElementById('modal').classList.add('show');
+  document.getElementById("modalTitle").textContent = "Nuevo Usuario";
+  document.getElementById("submitBtn").textContent = "Crear";
+  document.getElementById("editUid").value = "";
+  document.getElementById("fEmail").value = "";
+  document.getElementById("fName").value = "";
+  document.getElementById("fPassword").value = "";
+  document.getElementById("fDisabled").value = "false";
+  document.getElementById("pwdHint").textContent = "*";
+  document.getElementById("fPassword").required = true;
+  document.getElementById("modal").classList.add("show");
 }
-function openEditModal(uid,email,name,disabled) {
-  document.getElementById('modalTitle').textContent='Editar Usuario';
-  document.getElementById('submitBtn').textContent='Guardar';
-  document.getElementById('editUid').value=uid;
-  document.getElementById('fEmail').value=email; document.getElementById('fName').value=name;
-  document.getElementById('fPassword').value=''; document.getElementById('fDisabled').value=String(disabled);
-  document.getElementById('pwdHint').textContent='(vacío = no cambiar)'; document.getElementById('fPassword').required=false;
-  document.getElementById('modal').classList.add('show');
+
+function openEditModal(uid, email, name, disabled) {
+  document.getElementById("modalTitle").textContent = "Editar Usuario";
+  document.getElementById("submitBtn").textContent = "Guardar";
+  document.getElementById("editUid").value = uid;
+  document.getElementById("fEmail").value = email;
+  document.getElementById("fName").value = name;
+  document.getElementById("fPassword").value = "";
+  document.getElementById("fDisabled").value = String(disabled);
+  document.getElementById("pwdHint").textContent = "(vacio = no cambiar)";
+  document.getElementById("fPassword").required = false;
+  document.getElementById("modal").classList.add("show");
 }
-function closeModal() { document.getElementById('modal').classList.remove('show'); }
-document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+
+function closeModal() { document.getElementById("modal").classList.remove("show"); }
+
 async function handleSubmit(e) {
   e.preventDefault();
-  const uid=document.getElementById('editUid').value;
-  const body={email:document.getElementById('fEmail').value,displayName:document.getElementById('fName').value,disabled:document.getElementById('fDisabled').value==='true'};
-  const pwd=document.getElementById('fPassword').value; if(pwd) body.password=pwd;
+  var uid = document.getElementById("editUid").value;
+  var body = {
+    email: document.getElementById("fEmail").value,
+    displayName: document.getElementById("fName").value,
+    disabled: document.getElementById("fDisabled").value === "true"
+  };
+  var pwd = document.getElementById("fPassword").value;
+  if (pwd) body.password = pwd;
   try {
-    if(uid){ await api('PATCH','/api/users/'+uid,body); toast('Actualizado','success'); }
-    else { await api('POST','/api/users',body); toast('Creado','success'); }
+    if (uid) { await api("PATCH", "/api/users/" + uid, body); toast("Actualizado", "success"); }
+    else { await api("POST", "/api/users", body); toast("Creado", "success"); }
     closeModal(); loadUsers();
-  } catch(e) { toast(e.message,'error'); }
+  } catch (e) { toast(e.message, "error"); }
 }
-async function del(uid,email) {
-  if(!confirm('¿Eliminar '+email+'?')) return;
-  try { await api('DELETE','/api/users/'+uid); toast('Eliminado','success'); loadUsers(); }
-  catch(e) { toast(e.message,'error'); }
+
+async function del(uid, email) {
+  if (!confirm("Eliminar " + email + "?")) return;
+  try { await api("DELETE", "/api/users/" + uid); toast("Eliminado", "success"); loadUsers(); }
+  catch (e) { toast(e.message, "error"); }
 }
-function toast(msg,type) {
-  const el=document.getElementById('toast'); el.textContent=msg;
-  el.className='toast '+(type||'')+' show';
-  setTimeout(()=>el.classList.remove('show'),3000);
+
+function toast(msg, type) {
+  var el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "toast " + (type || "") + " show";
+  setTimeout(function() { el.classList.remove("show"); }, 3000);
 }
-function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 </script></body></html>`;
