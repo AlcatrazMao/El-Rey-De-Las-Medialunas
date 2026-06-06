@@ -89,9 +89,10 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   const path = url.pathname;
   const method = req.method;
 
-  // Auth check
+  // Auth check — compare token part only (header is "Bearer <token>")
   const authHeader = req.headers.get('Authorization');
-  if (authHeader !== `Bearer ${env.AUTH_SECRET}`) {
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token || token !== (env.AUTH_SECRET || '').trim()) {
     return { status: 401, error: 'No autorizado' };
   }
 

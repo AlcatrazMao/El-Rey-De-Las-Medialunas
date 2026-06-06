@@ -76,11 +76,11 @@ jobs:
             echo "WARNING: D1_ID not found, skipping migrations"
           fi
 
-          # ── Set Admin Worker Secrets (before deploy so worker picks them up) ──
+          # ── Set Admin Worker Secrets ──
           echo "Setting admin worker secrets..."
-          (cd workers/admin-users && echo "${{ secrets.AUTH_SECRET }}" | npx wrangler secret put AUTH_SECRET 2>&1) || true
-          (cd workers/admin-users && echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" | npx wrangler secret put FIREBASE_SERVICE_ACCOUNT 2>&1) || true
-          (cd workers/admin-users && echo "${{ secrets.FIREBASE_API_KEY }}" | npx wrangler secret put FIREBASE_API_KEY 2>&1) || true
+          printf "%s" "${{ secrets.AUTH_SECRET }}" | (cd workers/admin-users && npx wrangler secret put AUTH_SECRET 2>&1) || true
+          printf "%s" "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_SERVICE_ACCOUNT 2>&1) || true
+          printf "%s" "${{ secrets.FIREBASE_API_KEY }}" | (cd workers/admin-users && npx wrangler secret put FIREBASE_API_KEY 2>&1) || true
 
           # ── Deploy Workers ──
           for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker workers/admin-users; do
