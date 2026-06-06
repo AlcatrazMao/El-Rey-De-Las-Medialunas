@@ -82,6 +82,16 @@ jobs:
             (cd $dir && npx wrangler deploy --env production)
           done
 
+      - name: Set Admin Worker Secrets
+        run: |
+          cd workers/admin-users
+          echo "${{ secrets.AUTH_SECRET }}" | npx wrangler secret put AUTH_SECRET
+          echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" | npx wrangler secret put FIREBASE_SERVICE_ACCOUNT
+          echo "${{ secrets.FIREBASE_API_KEY }}" | npx wrangler secret put FIREBASE_API_KEY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
       - name: Build Frontend
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
