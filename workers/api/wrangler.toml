@@ -11,19 +11,19 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "el-rey-db"
-database_id = "${D1_ID}"
+database_id = "D1_ID_PLACEHOLDER"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "${KV_CACHE}"
+id = "KV_CACHE_PLACEHOLDER"
 
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "${KV_SESSIONS}"
+id = "KV_SESSIONS_PLACEHOLDER"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "${KV_RATE_LIMIT}"
+id = "KV_RATE_LIMIT_PLACEHOLDER"
 
 [[queues.producers]]
 binding = "INVENTORY_QUEUE"

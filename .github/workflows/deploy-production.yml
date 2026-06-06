@@ -43,36 +43,27 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          # ── D1 ──
-          D1_OUT=$(npx wrangler d1 create el-rey-db --location=wnam 2>&1) || true
-          echo "$D1_OUT"
-          D1_ID=$(echo "$D1_OUT" | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
-          if [ -z "$D1_ID" ]; then
-            D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid"\s*:\s*"\K[0-9a-f-]+' | head -1)
-          fi
-          export D1_ID
+          # ── Get D1 UUID ──
+          D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid"\s*:\s*"\K[0-9a-f-]+' | head -1)
           echo "D1_ID=$D1_ID"
 
-          # ── KV: get IDs from list ──
+          # ── Get KV UUIDs ──
           KV_JSON=$(npx wrangler kv:namespace list --json 2>&1)
           echo "$KV_JSON"
-          # Extract IDs matching titles containing cache/sessions/rate-limit
-          KV_CACHE=$(echo "$KV_JSON" | grep -oP '"id":"\K[0-9a-f]{32}(?=".*cache)' | head -1)
-          KV_SESSIONS=$(echo "$KV_JSON" | grep -oP '"id":"\K[0-9a-f]{32}(?=".*sessions)' | head -1)
-          KV_RATE_LIMIT=$(echo "$KV_JSON" | grep -oP '"id":"\K[0-9a-f]{32}(?=".*rate.limit)' | head -1)
-          # Fallback: if grep by title fails, take by index order
-          if [ -z "$KV_CACHE" ]; then
-            IDS=($(echo "$KV_JSON" | grep -oP '[0-9a-f]{32}'))
-            KV_CACHE=${IDS[0]}
-            KV_SESSIONS=${IDS[1]}
-            KV_RATE_LIMIT=${IDS[2]}
-          fi
-          export KV_CACHE KV_SESSIONS KV_RATE_LIMIT
-          echo "KV_CACHE=$KV_CACHE KV_SESSIONS=$KV_SESSIONS KV_RATE_LIMIT=$KV_RATE_LIMIT"
+          # Extract UUIDs — take first 3
+          KV_IDS=($(echo "$KV_JSON" | grep -oP '[0-9a-f]{32}'))
+          KV0=${KV_IDS[0]}
+          KV1=${KV_IDS[1]}
+          KV2=${KV_IDS[2]}
+          echo "KV: $KV0 $KV1 $KV2"
 
-          # ── Queues: ignore errors, may already exist ──
-          npx wrangler queues create inventory-processing 2>&1 || true
-          npx wrangler queues create report-generation 2>&1 || true
+          # ── Inject IDs into wrangler.toml files ──
+          find workers -name wrangler.toml -exec sed -i "s/D1_ID_PLACEHOLDER/$D1_ID/g" {} \;
+          find workers -name wrangler.toml -exec sed -i "s/KV_CACHE_PLACEHOLDER/$KV0/g" {} \;
+          find workers -name wrangler.toml -exec sed -i "s/KV_SESSIONS_PLACEHOLDER/$KV1/g" {} \;
+          find workers -name wrangler.toml -exec sed -i "s/KV_RATE_LIMIT_PLACEHOLDER/$KV2/g" {} \;
+          # Also root wrangler.toml
+          sed -i "s/D1_ID_PLACEHOLDER/$D1_ID/g" wrangler.toml
 
           # ── D1 Migrations ──
           npx wrangler d1 migrations apply el-rey-db --remote

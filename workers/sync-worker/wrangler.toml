@@ -10,11 +10,11 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "el-rey-db"
-database_id = "${D1_ID}"
+database_id = "D1_ID_PLACEHOLDER"
 
 [[kv_namespaces]]
 binding = "SYNC_STATE"
-id = "${KV_CACHE}"
+id = "KV_CACHE_PLACEHOLDER"
 
 [env.staging.vars]
 APP_ENV = "staging"
