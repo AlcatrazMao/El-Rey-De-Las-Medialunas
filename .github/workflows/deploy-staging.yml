@@ -35,7 +35,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Lint
         run: pnpm lint
@@ -86,7 +86,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Build workers
         run: pnpm build --filter="./workers/*"
@@ -146,7 +146,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Build POS PC
         run: pnpm build --filter=@medialunas/pos-pc
