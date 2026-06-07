@@ -69,12 +69,10 @@ jobs:
           (cd workers/admin-users && npx wrangler deploy)
 
           echo "=== Setting Admin Worker Secrets ==="
-          printf "%s" "${{ secrets.AUTH_SECRET }}" > /tmp/admin_auth_secret
-          (cd workers/admin-users && npx wrangler secret put AUTH_SECRET < /tmp/admin_auth_secret)
-          printf "%s" "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" > /tmp/admin_fb_sa
-          (cd workers/admin-users && npx wrangler secret put FIREBASE_SERVICE_ACCOUNT < /tmp/admin_fb_sa)
-          printf "%s" "${{ secrets.FIREBASE_API_KEY }}" > /tmp/admin_fb_key
-          (cd workers/admin-users && npx wrangler secret put FIREBASE_API_KEY < /tmp/admin_fb_key)
+          cd workers/admin-users
+          npx wrangler secret put AUTH_SECRET <<< "${{ secrets.AUTH_SECRET }}"
+          npx wrangler secret put FIREBASE_SERVICE_ACCOUNT <<< "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
+          npx wrangler secret put FIREBASE_API_KEY <<< "${{ secrets.FIREBASE_API_KEY }}"
 
       - name: Build Frontend
         env:
