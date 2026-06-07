@@ -100,7 +100,9 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   let sa: any;
   try {
     const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
-    sa = JSON.parse(raw);
+    // Support both raw JSON and base64-encoded JSON
+    const decoded = raw.startsWith('{') ? raw : atob(raw);
+    sa = JSON.parse(decoded);
   } catch (e) {
     return { status: 500, error: 'Service account JSON inválido. Verificá el secreto FIREBASE_SERVICE_ACCOUNT.' };
   }
