@@ -104,7 +104,11 @@ async function getAccessToken(env: Env): Promise<string> {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJwt}`,
   });
-  const tokenData: any = await tokenRes.json();
+  const tokenText = await tokenRes.text();
+  if (!tokenRes.ok) {
+    throw new Error(`OAuth2 token request failed (${tokenRes.status}): ${tokenText.substring(0, 200)}`);
+  }
+  const tokenData = JSON.parse(tokenText);
   return tokenData.access_token;
 }
 
