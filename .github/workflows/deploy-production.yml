@@ -76,8 +76,9 @@ jobs:
 
           echo "=== Setting Admin Worker Secrets ==="
           printf "%s" "$ADMIN_AUTH" | npx wrangler secret put AUTH_SECRET --env production
-          printf "%s" "$ADMIN_FB_SA" | npx wrangler secret put FIREBASE_SERVICE_ACCOUNT --env production
           printf "%s" "$ADMIN_FB_KEY" | npx wrangler secret put FIREBASE_API_KEY --env production
+          # FIREBASE_SERVICE_ACCOUNT must be set manually in Cloudflare Dashboard
+          # (JSON multilínea no se transfiere bien desde CI)
 
       - name: Build Frontend
         env:
