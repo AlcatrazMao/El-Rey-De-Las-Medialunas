@@ -69,21 +69,30 @@ async function getAccessToken(env: Env): Promise<string> {
 
   // Sign JWT — extract and rebuild PEM key
   let pk = sa.private_key.replace(/\\n/g, '\n').replace(/\r\n?/g, '\n');
-  // Extract base64 body between BEGIN and END markers
+  // Extract base64 body and decode to raw binary
   const bodyMatch = pk.match(/-----BEGIN PRIVATE KEY-----\n?([\s\S]*?)\n?-----END PRIVATE KEY-----/);
-  const keyBody = bodyMatch ? bodyMatch[1].replace(/\s/g, '') : pk.replace(/-----.*?-----/g, '').replace(/\s/g, '');
-  // Re-wrap at 64 chars
-  const wrapped = keyBody.match(/.{1,64}/g)?.join('\n') || keyBody;
-  const privateKey = '-----BEGIN PRIVATE KEY-----\n' + wrapped + '\n-----END PRIVATE KEY-----';
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(privateKey);
+  const b64 = bodyMatch ? bodyMatch[1].replace(/\s/g, '') : pk.replace(/-----.*?-----/g, '').replace(/\s/g, '');
+  
+  // Decode base64 to ArrayBuffer, then try importKey
+  const binaryStr = atob(b64);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+  
   let cryptoKey: CryptoKey;
   try {
     cryptoKey = await crypto.subtle.importKey(
-      'pkcs8', keyData, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
+      'pkcs8', bytes.buffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
     );
   } catch (e: any) {
-    throw new Error(`PKCS8 import failed (first 80: "${privateKey.substring(0, 80)}", hasNL: ${privateKey.includes('\n')}, len: ${privateKey.length}): ${e.message}`);
+    const pemKey = '-----BEGIN PRIVATE KEY-----\n' + b64.match(/.{1,64}/g)?.join('\n') + '\n-----END PRIVATE KEY-----';
+    const encoder2 = new TextEncoder();
+    try {
+      cryptoKey = await crypto.subtle.importKey(
+        'pkcs8', encoder2.encode(pemKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
+      );
+    } catch (e2: any) {
+      throw new Error(`PKCS8 import failed (raw: ${e.message}, pem: ${e2.message})`);
+    }
   }
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, encoder.encode(jwt));
   const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
