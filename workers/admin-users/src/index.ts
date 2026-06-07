@@ -67,21 +67,14 @@ async function getAccessToken(env: Env): Promise<string> {
   const toBase64 = (obj: any) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const jwt = `${toBase64(header)}.${toBase64(claim)}`;
 
-  // Sign JWT — rebuild PEM key with proper newlines
-  let pk = sa.private_key
-    .replace(/\\n/g, '\n')
-    .replace(/\r\n?/g, '\n')
-    .replace(/-----BEGIN PRIVATE KEY-----[\s\n]*/g, '-----BEGIN PRIVATE KEY-----\n')
-    .replace(/[\s\n]*-----END PRIVATE KEY-----/g, '\n-----END PRIVATE KEY-----')
-    .replace(/\s+/g, '')
-    .trim();
-  
-  // Re-wrap key body at 64 chars
-  const pemHeader = '-----BEGIN PRIVATE KEY-----\n';
-  const pemFooter = '\n-----END PRIVATE KEY-----';
-  const body = pk.replace(pemHeader, '').replace(pemFooter.replace(/\n/g, ''), '').replace(/\n/g, '');
-  const wrapped = body.match(/.{1,64}/g)?.join('\n') || body;
-  const privateKey = pemHeader + wrapped + pemFooter;
+  // Sign JWT — extract and rebuild PEM key
+  let pk = sa.private_key.replace(/\\n/g, '\n').replace(/\r\n?/g, '\n');
+  // Extract base64 body between BEGIN and END markers
+  const bodyMatch = pk.match(/-----BEGIN PRIVATE KEY-----\n?([\s\S]*?)\n?-----END PRIVATE KEY-----/);
+  const keyBody = bodyMatch ? bodyMatch[1].replace(/\s/g, '') : pk.replace(/-----.*?-----/g, '').replace(/\s/g, '');
+  // Re-wrap at 64 chars
+  const wrapped = keyBody.match(/.{1,64}/g)?.join('\n') || keyBody;
+  const privateKey = '-----BEGIN PRIVATE KEY-----\n' + wrapped + '\n-----END PRIVATE KEY-----';
   const encoder = new TextEncoder();
   const keyData = encoder.encode(privateKey);
   let cryptoKey: CryptoKey;
