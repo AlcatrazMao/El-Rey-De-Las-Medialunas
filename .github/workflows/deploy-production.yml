@@ -72,7 +72,6 @@ jobs:
           (cd workers/admin-users && npx wrangler deploy --env production)
 
           echo "=== Setting Admin Worker Secrets ==="
-          echo '${{ secrets.AUTH_SECRET }}' | npx wrangler secret put AUTH_SECRET --env production
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' | npx wrangler secret put FIREBASE_SERVICE_ACCOUNT --env production
           echo '${{ secrets.FIREBASE_API_KEY }}' | npx wrangler secret put FIREBASE_API_KEY --env production
 
