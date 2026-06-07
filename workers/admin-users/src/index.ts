@@ -77,11 +77,11 @@ async function getAccessToken(env: Env): Promise<string> {
     .trim();
   
   // Re-wrap key body at 64 chars
-  const header = '-----BEGIN PRIVATE KEY-----\n';
-  const footer = '\n-----END PRIVATE KEY-----';
-  const body = pk.replace(header, '').replace(footer.replace(/\n/g, ''), '').replace(/\n/g, '');
+  const pemHeader = '-----BEGIN PRIVATE KEY-----\n';
+  const pemFooter = '\n-----END PRIVATE KEY-----';
+  const body = pk.replace(pemHeader, '').replace(pemFooter.replace(/\n/g, ''), '').replace(/\n/g, '');
   const wrapped = body.match(/.{1,64}/g)?.join('\n') || body;
-  const privateKey = header + wrapped + footer;
+  const privateKey = pemHeader + wrapped + pemFooter;
   const encoder = new TextEncoder();
   const keyData = encoder.encode(privateKey);
   let cryptoKey: CryptoKey;
