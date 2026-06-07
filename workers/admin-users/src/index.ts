@@ -120,7 +120,12 @@ async function getAccessToken(env: Env): Promise<string> {
   if (!tokenRes.ok) {
     throw new Error(`OAuth2 token request failed (${tokenRes.status}): ${tokenText.substring(0, 200)}`);
   }
-  const tokenData = JSON.parse(tokenText);
+  let tokenData: any;
+  try {
+    tokenData = JSON.parse(tokenText);
+  } catch {
+    throw new Error(`OAuth2 returned non-JSON (status ${tokenRes.status}): ${tokenText.substring(0, 300)}`);
+  }
   if (!tokenData.access_token) {
     throw new Error(`OAuth2 response missing access_token: ${tokenText.substring(0, 300)}`);
   }
