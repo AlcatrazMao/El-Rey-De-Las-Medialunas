@@ -43,9 +43,21 @@ export default {
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface Env {
+  DB: D1Database;
   FIREBASE_SERVICE_ACCOUNT: string;
   FIREBASE_API_KEY: string;
-  AUTH_SECRET: string; // simple password to protect the admin panel
+  AUTH_SECRET: string;
+}
+
+// ── Rate limiter (5 attempts/min per IP) ──────────────────────────────
+const rateLimit = new Map<string, { count: number; reset: number }>();
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimit.get(ip);
+  if (!entry || now > entry.reset) { rateLimit.set(ip, { count: 1, reset: now + 60000 }); return true; }
+  if (entry.count >= 5) return false;
+  entry.count++;
+  return true;
 }
 
 // ── Get OAuth2 token ──────────────────────────────────────────────────
@@ -120,9 +132,13 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   const path = url.pathname;
   const method = req.method;
 
-  // Auth check — compare token part only (header is "Bearer <token>")
+  // Auth check with rate limiting (5 attempts/min per IP)
   const authHeader = req.headers.get('Authorization');
   const authToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!checkRateLimit(ip)) {
+    return { status: 429, error: 'Demasiados intentos. Esperá un minuto.' };
+  }
   if (!authToken || authToken !== (env.AUTH_SECRET || '').trim()) {
     return { status: 401, error: 'No autorizado' };
   }
