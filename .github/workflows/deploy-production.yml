@@ -66,13 +66,13 @@ jobs:
             (cd $dir && npx wrangler deploy --env production)
           done
           echo "--- workers/admin-users ---"
-          (cd workers/admin-users && npx wrangler deploy)
+          (cd workers/admin-users && npx wrangler deploy --env production)
 
           echo "=== Setting Admin Worker Secrets ==="
           cd workers/admin-users
-          npx wrangler secret put AUTH_SECRET <<< "${{ secrets.AUTH_SECRET }}"
-          npx wrangler secret put FIREBASE_SERVICE_ACCOUNT <<< "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
-          npx wrangler secret put FIREBASE_API_KEY <<< "${{ secrets.FIREBASE_API_KEY }}"
+          npx wrangler secret put AUTH_SECRET --env production <<< "${{ secrets.AUTH_SECRET }}"
+          npx wrangler secret put FIREBASE_SERVICE_ACCOUNT --env production <<< "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
+          npx wrangler secret put FIREBASE_API_KEY --env production <<< "${{ secrets.FIREBASE_API_KEY }}"
 
       - name: Build Frontend
         env:
