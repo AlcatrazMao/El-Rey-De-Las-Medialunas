@@ -58,7 +58,7 @@ async function getAccessToken(env: Env): Promise<string> {
   const header = { alg: 'RS256', typ: 'JWT' };
   const claim = {
     iss: sa.client_email,
-    scope: 'https://www.googleapis.com/auth/firebase.auth https://www.googleapis.com/auth/identitytoolkit',
+    scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/identitytoolkit',
     aud: sa.token_uri || 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now,
@@ -109,6 +109,9 @@ async function getAccessToken(env: Env): Promise<string> {
     throw new Error(`OAuth2 token request failed (${tokenRes.status}): ${tokenText.substring(0, 200)}`);
   }
   const tokenData = JSON.parse(tokenText);
+  if (!tokenData.access_token) {
+    throw new Error(`OAuth2 response missing access_token: ${tokenText.substring(0, 300)}`);
+  }
   return tokenData.access_token;
 }
 
