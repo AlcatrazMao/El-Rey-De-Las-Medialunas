@@ -64,7 +64,12 @@ function checkRateLimit(ip: string): boolean {
 async function getAccessToken(env: Env): Promise<string> {
   const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
   const decoded = raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, ''));
-  const sa = JSON.parse(decoded.trim());
+  let sa: any;
+  try {
+    sa = JSON.parse(decoded.trim());
+  } catch (e: any) {
+    throw new Error(`Failed to parse SA JSON. Raw starts with: "${raw.substring(0, 50)}", Decoded starts with: "${decoded.substring(0, 50)}". Error: ${e.message}`);
+  }
   const now = Math.floor(Date.now() / 1000);
   
   const header = { alg: 'RS256', typ: 'JWT' };
