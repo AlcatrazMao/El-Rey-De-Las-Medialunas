@@ -67,13 +67,24 @@ async function getAccessToken(env: Env): Promise<string> {
   const toBase64 = (obj: any) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const jwt = `${toBase64(header)}.${toBase64(claim)}`;
 
-  // Sign JWT with the private key — fix newlines if stored as literal \n
-  const privateKey = sa.private_key.replace(/\\n/g, '\n');
+  // Sign JWT with the private key — fix any newline/formatting issues
+  let privateKey = sa.private_key.trim();
+  // Handle both literal \n and already-escaped newlines
+  privateKey = privateKey.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
+  // Ensure proper PEM header/footer have newlines
+  if (!privateKey.includes('\n') && privateKey.includes('-----')) {
+    privateKey = privateKey.replace(/-----/g, '\n-----\n');
+  }
   const encoder = new TextEncoder();
   const keyData = encoder.encode(privateKey);
-  const cryptoKey = await crypto.subtle.importKey(
-    'pkcs8', keyData, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
-  );
+  let cryptoKey: CryptoKey;
+  try {
+    cryptoKey = await crypto.subtle.importKey(
+      'pkcs8', keyData, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
+    );
+  } catch (e: any) {
+    throw new Error(`PKCS8 import failed (first 80: "${privateKey.substring(0, 80)}", hasNL: ${privateKey.includes('\n')}, len: ${privateKey.length}): ${e.message}`);
+  }
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, encoder.encode(jwt));
   const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const signedJwt = `${jwt}.${sigB64}`;
