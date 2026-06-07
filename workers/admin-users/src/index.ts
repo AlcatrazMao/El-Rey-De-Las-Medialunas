@@ -97,7 +97,13 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   }
 
   const token = await getAccessToken(env);
-  const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+  let sa: any;
+  try {
+    const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+    sa = JSON.parse(raw);
+  } catch (e) {
+    return { status: 500, error: 'Service account JSON inválido. Verificá el secreto FIREBASE_SERVICE_ACCOUNT.' };
+  }
 
   // ── List users ──
   if (method === 'GET' && path === '/api/users') {
