@@ -50,7 +50,9 @@ interface Env {
 
 // ── Get OAuth2 token ──────────────────────────────────────────────────
 async function getAccessToken(env: Env): Promise<string> {
-  const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+  const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+  const decoded = raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, ''));
+  const sa = JSON.parse(decoded.trim());
   const now = Math.floor(Date.now() / 1000);
   
   const header = { alg: 'RS256', typ: 'JWT' };
