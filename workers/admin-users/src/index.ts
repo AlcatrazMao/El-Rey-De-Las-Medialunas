@@ -67,9 +67,10 @@ async function getAccessToken(env: Env): Promise<string> {
   const toBase64 = (obj: any) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const jwt = `${toBase64(header)}.${toBase64(claim)}`;
 
-  // Sign JWT with the private key
+  // Sign JWT with the private key — fix newlines if stored as literal \n
+  const privateKey = sa.private_key.replace(/\\n/g, '\n');
   const encoder = new TextEncoder();
-  const keyData = encoder.encode(sa.private_key);
+  const keyData = encoder.encode(privateKey);
   const cryptoKey = await crypto.subtle.importKey(
     'pkcs8', keyData, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
   );
