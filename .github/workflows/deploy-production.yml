@@ -42,6 +42,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          ADMIN_AUTH: ${{ secrets.AUTH_SECRET }}
+          ADMIN_FB_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ADMIN_FB_KEY: ${{ secrets.FIREBASE_API_KEY }}
         run: |
           D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid":"\K[0-9a-f-]+(?=","name":"el-rey-db")' | head -1)
           [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"name":"el-rey-db","uuid":"\K[0-9a-f-]+' | head -1)
@@ -72,10 +75,9 @@ jobs:
           (cd workers/admin-users && npx wrangler deploy --env production)
 
           echo "=== Setting Admin Worker Secrets ==="
-          cd workers/admin-users
-          npx wrangler secret put AUTH_SECRET --env production <<< "${{ secrets.AUTH_SECRET }}"
-          npx wrangler secret put FIREBASE_SERVICE_ACCOUNT --env production <<< "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
-          npx wrangler secret put FIREBASE_API_KEY --env production <<< "${{ secrets.FIREBASE_API_KEY }}"
+          printf "%s" "$ADMIN_AUTH" | npx wrangler secret put AUTH_SECRET --env production
+          printf "%s" "$ADMIN_FB_SA" | npx wrangler secret put FIREBASE_SERVICE_ACCOUNT --env production
+          printf "%s" "$ADMIN_FB_KEY" | npx wrangler secret put FIREBASE_API_KEY --env production
 
       - name: Build Frontend
         env:
