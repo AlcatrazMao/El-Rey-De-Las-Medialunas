@@ -67,14 +67,21 @@ async function getAccessToken(env: Env): Promise<string> {
   const toBase64 = (obj: any) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const jwt = `${toBase64(header)}.${toBase64(claim)}`;
 
-  // Sign JWT with the private key — fix any newline/formatting issues
-  let privateKey = sa.private_key.trim();
-  // Handle both literal \n and already-escaped newlines
-  privateKey = privateKey.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
-  // Ensure proper PEM header/footer have newlines
-  if (!privateKey.includes('\n') && privateKey.includes('-----')) {
-    privateKey = privateKey.replace(/-----/g, '\n-----\n');
-  }
+  // Sign JWT — rebuild PEM key with proper newlines
+  let pk = sa.private_key
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n?/g, '\n')
+    .replace(/-----BEGIN PRIVATE KEY-----[\s\n]*/g, '-----BEGIN PRIVATE KEY-----\n')
+    .replace(/[\s\n]*-----END PRIVATE KEY-----/g, '\n-----END PRIVATE KEY-----')
+    .replace(/\s+/g, '')
+    .trim();
+  
+  // Re-wrap key body at 64 chars
+  const header = '-----BEGIN PRIVATE KEY-----\n';
+  const footer = '\n-----END PRIVATE KEY-----';
+  const body = pk.replace(header, '').replace(footer.replace(/\n/g, ''), '').replace(/\n/g, '');
+  const wrapped = body.match(/.{1,64}/g)?.join('\n') || body;
+  const privateKey = header + wrapped + footer;
   const encoder = new TextEncoder();
   const keyData = encoder.encode(privateKey);
   let cryptoKey: CryptoKey;
