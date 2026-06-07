@@ -74,11 +74,25 @@ jobs:
           # Deploy production worker
           (cd workers/admin-users && npx wrangler deploy --env production)
 
-          echo "=== Setting Admin Worker Secrets ==="
-          printf "%s" "$ADMIN_AUTH" | npx wrangler secret put AUTH_SECRET --env production
-          printf "%s" "$ADMIN_FB_KEY" | npx wrangler secret put FIREBASE_API_KEY --env production
-          # FIREBASE_SERVICE_ACCOUNT must be set manually in Cloudflare Dashboard
-          # (JSON multilínea no se transfiere bien desde CI)
+          echo "=== Setting Admin Worker Secrets via Cloudflare API ==="
+          # AUTH_SECRET
+          curl -s -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"AUTH_SECRET\",\"text\":$(echo "$ADMIN_AUTH" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"type\":\"secret_text\"}" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/admin-users-production/secrets"
+          # FIREBASE_SERVICE_ACCOUNT
+          curl -s -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"FIREBASE_SERVICE_ACCOUNT\",\"text\":$(echo "$ADMIN_FB_SA" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"type\":\"secret_text\"}" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/admin-users-production/secrets"
+          # FIREBASE_API_KEY
+          curl -s -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"FIREBASE_API_KEY\",\"text\":$(echo "$ADMIN_FB_KEY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"type\":\"secret_text\"}" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/admin-users-production/secrets"
 
       - name: Build Frontend
         env:
