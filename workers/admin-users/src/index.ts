@@ -94,6 +94,7 @@ async function getAccessToken(env: Env): Promise<string> {
       throw new Error(`PKCS8 import failed (raw: ${e.message}, pem: ${e2.message})`);
     }
   }
+  const encoder = new TextEncoder();
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, encoder.encode(jwt));
   const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const signedJwt = `${jwt}.${sigB64}`;
