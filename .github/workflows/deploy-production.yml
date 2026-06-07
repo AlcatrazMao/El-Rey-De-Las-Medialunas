@@ -87,10 +87,15 @@ jobs:
 
       - name: Deploy to Firebase
         env:
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
-          echo "$FIREBASE_SA" > /tmp/fb-key.json
+          # Decode base64 if needed, then extract project ID
+          if echo "$FIREBASE_SA" | grep -q '^{'; then
+            echo "$FIREBASE_SA" > /tmp/fb-key.json
+          else
+            echo "$FIREBASE_SA" | base64 -d > /tmp/fb-key.json
+          fi
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/fb-key.json
           FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
+          echo "Deploying to Firebase project: $FB_PROJECT"
           npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT"
