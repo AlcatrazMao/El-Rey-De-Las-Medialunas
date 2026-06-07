@@ -101,10 +101,11 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   try {
     const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
     // Support both raw JSON and base64-encoded JSON
-    const decoded = raw.startsWith('{') ? raw : atob(raw);
-    sa = JSON.parse(decoded);
-  } catch (e) {
-    return { status: 500, error: 'Service account JSON inválido. Verificá el secreto FIREBASE_SERVICE_ACCOUNT.' };
+    const decoded = raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, ''));
+    sa = JSON.parse(decoded.trim());
+  } catch (e: any) {
+    const raw = (env.FIREBASE_SERVICE_ACCOUNT || '');
+    return { status: 500, error: `Service account JSON inválido (longitud=${raw.length}, primeros 40 chars="${raw.substring(0, 40)}"). Error: ${e.message}` };
   }
 
   // ── List users ──
