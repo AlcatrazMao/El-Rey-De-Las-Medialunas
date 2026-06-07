@@ -71,9 +71,8 @@ jobs:
           # Deploy production worker
           (cd workers/admin-users && npx wrangler deploy --env production)
 
-          echo "=== Setting Admin Worker Secrets ==="
-          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' | npx wrangler secret put FIREBASE_SERVICE_ACCOUNT --env production
-          echo '${{ secrets.FIREBASE_API_KEY }}' | npx wrangler secret put FIREBASE_API_KEY --env production
+          # Admin secrets set manually in Cloudflare Dashboard
+          # (no se pushean desde CI para evitar corrupción)
 
       - name: Build Frontend
         env:
