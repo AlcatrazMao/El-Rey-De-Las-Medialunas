@@ -42,9 +42,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          ADMIN_AUTH: ${{ secrets.AUTH_SECRET }}
-          ADMIN_FB_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          ADMIN_FB_KEY: ${{ secrets.FIREBASE_API_KEY }}
         run: |
           D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid":"\K[0-9a-f-]+(?=","name":"el-rey-db")' | head -1)
           [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"name":"el-rey-db","uuid":"\K[0-9a-f-]+' | head -1)
@@ -74,25 +71,10 @@ jobs:
           # Deploy production worker
           (cd workers/admin-users && npx wrangler deploy --env production)
 
-          echo "=== Setting Admin Worker Secrets via Cloudflare API ==="
-          # AUTH_SECRET
-          curl -s -X PUT \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\":\"AUTH_SECRET\",\"text\":$(echo "$ADMIN_AUTH" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"type\":\"secret_text\"}" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/admin-users-production/secrets"
-          # FIREBASE_SERVICE_ACCOUNT
-          curl -s -X PUT \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\":\"FIREBASE_SERVICE_ACCOUNT\",\"text\":$(echo "$ADMIN_FB_SA" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"type\":\"secret_text\"}" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/admin-users-production/secrets"
-          # FIREBASE_API_KEY
-          curl -s -X PUT \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\":\"FIREBASE_API_KEY\",\"text\":$(echo "$ADMIN_FB_KEY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"type\":\"secret_text\"}" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/admin-users-production/secrets"
+          echo "=== Setting Admin Worker Secrets ==="
+          echo '${{ secrets.AUTH_SECRET }}' | npx wrangler secret put AUTH_SECRET --env production
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' | npx wrangler secret put FIREBASE_SERVICE_ACCOUNT --env production
+          echo '${{ secrets.FIREBASE_API_KEY }}' | npx wrangler secret put FIREBASE_API_KEY --env production
 
       - name: Build Frontend
         env:
