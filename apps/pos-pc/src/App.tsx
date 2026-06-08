@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, signOut, signInWithEmailAndPassword, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './config/firebase';
 import { AppProvider, useApp } from './AppContext';
@@ -16,24 +16,47 @@ import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { CashSessionView } from './components/CashSessionView';
 import { CustomersView } from './components/CustomersView';
 import {
-  LayoutDashboard,
-  ShoppingCart,
-  Package,
-  ReceiptText,
-  HandCoins,
-  Globe,
-  X,
-  TrendingUp,
-  Wallet,
-  Menu,
-  LogOut,
-  User as UserIcon,
-  Users
+  LayoutDashboard, ShoppingCart, Package, ReceiptText,
+  HandCoins, Globe, X, TrendingUp, Wallet, Menu,
+  LogOut, User as UserIcon, Users, PlusCircle, Check
 } from 'lucide-react';
+
+interface SavedSession { email: string; name: string; role: string; }
 
 function ERPLayout() {
   const { activeTab, setActiveTab, activeUser, logout } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showSessionMenu, setShowSessionMenu] = useState(false);
+  const [showAddSession, setShowAddSession] = useState(false);
+
+  // Load saved sessions from localStorage
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>(() => {
+    try { return JSON.parse(localStorage.getItem('erp_sessions') || '[]'); }
+    catch { return []; }
+  });
+
+  // Save current session when user changes
+  useEffect(() => {
+    if (!activeUser?.email) return;
+    const sessions = savedSessions.filter(s => s.email !== activeUser.email);
+    sessions.unshift({ email: activeUser.email, name: activeUser.name, role: activeUser.role });
+    localStorage.setItem('erp_sessions', JSON.stringify(sessions));
+    setSavedSessions(sessions);
+  }, [activeUser?.email, activeUser?.role]);
+
+  const switchSession = async (session: SavedSession) => {
+    if (session.email === activeUser.email) return;
+    await signOut(auth);
+    // Use stored role for quick switch, Firebase will update on next auth
+    localStorage.setItem('erp_quick_role', session.role);
+    setShowSessionMenu(false);
+  };
+
+  const removeSession = (email: string) => {
+    const sessions = savedSessions.filter(s => s.email !== email);
+    localStorage.setItem('erp_sessions', JSON.stringify(sessions));
+    setSavedSessions(sessions);
+  };
 
   const renderActiveView = () => {
     switch (activeTab) {
@@ -88,34 +111,54 @@ function ERPLayout() {
   return (
     <div className="min-h-screen bg-[#FDFBF7] dark:bg-zinc-950 flex flex-col font-sans transition-colors duration-300">
       <MainHeadLayout />
-
       <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-3 lg:py-6 flex flex-col gap-4">
-        {/* Desktop nav */}
         <nav className="hidden md:flex items-center justify-between gap-3 py-2 px-3 border border-orange-100/40 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm select-none">
           <div className="flex items-center gap-1.5 flex-wrap">
             {navItems.map(item => {
               const isActive = activeTab === item.id;
               return (
-                <button
-                  key={item.id}
-                  onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
+                <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
                   className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-200 cursor-pointer ${
-                    isActive
-                      ? 'bg-amber-500 text-white shadow-sm'
-                      : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'
-                  }`}
-                >
+                    isActive ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'}`}>
                   <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>
                   <span className="hidden lg:inline">{item.label}</span>
                 </button>
               );
             })}
           </div>
-          <div className="flex items-center gap-2 text-xs py-1.5 px-3 bg-amber-500/5 dark:bg-amber-950/10 border border-amber-500/10 dark:border-zinc-800 rounded-xl">
-            <UserIcon className="w-3.5 h-3.5 text-amber-500" />
-            <span className="font-bold text-gray-700 dark:text-zinc-300 truncate max-w-[120px]">{activeUser.name.split(' ')[0]}</span>
-            <span className="text-[8px] bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded-md uppercase font-black tracking-wider">{activeUser.role}</span>
-            <button onClick={logout} className="ml-1 p-1 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg text-gray-400 hover:text-red-500 transition-colors" title="Cerrar sesión">
+          <div className="flex items-center gap-2">
+            {/* Session switcher */}
+            <div className="relative">
+              <button onClick={() => setShowSessionMenu(!showSessionMenu)}
+                className="flex items-center gap-2 text-xs py-1.5 px-3 bg-amber-500/5 dark:bg-amber-950/10 border border-amber-500/10 dark:border-zinc-800 rounded-xl">
+                <UserIcon className="w-3.5 h-3.5 text-amber-500" />
+                <span className="font-bold text-gray-700 dark:text-zinc-300 truncate max-w-[100px]">{activeUser.name.split(' ')[0]}</span>
+                <span className="text-[8px] bg-amber-500/15 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-md uppercase font-black">{activeUser.role}</span>
+              </button>
+              {showSessionMenu && (
+                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-zinc-900 border rounded-xl shadow-lg z-50 p-2" onClick={e => e.stopPropagation()}>
+                  <div className="text-[10px] font-bold text-gray-400 uppercase px-2 py-1">Sesiones</div>
+                  {savedSessions.map(s => (
+                    <div key={s.email} className={`flex items-center gap-2 px-2 py-2 rounded-lg text-xs ${s.email === activeUser.email ? 'bg-amber-500/10' : 'hover:bg-gray-50 dark:hover:bg-zinc-800'}`}>
+                      <button onClick={() => switchSession(s)} className="flex-1 flex items-center gap-2 text-left">
+                        <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center text-[10px] font-bold text-amber-700">{s.name[0]}</div>
+                        <div>
+                          <div className="font-bold text-gray-700 dark:text-zinc-200">{s.name}</div>
+                          <div className="text-[10px] text-gray-400">{s.role} · {s.email}</div>
+                        </div>
+                      </button>
+                      {s.email === activeUser.email && <Check className="w-3.5 h-3.5 text-amber-500" />}
+                      <button onClick={() => removeSession(s.email)} className="text-gray-400 hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
+                    </div>
+                  ))}
+                  <button onClick={() => { setShowSessionMenu(false); logout(); setShowAddSession(true); }}
+                    className="w-full flex items-center gap-2 px-2 py-2 mt-1 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-lg border-t border-gray-100 dark:border-zinc-800">
+                    <PlusCircle className="w-3.5 h-3.5" /> Agregar sesión
+                  </button>
+                </div>
+              )}
+            </div>
+            <button onClick={logout} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg text-gray-400 hover:text-red-500 transition-colors" title="Cerrar sesión">
               <LogOut className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -125,46 +168,28 @@ function ERPLayout() {
         <div className="md:hidden bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 p-3 rounded-2xl shadow-sm flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="p-2 bg-amber-500/10 text-amber-500 rounded-xl">
-                {navItems.find(item => item.id === activeTab)?.icon || <LayoutDashboard className="w-4 h-4" />}
-              </span>
+              <span className="p-2 bg-amber-500/10 text-amber-500 rounded-xl">{navItems.find(item => item.id === activeTab)?.icon || <LayoutDashboard className="w-4 h-4" />}</span>
               <div>
-                <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest block leading-none">Módulo</span>
-                <span className="text-xs font-black text-gray-800 dark:text-zinc-50">
-                  {navItems.find(item => item.id === activeTab)?.label || 'Menú'}
-                </span>
+                <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest block">Módulo</span>
+                <span className="text-xs font-black text-gray-800 dark:text-zinc-50">{navItems.find(item => item.id === activeTab)?.label || 'Menú'}</span>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-bold text-gray-500 dark:text-zinc-400">{activeUser.name.split(' ')[0]}</span>
-              <button onClick={logout} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg text-gray-400 hover:text-red-500 transition-colors">
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                className="p-2 bg-gray-50 hover:bg-gray-100 dark:bg-zinc-950 dark:hover:bg-zinc-800 border border-gray-200/50 dark:border-zinc-800 rounded-xl text-gray-600 dark:text-zinc-300 cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-95"
-              >
+              <button onClick={logout} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg text-gray-400 hover:text-red-500"><LogOut className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 bg-gray-50 hover:bg-gray-100 dark:bg-zinc-950 dark:hover:bg-zinc-800 border rounded-xl text-gray-600 dark:text-zinc-300 cursor-pointer flex items-center gap-1 transition-all active:scale-95">
                 <Menu className="w-4 h-4 text-amber-500" />
               </button>
             </div>
           </div>
-
           {isMobileMenuOpen && (
             <div className="border-t border-gray-100 dark:border-zinc-800 pt-2.5 grid grid-cols-2 gap-1 animate-fade-in select-none">
               {navItems.map(item => {
                 const isActive = activeTab === item.id;
                 return (
-                  <button
-                    key={item.id}
-                    onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
-                    className={`flex items-center gap-2.5 px-3 py-2.5 text-xs font-extrabold rounded-xl text-left transition-all cursor-pointer ${
-                      isActive
-                        ? 'bg-amber-500 text-white shadow-sm'
-                        : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-950/50'
-                    }`}
-                  >
-                    <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>
-                    {item.label}
+                  <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
+                    className={`flex items-center gap-2.5 px-3 py-2.5 text-xs font-extrabold rounded-xl text-left transition-all cursor-pointer ${isActive ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-950/50'}`}>
+                    <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>{item.label}
                   </button>
                 );
               })}
@@ -172,7 +197,6 @@ function ERPLayout() {
           )}
         </div>
 
-        {/* Content */}
         <section className="bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 rounded-3xl p-3 md:p-6 shadow-sm min-h-[520px] transition-all duration-350">
           {renderActiveView()}
         </section>

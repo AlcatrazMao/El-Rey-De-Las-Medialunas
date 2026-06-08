@@ -98,9 +98,10 @@ export type UserRole = 'admin' | 'cajero' | 'panadero';
 export interface User {
   id: string;
   name: string;
+  email?: string;
   role: UserRole;
   avatar: string;
-  customPanels: string[]; // customizable panel card keys
+  customPanels: string[];
 }
 
 export interface PushNotification {

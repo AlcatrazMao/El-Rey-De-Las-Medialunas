@@ -313,6 +313,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
   const firebaseMappedUser: User = {
     id: firebaseUser.uid,
     name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
+    email: firebaseUser.email || '',
     role: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner')) ? 'admin'
           : firebaseUser.email?.includes('cajero') ? 'cajero' : 'panadero',
     avatar: firebaseUser.photoURL || '',
