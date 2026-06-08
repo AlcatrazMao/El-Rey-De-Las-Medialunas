@@ -313,30 +313,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     catch { return []; }
   });
 
-  // Map firebaseUser to local user — get role from Firestore
-  const [firebaseMappedUser, setFirebaseMappedUser] = useState<User>(() => ({
-    id: firebaseUser.uid,
-    name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
-    role: 'panadero', // default, will be updated
-    avatar: firebaseUser.photoURL || '',
-    customPanels: [],
-  }));
+  // Role from Firestore — user is REJECTED if not found
+  const [firebaseMappedUser, setFirebaseMappedUser] = useState<User | null>(null);
+  const [roleLoading, setRoleLoading] = useState(true);
+  const [roleError, setRoleError] = useState('');
 
-  // Fetch role from Firestore on mount
   useEffect(() => {
     const fetchRole = async () => {
       try {
         const roleDoc = await getDoc(doc(db, 'user_roles', firebaseUser.uid));
-        if (roleDoc.exists()) {
-          const data = roleDoc.data();
-          setFirebaseMappedUser(prev => ({ ...prev, role: data.role || 'panadero' }));
+        if (!roleDoc.exists()) {
+          setRoleError('Usuario no autorizado. Contactá al administrador.');
+          setRoleLoading(false);
+          return;
         }
+        const data = roleDoc.data();
+        setFirebaseMappedUser({
+          id: firebaseUser.uid,
+          name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
+          role: data.role || 'panadero',
+          avatar: firebaseUser.photoURL || '',
+          customPanels: data.customPanels || [],
+        });
+        setRoleLoading(false);
       } catch {
-        // Firestore might not be accessible - use default role
+        setRoleError('Error al verificar permisos. Reintentá.');
+        setRoleLoading(false);
       }
     };
     fetchRole();
   }, [firebaseUser.uid]);
+
+  // Show loading/error while checking role
+  if (roleLoading || !firebaseMappedUser) {
+    return (
+      <AppContext.Provider value={{} as any}>
+        <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950">
+          <div className="text-center">
+            {roleError ? (
+              <>
+                <div className="text-4xl mb-4">🔒</div>
+                <p className="text-red-600 font-bold mb-2">{roleError}</p>
+                <button onClick={() => { signOut(auth); }} className="text-sm text-amber-600 hover:underline">Cerrar sesión</button>
+              </>
+            ) : (
+              <>
+                <div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-sm text-gray-500">Verificando permisos...</p>
+              </>
+            )}
+          </div>
+        </div>
+      </AppContext.Provider>
+    );
+  }
 
   const logout = () => {
     signOut(auth);
