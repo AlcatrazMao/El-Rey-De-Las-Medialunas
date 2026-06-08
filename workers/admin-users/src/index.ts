@@ -111,10 +111,20 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
   if (!checkRateLimit(ip)) return { status: 429, error: 'Demasiados intentos' };
   if (!at || at !== (env.AUTH_SECRET || '').trim()) return { status: 401, error: 'No autorizado' };
-
-  const token = await getAccessToken(env);
-  const sa = JSON.parse((env.FIREBASE_SERVICE_ACCOUNT || '').trim().startsWith('{') ? env.FIREBASE_SERVICE_ACCOUNT.trim() : atob(env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '')));
+  
   const apiKey = (env.FIREBASE_API_KEY || '').trim();
+  
+  // Debug endpoint to check secrets
+  if (method === 'GET' && path === '/api/debug') {
+    return { status: 200, data: { 
+      apiKey_len: apiKey.length, 
+      apiKey_prefix: apiKey.substring(0, 10),
+      sa_len: (env.FIREBASE_SERVICE_ACCOUNT || '').length,
+      auth_set: !!(env.AUTH_SECRET || '').trim()
+    }};
+  }
+  
+  if (apiKey.length < 30) return { status: 500, error: `FIREBASE_API_KEY muy corta (${apiKey.length} chars). Seteala completa en Cloudflare Dashboard.` };
 
   // ── List users (from cache, synced with Firebase on create/delete) ──
   if (method === 'GET' && path === '/api/users') {
