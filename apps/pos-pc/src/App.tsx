@@ -16,10 +16,11 @@ import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { CashSessionView } from './components/CashSessionView';
 import { CustomersView } from './components/CustomersView';
 import { AdminUsersView } from './components/AdminUsersView';
+import { StickyNotesView } from './components/StickyNotesView';
 import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
-  LogOut, User as UserIcon, Users, PlusCircle, Check
+  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote
 } from 'lucide-react';
 
 interface SavedSession { email: string; name: string; role: string; }
@@ -72,6 +73,7 @@ function ERPLayout() {
       case 'supply_requests': return <PanaderoSupplyView />;
       case 'customers': return <CustomersView />;
       case 'admin_users': return <AdminUsersView />;
+      case 'notes': return <StickyNotesView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <InventoryView />;
@@ -104,6 +106,7 @@ function ERPLayout() {
           { id: 'accounting', label: 'Egresos', icon: <HandCoins className="h-4 w-4" /> },
           { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },
           { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> },
+          { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> },
           { id: 'admin_users', label: 'Usuarios', icon: <Users className="h-4 w-4" /> }
         ];
     }
