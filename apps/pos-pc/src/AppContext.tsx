@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './config/firebase';
+import { addAutoNote } from './hooks/useStickyNotes';
 import { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 import {
   INITIAL_INGREDIENTS,
@@ -755,11 +756,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       `Factura ${invoiceNumber} generada con éxito por $${newSaleInstance.total.toFixed(2)}`,
       'success'
     );
+    
+    // Auto-note for sales
+    addAutoNote(`💸 Venta ${invoiceNumber}`, `Total: $${newSaleInstance.total.toFixed(2)}\nItems: ${saleLineItems.length}\nPago: ${paymentMethod}`, 'ventas', 'low');
 
     // Alert about low stock elements
     lowStockAlerts.forEach(alertMessage => {
-      // Trigger warning delays or separate logs
       addSystemNotification('⚠️ Alerta de Inventario', alertMessage, 'warning');
+      addAutoNote('⚠️ Stock bajo', alertMessage, 'inventario', 'high');
     });
 
     return { success: true, invoice: newSaleInstance };
@@ -1180,6 +1184,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       `Se abrió la caja con un saldo inicial de $${initialAmount.toFixed(2)} por ${activeUser.name}.`,
       'success'
     );
+    addAutoNote('🏦 Caja abierta', `Saldo inicial: $${initialAmount.toFixed(2)}\nAbierta por: ${activeUser.name}`, 'caja', 'medium');
   };
 
   const closeCashSession = (realAmount: number, note?: string) => {
@@ -1206,6 +1211,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       `Caja cerrada. Esperado: $${expected.toFixed(2)}, Real: $${realAmount.toFixed(2)}, Discrepancia: $${discrepancy.toFixed(2)}`,
       Math.abs(discrepancy) < 0.01 ? 'success' : 'warning'
     );
+    addAutoNote('🏦 Caja cerrada', `Esperado: $${expected.toFixed(2)}\nReal: $${realAmount.toFixed(2)}\nDiferencia: $${discrepancy.toFixed(2)}`, 'caja', Math.abs(discrepancy) > 1 ? 'high' : 'low');
   };
 
   // Alias for error proofing

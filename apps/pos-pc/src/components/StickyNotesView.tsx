@@ -1,142 +1,96 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, X, GripVertical, Save, StickyNote } from 'lucide-react';
-
-interface StickyNote {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  title: string;
-  content: string;
-  color: string;
-  created: string;
-}
-
-const COLORS = ['#FFF8DC', '#F0FDF4', '#EFF6FF', '#FFF7ED', '#FEF2F2', '#FAF5FF'];
-const STORAGE_KEY = 'erp_sticky_notes';
+import React, { useState } from 'react';
+import { Plus, LayoutGrid, List, StickyNote as StickyNoteIcon, Download, Upload } from 'lucide-react';
+import { useStickyNotes, type StickyNote } from '../hooks/useStickyNotes';
+import { NotesCanvas } from './NotesCanvas';
+import { NotesList } from './NotesList';
 
 export const StickyNotesView: React.FC = () => {
-  const [notes, setNotes] = useState<StickyNote[]>(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-    catch { return []; }
-  });
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [editing, setEditing] = useState<string | null>(null);
-  const canvasRef = useRef<HTMLDivElement>(null);
+  const { notes, addNote, deleteNote, updateNote, toggleStatus } = useStickyNotes();
+  const [view, setView] = useState<'canvas' | 'list'>('canvas');
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newNote, setNewNote] = useState({ title: '', content: '', category: 'general' as StickyNote['category'], priority: 'medium' as StickyNote['priority'] });
 
-  const save = (list: StickyNote[]) => {
-    setNotes(list);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  const handleAdd = () => {
+    if (!newNote.title.trim()) return;
+    addNote(newNote);
+    setNewNote({ title: '', content: '', category: 'general', priority: 'medium' });
+    setShowNewForm(false);
   };
 
-  const addNote = () => {
-    const note: StickyNote = {
-      id: `note_${Date.now()}`,
-      x: 40 + Math.random() * 100,
-      y: 40 + Math.random() * 100,
-      width: 240,
-      height: 200,
-      title: 'Nueva nota',
-      content: '',
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
-      created: new Date().toISOString(),
-    };
-    save([note, ...notes]);
-  };
-
-  const deleteNote = (id: string) => save(notes.filter(n => n.id !== id));
-  
-  const updateNote = (id: string, data: Partial<StickyNote>) => {
-    save(notes.map(n => n.id === id ? { ...n, ...data } : n));
-  };
-
-  // Drag handlers
-  const handleMouseDown = (e: React.MouseEvent, id: string) => {
-    const note = notes.find(n => n.id === id);
-    if (!note || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).tagName === 'INPUT') return;
-    setDragging(id);
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (rect) {
-      setDragOffset({ x: e.clientX - rect.left - note.x, y: e.clientY - rect.top - note.y });
-    }
-  };
-
-  useEffect(() => {
-    if (!dragging) return;
-    const move = (e: MouseEvent) => {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (rect) {
-        updateNote(dragging, {
-          x: Math.max(0, e.clientX - rect.left - dragOffset.x),
-          y: Math.max(0, e.clientY - rect.top - dragOffset.y),
-        });
-      }
-    };
-    const up = () => setDragging(null);
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
-    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-  }, [dragging, dragOffset]);
+  const activeCount = notes.filter(n => n.status === 'active').length;
+  const doneCount = notes.filter(n => n.status === 'done').length;
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <StickyNote className="w-5 h-5 text-amber-500" />
-          <h2 className="text-base font-bold text-gray-800 dark:text-zinc-100">Notas del Tablero</h2>
-          <span className="text-xs text-gray-400">({notes.length})</span>
+    <div className="flex flex-col h-full gap-3">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <StickyNoteIcon className="w-5 h-5 text-amber-500" />
+          <h2 className="text-base font-bold text-gray-800 dark:text-zinc-100">Notas</h2>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500">{activeCount} activas</span>
+            {doneCount > 0 && <span className="text-emerald-600">{doneCount} hechas</span>}
+          </div>
         </div>
-        <button onClick={addNote}
-          className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 transition-colors">
-          <Plus className="w-3.5 h-3.5" /> Agregar nota
-        </button>
-      </div>
-      <div ref={canvasRef} className="flex-1 relative bg-[#FAF0E6] dark:bg-zinc-950 border border-dashed border-amber-200 dark:border-zinc-800 rounded-xl overflow-hidden"
-        style={{ minHeight: '60vh' }}>
-        {notes.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">
-            <div className="text-center">
-              <StickyNote className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Hacé clic en "Agregar nota" para empezar</p>
-            </div>
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex bg-gray-100 dark:bg-zinc-800 rounded-lg p-0.5">
+            <button onClick={() => setView('canvas')}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${view === 'canvas' ? 'bg-white dark:bg-zinc-700 text-amber-600 shadow-sm' : 'text-gray-500'}`}>
+              <LayoutGrid className="w-3.5 h-3.5 inline mr-1" />Canvas
+            </button>
+            <button onClick={() => setView('list')}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${view === 'list' ? 'bg-white dark:bg-zinc-700 text-amber-600 shadow-sm' : 'text-gray-500'}`}>
+              <List className="w-3.5 h-3.5 inline mr-1" />Lista
+            </button>
           </div>
-        )}
-        {notes.map(note => (
-          <div key={note.id}
-            onMouseDown={(e) => handleMouseDown(e, note.id)}
-            className={`absolute rounded-lg shadow-md border border-amber-200 dark:border-zinc-700 cursor-move ${dragging === note.id ? 'shadow-xl z-50 ring-2 ring-amber-500' : 'z-10'}`}
-            style={{ left: note.x, top: note.y, width: note.width, height: note.height, background: note.color }}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-amber-200/50">
-              <GripVertical className="w-3 h-3 text-gray-400" />
-              {editing === note.id ? (
-                <input value={note.title} onChange={e => updateNote(note.id, { title: e.target.value })}
-                  onBlur={() => setEditing(null)}
-                  autoFocus
-                  className="flex-1 mx-2 text-xs font-bold bg-transparent border-b border-dashed border-gray-300 outline-none"
-                />
-              ) : (
-                <span onDoubleClick={() => setEditing(note.id)}
-                  className="flex-1 mx-2 text-xs font-bold text-gray-700 truncate cursor-text">
-                  {note.title}
-                </span>
-              )}
-              <button onClick={() => deleteNote(note.id)}
-                className="p-0.5 hover:bg-red-100 rounded text-gray-400 hover:text-red-500">
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-            {/* Content */}
-            <textarea value={note.content}
-              onChange={e => updateNote(note.id, { content: e.target.value })}
-              placeholder="Escribí algo..."
-              className="w-full h-[calc(100%-32px)] px-3 py-2 text-xs bg-transparent resize-none outline-none placeholder:text-gray-400"
-              style={{ color: '#4A3E3E' }} />
-          </div>
-        ))}
+          <button onClick={() => setShowNewForm(!showNewForm)}
+            className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 transition-colors">
+            <Plus className="w-3.5 h-3.5" /> Nueva
+          </button>
+        </div>
       </div>
+
+      {/* New note form */}
+      {showNewForm && (
+        <div className="bg-white dark:bg-zinc-900 border border-amber-200 dark:border-zinc-800 rounded-xl p-3 space-y-2">
+          <input value={newNote.title} onChange={e => setNewNote({ ...newNote, title: e.target.value })}
+            placeholder="Título de la nota" onKeyDown={e => e.key === 'Enter' && handleAdd()}
+            className="w-full px-3 py-2 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-sm font-bold" autoFocus />
+          <textarea value={newNote.content} onChange={e => setNewNote({ ...newNote, content: e.target.value })}
+            placeholder="Contenido..." rows={2}
+            className="w-full px-3 py-2 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-xs resize-none" />
+          <div className="flex items-center gap-2">
+            <select value={newNote.category} onChange={e => setNewNote({ ...newNote, category: e.target.value as any })}
+              className="px-2 py-1.5 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-xs">
+              <option value="general">📌 General</option>
+              <option value="tarea">📋 Tarea</option>
+              <option value="ventas">💸 Ventas</option>
+              <option value="inventario">📦 Inventario</option>
+              <option value="caja">💰 Caja</option>
+              <option value="produccion">🏭 Producción</option>
+            </select>
+            <select value={newNote.priority} onChange={e => setNewNote({ ...newNote, priority: e.target.value as any })}
+              className="px-2 py-1.5 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-xs">
+              <option value="high">🔴 Alta</option>
+              <option value="medium">🟡 Media</option>
+              <option value="low">⚪ Baja</option>
+            </select>
+            <div className="flex-1" />
+            <button onClick={() => setShowNewForm(false)}
+              className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">Cancelar</button>
+            <button onClick={handleAdd}
+              className="px-4 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold">Crear</button>
+          </div>
+        </div>
+      )}
+
+      {/* Content */}
+      {view === 'canvas' ? (
+        <NotesCanvas notes={notes} onUpdate={updateNote} onDelete={deleteNote} onToggle={toggleStatus} />
+      ) : (
+        <NotesList notes={notes} onUpdate={updateNote} onDelete={deleteNote} onToggle={toggleStatus} />
+      )}
     </div>
   );
 };
