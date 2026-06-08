@@ -15,14 +15,9 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
 
     try {
-      // Serve HTML
       if (request.method === 'GET' && url.pathname === '/') {
-        return new Response(HTML, {
-          headers: { 'Content-Type': 'text/html; charset=utf-8', ...cors },
-        });
+        return new Response(HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', ...cors } });
       }
-
-      // API routes  
       if (url.pathname.startsWith('/api/')) {
         const result = await handleRequest(request, env, url);
         return new Response(JSON.stringify(result), {
@@ -30,7 +25,6 @@ export default {
           headers: { 'Content-Type': 'application/json', ...cors },
         });
       }
-
       return new Response('Not found', { status: 404 });
     } catch (err: any) {
       return new Response(JSON.stringify({ status: 500, error: err.message }), {
@@ -43,13 +37,12 @@ export default {
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface Env {
-  DB: D1Database;
   FIREBASE_SERVICE_ACCOUNT: string;
   FIREBASE_API_KEY: string;
   AUTH_SECRET: string;
 }
 
-// ── Rate limiter (5 attempts/min per IP) ──────────────────────────────
+// ── Rate limiter ─────────────────────────────────────────────────────
 const rateLimit = new Map<string, { count: number; reset: number }>();
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
@@ -60,81 +53,51 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
+// ── In-memory user cache ─────────────────────────────────────────────
+let userCache: { uid: string; email: string; displayName: string; disabled: boolean; created: string }[] = [];
+
 // ── Get OAuth2 token ──────────────────────────────────────────────────
 async function getAccessToken(env: Env): Promise<string> {
   const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
   const decoded = raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, ''));
-  let sa: any;
-  try {
-    sa = JSON.parse(decoded.trim());
-  } catch (e: any) {
-    throw new Error(`Failed to parse SA JSON. Raw starts with: "${raw.substring(0, 50)}", Decoded starts with: "${decoded.substring(0, 50)}". Error: ${e.message}`);
-  }
+  const sa = JSON.parse(decoded.trim());
   const now = Math.floor(Date.now() / 1000);
   
-  const header = { alg: 'RS256', typ: 'JWT' };
+  const joseHeader = { alg: 'RS256', typ: 'JWT' };
   const claim = {
     iss: sa.client_email,
     scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/identitytoolkit',
-    aud: sa.token_uri || 'https://oauth2.googleapis.com/token',
+    aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now,
   };
 
-  const toBase64 = (obj: any) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  const jwt = `${toBase64(header)}.${toBase64(claim)}`;
+  const toB64 = (obj: any) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const jwt = `${toB64(joseHeader)}.${toB64(claim)}`;
 
-  // Sign JWT — extract and rebuild PEM key
+  // Extract and clean private key
   let pk = sa.private_key.replace(/\\n/g, '\n').replace(/\r\n?/g, '\n');
-  // Extract base64 body and decode to raw binary
-  const bodyMatch = pk.match(/-----BEGIN PRIVATE KEY-----\n?([\s\S]*?)\n?-----END PRIVATE KEY-----/);
-  const b64 = bodyMatch ? bodyMatch[1].replace(/\s/g, '') : pk.replace(/-----.*?-----/g, '').replace(/\s/g, '');
-  
-  // Decode base64 to ArrayBuffer, then try importKey
-  const binaryStr = atob(b64);
-  const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-  
-  let cryptoKey: CryptoKey;
-  try {
-    cryptoKey = await crypto.subtle.importKey(
-      'pkcs8', bytes.buffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
-    );
-  } catch (e: any) {
-    const pemKey = '-----BEGIN PRIVATE KEY-----\n' + b64.match(/.{1,64}/g)?.join('\n') + '\n-----END PRIVATE KEY-----';
-    const encoder2 = new TextEncoder();
-    try {
-      cryptoKey = await crypto.subtle.importKey(
-        'pkcs8', encoder2.encode(pemKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
-      );
-    } catch (e2: any) {
-      throw new Error(`PKCS8 import failed (raw: ${e.message}, pem: ${e2.message})`);
-    }
-  }
-  const encoder = new TextEncoder();
-  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, encoder.encode(jwt));
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  const signedJwt = `${jwt}.${sigB64}`;
+  const m = pk.match(/-----BEGIN PRIVATE KEY-----\n?([\s\S]*?)\n?-----END PRIVATE KEY-----/);
+  const b64 = m ? m[1].replace(/\s/g, '') : pk.replace(/-----.*?-----/g, '').replace(/\s/g, '');
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-  const tokenRes = await fetch(sa.token_uri || 'https://oauth2.googleapis.com/token', {
+  const key = await crypto.subtle.importKey('pkcs8', bytes.buffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(jwt));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const signed = `${jwt}.${sigB64}`;
+
+  const tres = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJwt}`,
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signed}`,
   });
-  const tokenText = await tokenRes.text();
-  if (!tokenRes.ok) {
-    throw new Error(`OAuth2 token request failed (${tokenRes.status}): ${tokenText.substring(0, 200)}`);
-  }
-  let tokenData: any;
-  try {
-    tokenData = JSON.parse(tokenText);
-  } catch {
-    throw new Error(`OAuth2 returned non-JSON (status ${tokenRes.status}): ${tokenText.substring(0, 300)}`);
-  }
-  if (!tokenData.access_token) {
-    throw new Error(`OAuth2 response missing access_token: ${tokenText.substring(0, 300)}`);
-  }
-  return tokenData.access_token;
+  const ttext = await tres.text();
+  if (!tres.ok) throw new Error(`OAuth2 failed (${tres.status}): ${ttext.substring(0, 200)}`);
+  const td = JSON.parse(ttext);
+  if (!td.access_token) throw new Error(`OAuth2 no access_token: ${ttext.substring(0, 200)}`);
+  return td.access_token;
 }
 
 // ── Handle ────────────────────────────────────────────────────────────
@@ -142,78 +105,34 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   const path = url.pathname;
   const method = req.method;
 
-  // Auth check with rate limiting (5 attempts/min per IP)
-  const authHeader = req.headers.get('Authorization');
-  const authToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  // Auth
+  const ah = req.headers.get('Authorization');
+  const at = ah?.startsWith('Bearer ') ? ah.slice(7) : '';
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!checkRateLimit(ip)) {
-    return { status: 429, error: 'Demasiados intentos. Esperá un minuto.' };
-  }
-  if (!authToken || authToken !== (env.AUTH_SECRET || '').trim()) {
-    const sa = (env.AUTH_SECRET || '').trim();
-    return { status: 401, error: `No autorizado (token_len=${authToken.length}, secret_len=${sa.length}, secret_set=${!!env.AUTH_SECRET})` };
-  }
+  if (!checkRateLimit(ip)) return { status: 429, error: 'Demasiados intentos' };
+  if (!at || at !== (env.AUTH_SECRET || '').trim()) return { status: 401, error: 'No autorizado' };
 
   const token = await getAccessToken(env);
-  let sa: any;
-  try {
-    const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
-    // Support both raw JSON and base64-encoded JSON
-    const decoded = raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, ''));
-    sa = JSON.parse(decoded.trim());
-  } catch (e: any) {
-    const raw = (env.FIREBASE_SERVICE_ACCOUNT || '');
-    return { status: 500, error: `Service account JSON inválido (longitud=${raw.length}, primeros 40 chars="${raw.substring(0, 40)}"). Error: ${e.message}` };
-  }
+  const sa = JSON.parse((env.FIREBASE_SERVICE_ACCOUNT || '').trim().startsWith('{') ? env.FIREBASE_SERVICE_ACCOUNT.trim() : atob(env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '')));
+  const apiKey = (env.FIREBASE_API_KEY || '').trim();
 
-  // ── List users ──
+  // ── List users (from cache, synced with Firebase on create/delete) ──
   if (method === 'GET' && path === '/api/users') {
-    const url = `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:query`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ returnUserInfo: true, maxResults: 100 }),
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      return { status: res.status, error: `Firebase API ${res.status} for project "${sa.project_id}": ${text.substring(0, 300)}` };
-    }
-    try {
-      const data = JSON.parse(text);
-      const users = (data.accounts || []).map((u: any) => ({
-        uid: u.localId, email: u.email || '', displayName: u.displayName || '',
-        disabled: u.disabled || false, emailVerified: u.emailVerified || false,
-        created: u.createdAt ? new Date(Number(u.createdAt)).toISOString() : '',
-        lastSignIn: u.lastLoginAt ? new Date(Number(u.lastLoginAt)).toISOString() : '',
-        provider: (u.providerUserInfo || []).map((p: any) => p.providerId).join(', '),
-      }));
-      return { status: 200, data: users };
-    } catch {
-      return { status: 500, error: `Firebase returned non-JSON: ${text.substring(0, 300)}` };
-    }
+    return { status: 200, data: userCache };
   }
 
   // ── Create user ──
   if (method === 'POST' && path === '/api/users') {
     const body: any = await req.json();
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts?key=${env.FIREBASE_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: body.email,
-          password: body.password,
-          displayName: body.displayName,
-          disabled: body.disabled || false,
-        }),
-      }
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts?key=${apiKey}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: body.email, password: body.password, displayName: body.displayName, disabled: body.disabled || false, returnSecureToken: false }) }
     );
-    const data: any = await res.json();
-    if (!res.ok) return { status: res.status, error: data.error?.message || 'Error' };
+    const text = await res.text();
+    if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 200)}` };
+    const data = JSON.parse(text);
+    userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', disabled: false, created: new Date().toISOString() });
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }
 
@@ -226,21 +145,20 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     if (body.password) updates.password = body.password;
     if (body.displayName !== undefined) updates.displayName = body.displayName;
     if (body.disabled !== undefined) updates.disableUser = body.disabled;
-    if (body.emailVerified !== undefined) updates.emailVerified = body.emailVerified;
-
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update?key=${env.FIREBASE_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updates),
-      }
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update?key=${apiKey}`,
+      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(updates) }
     );
-    const data: any = await res.json();
-    if (!res.ok) return { status: res.status, error: data.error?.message || 'Error' };
+    const text = await res.text();
+    if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 200)}` };
+    const data = JSON.parse(text);
+    // Update cache
+    const idx = userCache.findIndex(u => u.uid === uid);
+    if (idx >= 0) {
+      if (body.email) userCache[idx].email = body.email;
+      if (body.displayName !== undefined) userCache[idx].displayName = body.displayName;
+      if (body.disabled !== undefined) userCache[idx].disabled = body.disabled;
+    }
     return { status: 200, data: { uid: data.localId } };
   }
 
@@ -248,18 +166,12 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (method === 'DELETE' && path.startsWith('/api/users/')) {
     const uid = path.split('/api/users/')[1];
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:delete?key=${env.FIREBASE_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ localId: uid }),
-      }
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:delete?key=${apiKey}`,
+      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ localId: uid }) }
     );
-    const data: any = await res.json();
-    if (!res.ok) return { status: res.status, error: data.error?.message || 'Error' };
+    const text = await res.text();
+    if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 200)}` };
+    userCache = userCache.filter(u => u.uid !== uid);
     return { status: 200, data: { deleted: uid } };
   }
 
