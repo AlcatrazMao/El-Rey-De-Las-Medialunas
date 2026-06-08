@@ -154,10 +154,11 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     const data = JSON.parse(text);
     // Update cache
     const idx = userCache.findIndex(u => u.uid === uid);
-    if (idx >= 0) {
-      if (body.email) userCache[idx].email = body.email;
-      if (body.displayName !== undefined) userCache[idx].displayName = body.displayName;
-      if (body.disabled !== undefined) userCache[idx].disabled = body.disabled;
+    if (idx >= 0 && userCache[idx]) {
+      const u = userCache[idx]!;
+      if (body.email) u.email = body.email;
+      if (body.displayName !== undefined) u.displayName = body.displayName;
+      if (body.disabled !== undefined) u.disabled = body.disabled;
     }
     return { status: 200, data: { uid: data.localId } };
   }
