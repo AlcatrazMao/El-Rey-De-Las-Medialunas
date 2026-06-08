@@ -1,10 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../AppContext';
 import { Bell, Check, Trash2, CircleAlert, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 
 export const NotificationCenter: React.FC = () => {
   const { notifications, markNotificationAsRead, clearNotifications } = useApp();
   const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on click outside or Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+  }, [isOpen]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -22,7 +33,7 @@ export const NotificationCenter: React.FC = () => {
   };
 
   return (
-    <div className="relative z-50">
+    <div className="relative z-50" ref={ref}>
       <button
         id="btn-bell-notif"
         onClick={() => setIsOpen(!isOpen)}
@@ -38,7 +49,7 @@ export const NotificationCenter: React.FC = () => {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 md:w-96 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-gray-100 dark:border-zinc-800 p-4 transition-all duration-300">
+        <div className="absolute right-0 mt-2 w-72 sm:w-80 md:w-96 max-w-[calc(100vw-2rem)] bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-gray-100 dark:border-zinc-800 p-4 transition-all duration-300">
           <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-zinc-800">
             <h3 className="font-semibold text-gray-800 dark:text-zinc-100 flex items-center gap-2">
               <Bell className="h-4 w-4" /> Notificaciones Críticas ({unreadCount} sin leer)
@@ -71,7 +82,7 @@ export const NotificationCenter: React.FC = () => {
                     <div className="mt-0.5 shrink-0">{style.icon}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start gap-1">
-                        <p className={`font-medium text-xs md:text-sm ${style.text}`}>
+                        <p className={`font-medium text-xs md:text-sm break-words ${style.text}`}>
                           {notif.title}
                         </p>
                         {!notif.read && (
@@ -85,7 +96,7 @@ export const NotificationCenter: React.FC = () => {
                           </button>
                         )}
                       </div>
-                      <p className="text-xs text-gray-600 dark:text-zinc-300 mt-1">
+                      <p className="text-xs text-gray-600 dark:text-zinc-300 mt-1 break-words">
                         {notif.message}
                       </p>
                       <span className="text-[10px] text-gray-400 dark:text-zinc-500 mt-1 block">
