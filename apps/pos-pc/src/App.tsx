@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './config/firebase';
 import { AppProvider, useApp } from './AppContext';
 import { MainHeadLayout } from './components/MainHeadLayout';
@@ -195,10 +195,7 @@ export default function App() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950">
-        <div className="text-center">
-          <div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-gray-500 dark:text-zinc-400">Cargando...</p>
-        </div>
+        <div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto" />
       </div>
     );
   }
