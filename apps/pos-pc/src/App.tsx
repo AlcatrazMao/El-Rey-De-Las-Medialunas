@@ -208,7 +208,7 @@ export default function App() {
   }
 
   if (accessError || !firebaseUser) {
-    return <LoginPage onLogin={(user) => { setFirebaseUser(user); setAccessError(''); }} error={accessError} />;
+    return <LoginPage onLogin={(user) => { setFirebaseUser(user); setAccessError(''); }} accessError={accessError} />;
   }
 
   return (

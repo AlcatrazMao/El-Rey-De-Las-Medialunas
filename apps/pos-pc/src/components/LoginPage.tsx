@@ -13,10 +13,10 @@ import { auth } from '../config/firebase';
 
 interface LoginPageProps {
   onLogin: (user: User) => void;
-  error?: string;
+  accessError?: string;
 }
 
-export function LoginPage({ onLogin, error }: LoginPageProps) {
+export function LoginPage({ onLogin, accessError }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -108,9 +108,9 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
               </div>
             </div>
 
-            {error && (
+            {(error || accessError) && (
               <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/30 rounded-xl px-4 py-3 text-sm text-red-600 dark:text-red-400">
-                {error}
+                {error || accessError}
               </div>
             )}
 
