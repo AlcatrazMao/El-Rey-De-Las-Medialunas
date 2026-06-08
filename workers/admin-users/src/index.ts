@@ -54,7 +54,7 @@ function checkRateLimit(ip: string): boolean {
 }
 
 // ── In-memory user cache ─────────────────────────────────────────────
-let userCache: { uid: string; email: string; displayName: string; disabled: boolean; created: string }[] = [];
+let userCache: { uid: string; email: string; displayName: string; role: string; disabled: boolean; created: string }[] = [];
 
 // ── Get OAuth2 token ──────────────────────────────────────────────────
 async function getAccessToken(env: Env): Promise<string> {
@@ -132,7 +132,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     const text = await res.text();
     if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 300)}` };
     const data = JSON.parse(text);
-    userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', disabled: false, created: new Date().toISOString() });
+    userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', role: body.role || 'cajero', disabled: false, created: new Date().toISOString() });
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }
 
@@ -158,6 +158,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
       const u = userCache[idx]!;
       if (body.email) u.email = body.email;
       if (body.displayName !== undefined) u.displayName = body.displayName;
+      if (body.role) u.role = body.role;
       if (body.disabled !== undefined) u.disabled = body.disabled;
     }
     return { status: 200, data: { uid: data.localId } };

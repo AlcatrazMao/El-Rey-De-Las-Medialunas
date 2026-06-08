@@ -71,7 +71,7 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 <button class="btn btn-sm" id="btnRefresh">Refrescar</button>
 </div>
 <div style="overflow-x:auto">
-<table><thead><tr><th>Email</th><th>Nombre</th><th>Estado</th><th>Creado</th><th style="width:100px"></th></tr></thead><tbody id="usersTable"></tbody></table>
+<table><thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Creado</th><th style="width:100px"></th></tr></thead><tbody id="usersTable"></tbody></table>
 </div>
 <div id="emptyState" class="empty" style="display:none"><p>No hay usuarios</p></div>
 </div></div>
@@ -84,6 +84,7 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 <label>Email *</label><input type="email" id="fEmail" required>
 <label>Nombre</label><input type="text" id="fName">
 <label>Contraseña <span id="pwdHint">*</span></label><input type="password" id="fPassword" minlength="6">
+<label>Rol</label><select id="fRole"><option value="admin">Administrador</option><option value="cajero">Cajero</option><option value="panadero">Panadero</option></select>
 <label>Estado</label><select id="fDisabled"><option value="false">Activo</option><option value="true">Deshabilitado</option></select>
 <div class="btn-row">
 <button type="button" class="btn" id="btnCancel">Cancelar</button>
@@ -131,11 +132,12 @@ async function loadUsers() {
       html += "<tr>" +
         "<td><div style=font-weight:600>" + esc(u.email) + "</div></td>" +
         "<td>" + esc(u.displayName || "-") + "</td>" +
+        "<td><span class=badge style=background:#FFF8DC;color:#8B4513>" + esc(u.role || "cajero") + "</span></td>" +
         "<td><span class=badge " + (u.disabled ? "badge-disabled" : "badge-active") + ">" + (u.disabled ? "Deshabilitado" : "Activo") + "</span>" +
         (u.emailVerified ? "<span class=badge badge-verified style=margin-left:4px>OK</span>" : "") + "</td>" +
         "<td style=font-size:.75rem;color:#8B7355>" + (u.created ? new Date(u.created).toLocaleDateString() : "-") + "</td>" +
         "<td>" +
-        "<button class=btn btn-sm data-action=edit data-uid=" + u.uid + " data-email=" + esc(u.email) + " data-name=" + esc(u.displayName || "") + " data-disabled=" + u.disabled + ">Editar</button>" +
+        "<button class=btn btn-sm data-action=edit data-uid=" + u.uid + " data-email=" + esc(u.email) + " data-name=" + esc(u.displayName || "") + " data-disabled=" + u.disabled + " data-role=" + esc(u.role || "cajero") + ">Editar</button>" +
         "<button class=btn btn-sm btn-danger data-action=delete data-uid=" + u.uid + " data-email=" + esc(u.email) + ">Eliminar</button>" +
         "</td></tr>";
     }
@@ -152,7 +154,8 @@ document.getElementById("usersTable").onclick = function(e) {
   if (action === "edit") {
     var name = btn.getAttribute("data-name");
     var disabled = btn.getAttribute("data-disabled") === "true";
-    openEditModal(uid, email, name, disabled);
+    var role = btn.getAttribute("data-role");
+    openEditModal(uid, email, name, disabled, role);
   } else if (action === "delete") {
     del(uid, email);
   }
@@ -165,19 +168,21 @@ function openCreateModal() {
   document.getElementById("fEmail").value = "";
   document.getElementById("fName").value = "";
   document.getElementById("fPassword").value = "";
+  document.getElementById("fRole").value = "cajero";
   document.getElementById("fDisabled").value = "false";
   document.getElementById("pwdHint").textContent = "*";
   document.getElementById("fPassword").required = true;
   document.getElementById("modal").classList.add("show");
 }
 
-function openEditModal(uid, email, name, disabled) {
+function openEditModal(uid, email, name, disabled, role) {
   document.getElementById("modalTitle").textContent = "Editar Usuario";
   document.getElementById("submitBtn").textContent = "Guardar";
   document.getElementById("editUid").value = uid;
   document.getElementById("fEmail").value = email;
   document.getElementById("fName").value = name;
   document.getElementById("fPassword").value = "";
+  document.getElementById("fRole").value = role || "cajero";
   document.getElementById("fDisabled").value = String(disabled);
   document.getElementById("pwdHint").textContent = "(vacio = no cambiar)";
   document.getElementById("fPassword").required = false;
@@ -192,6 +197,7 @@ async function handleSubmit(e) {
   var body = {
     email: document.getElementById("fEmail").value,
     displayName: document.getElementById("fName").value,
+    role: document.getElementById("fRole").value,
     disabled: document.getElementById("fDisabled").value === "true"
   };
   var pwd = document.getElementById("fPassword").value;
