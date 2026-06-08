@@ -125,12 +125,12 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (method === 'POST' && path === '/api/users') {
     const body: any = await req.json();
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: body.email, password: body.password, displayName: body.displayName, disabled: body.disabled || false, returnSecureToken: false }) }
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts`,
+      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: body.email, password: body.password, displayName: body.displayName, disabled: body.disabled || false }) }
     );
     const text = await res.text();
-    if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 200)}` };
+    if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 300)}` };
     const data = JSON.parse(text);
     userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', disabled: false, created: new Date().toISOString() });
     return { status: 201, data: { uid: data.localId, email: data.email } };
