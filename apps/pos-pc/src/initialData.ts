@@ -289,29 +289,7 @@ export const INITIAL_EXPENSES: Expense[] = [
   }
 ];
 
-export const USERS: User[] = [
-  {
-    id: 'user_admin',
-    name: 'Admin',
-    role: 'admin',
-    avatar: '',
-    customPanels: ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
-  },
-  {
-    id: 'user_cajero',
-    name: 'Cajero',
-    role: 'cajero',
-    avatar: '',
-    customPanels: ['widget_facturacion', 'widget_alertas']
-  },
-  {
-    id: 'user_panadero',
-    name: 'Panadero',
-    role: 'panadero',
-    avatar: '',
-    customPanels: ['widget_inventario', 'widget_alertas']
-  }
-];
+export const USERS: User[] = [];
 
 export const INITIAL_NOTIFICATIONS: PushNotification[] = [
   {

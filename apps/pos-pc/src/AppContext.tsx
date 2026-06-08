@@ -113,10 +113,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     safeParse('pan_erp_expenses', INITIAL_EXPENSES)
   );
 
-  const [users, setUsers] = useState<User[]>(() => 
-    safeParse('pan_erp_users', USERS)
-  );
-
   const [notifications, setNotifications] = useState<PushNotification[]>(() => 
     safeParse('pan_erp_notifications', INITIAL_NOTIFICATIONS)
   );
@@ -322,6 +318,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     avatar: firebaseUser.photoURL || '',
     customPanels: [],
   };
+
+  const [users, setUsers] = useState<User[]>([firebaseMappedUser]);
 
   const logout = () => {
     signOut(auth);
