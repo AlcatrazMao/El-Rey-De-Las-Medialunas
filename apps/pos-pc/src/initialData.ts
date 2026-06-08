@@ -292,23 +292,23 @@ export const INITIAL_EXPENSES: Expense[] = [
 export const USERS: User[] = [
   {
     id: 'user_admin',
-    name: 'Carlos Pastor (Dueño)',
+    name: 'Admin',
     role: 'admin',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+    avatar: '',
     customPanels: ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
   },
   {
     id: 'user_cajero',
-    name: 'Rodrigo Gómez (Caja)',
+    name: 'Cajero',
     role: 'cajero',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200',
+    avatar: '',
     customPanels: ['widget_facturacion', 'widget_alertas']
   },
   {
     id: 'user_panadero',
-    name: 'Marta Pérez (Maestra)',
+    name: 'Panadero',
     role: 'panadero',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=200',
+    avatar: '',
     customPanels: ['widget_inventario', 'widget_alertas']
   }
 ];

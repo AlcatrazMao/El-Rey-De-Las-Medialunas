@@ -312,15 +312,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     catch { return []; }
   });
 
-  // Map firebaseUser to local user
-  const firebaseMappedUser: User = {
-    id: firebaseUser.uid,
-    name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
-    role: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner')) ? 'admin' 
-          : firebaseUser.email?.includes('cajero') ? 'cajero' : 'panadero',
-    avatar: firebaseUser.photoURL || '',
-    customPanels: []
-  };
+  // Map firebaseUser to local user — match by email to stored users
+  const firebaseMappedUser: User = (() => {
+    const email = firebaseUser.email?.toLowerCase() || '';
+    // First: match by exact email against stored users
+    const matched = users.find(u => {
+      const userEmail = (firebaseUser.email || '').toLowerCase();
+      // Match by Firebase UID or by email pattern
+      return u.id === firebaseUser.uid || 
+             (u.id === 'user_admin' && (userEmail.includes('admin') || userEmail.includes('owner'))) ||
+             (u.id === 'user_cajero' && userEmail.includes('cajero')) ||
+             (u.id === 'user_panadero' && userEmail.includes('panadero'));
+    });
+    if (matched) {
+      return {
+        id: firebaseUser.uid,
+        name: firebaseUser.displayName || matched.name,
+        role: matched.role,
+        avatar: firebaseUser.photoURL || matched.avatar || '',
+        customPanels: matched.customPanels || [],
+      };
+    }
+    // Fallback
+    return {
+      id: firebaseUser.uid,
+      name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
+      role: email.includes('admin') || email.includes('owner') ? 'admin'
+            : email.includes('cajero') ? 'cajero' : 'panadero',
+      avatar: firebaseUser.photoURL || '',
+      customPanels: [],
+    };
+  })();
 
   const logout = () => {
     signOut(auth);
