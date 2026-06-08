@@ -15,6 +15,7 @@ import { CajeroMermaView } from './components/CajeroMermaView';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { CashSessionView } from './components/CashSessionView';
 import { CustomersView } from './components/CustomersView';
+import { AdminUsersView } from './components/AdminUsersView';
 import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
@@ -70,6 +71,7 @@ function ERPLayout() {
       case 'merma_requests': return <CajeroMermaView />;
       case 'supply_requests': return <PanaderoSupplyView />;
       case 'customers': return <CustomersView />;
+      case 'admin_users': return <AdminUsersView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <InventoryView />;
@@ -101,7 +103,8 @@ function ERPLayout() {
           { id: 'history', label: 'Historial', icon: <ReceiptText className="h-4 w-4" /> },
           { id: 'accounting', label: 'Egresos', icon: <HandCoins className="h-4 w-4" /> },
           { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },
-          { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> }
+          { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> },
+          { id: 'admin_users', label: 'Usuarios', icon: <Users className="h-4 w-4" /> }
         ];
     }
   };
