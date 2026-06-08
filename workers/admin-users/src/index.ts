@@ -168,7 +168,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
 
   // ── List users ──
   if (method === 'GET' && path === '/api/users') {
-    const url = `https://identitytoolkit.googleapis.com/admin/v2/projects/${sa.project_id}/accounts:query`;
+    const url = `https://identitytoolkit.googleapis.com/v2/projects/${sa.project_id}/accounts:query`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
