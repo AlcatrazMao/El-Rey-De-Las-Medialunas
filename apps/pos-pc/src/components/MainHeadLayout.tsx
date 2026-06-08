@@ -58,23 +58,27 @@ export const MainHeadLayout: React.FC = () => {
               <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
             </div>
 
-            {/* Dropdown: role switcher */}
-            <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 p-2">
-              {(['admin', 'cajero', 'panadero'] as UserRole[]).map(role => (
+            {/* Dropdown list of users */}
+            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 p-2">
+              {users.map(u => (
                 <button
-                  key={role}
-                  onClick={() => setActiveUserRole(role)}
+                  key={u.id}
+                  onClick={() => setActiveUserRole(u.role)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors text-left ${
-                    activeUser.role === role
+                    activeUser.id === u.id
                       ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
                       : 'text-gray-600 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800'
                   }`}
                 >
-                  <span className="text-lg">{role === 'admin' ? '👑' : role === 'cajero' ? '🛒' : '👨‍🍳'}</span>
+                  <img
+                    src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=8B5E3C&color=fff&bold=true`}
+                    alt={u.name}
+                    className="w-6 h-6 rounded-full object-cover border border-gray-200 dark:border-zinc-700"
+                  />
                   <div className="flex-1 text-left">
-                    <div className="font-bold">{role === 'admin' ? 'Administrador' : role === 'cajero' ? 'Cajero' : 'Panadero'}</div>
+                    <div className="font-bold">{u.name}</div>
+                    <div className="text-[9px] text-gray-400 dark:text-zinc-500 uppercase tracking-wider">{u.role}</div>
                   </div>
-                  {activeUser.role === role && <span className="text-[10px] text-amber-500">✓</span>}
                 </button>
               ))}
             </div>
