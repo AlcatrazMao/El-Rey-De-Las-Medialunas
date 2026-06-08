@@ -112,48 +112,26 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (!checkRateLimit(ip)) return { status: 429, error: 'Demasiados intentos' };
   if (!at || at !== (env.AUTH_SECRET || '').trim()) return { status: 401, error: 'No autorizado' };
   
-  const apiKey = (env.FIREBASE_API_KEY || '').trim();
-  
-  // Debug endpoint to check secrets
-  if (method === 'GET' && path === '/api/debug') {
-    return { status: 200, data: { 
-      apiKey_len: apiKey.length, 
-      apiKey_prefix: apiKey.substring(0, 10),
-      sa_len: (env.FIREBASE_SERVICE_ACCOUNT || '').length,
-      auth_set: !!(env.AUTH_SECRET || '').trim()
-    }};
-  }
-  
-  if (apiKey.length < 30) return { status: 500, error: `FIREBASE_API_KEY muy corta (${apiKey.length} chars). Seteala completa en Cloudflare Dashboard.` };
-
   const token = await getAccessToken(env);
   const sa = JSON.parse((env.FIREBASE_SERVICE_ACCOUNT || '').trim().startsWith('{') ? env.FIREBASE_SERVICE_ACCOUNT.trim() : atob(env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '')));
 
-  // ── List users (from cache, synced with Firebase on create/delete) ──
+  // ── Debug endpoint ──
   if (method === 'GET' && path === '/api/users') {
     return { status: 200, data: userCache };
   }
 
-  // ── Create user (uses API key, client-side endpoint) ──
+  // ── Create user (OAuth2, no API key) ──
   if (method === 'POST' && path === '/api/users') {
     const body: any = await req.json();
-    const url = `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:signUp?key=${apiKey}`;
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: body.email, password: body.password, displayName: body.displayName, returnSecureToken: false }) }
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts`,
+      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: body.email, password: body.password, displayName: body.displayName, disabled: body.disabled || false }) }
     );
     const text = await res.text();
-    if (!res.ok) return { status: res.status, error: `Firebase create failed (url=${url.substring(0, 120)}, status=${res.status}): ${text.substring(0, 300)}` };
+    if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 300)}` };
     const data = JSON.parse(text);
     userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', role: body.role || 'cajero', disabled: false, created: new Date().toISOString() });
-    
-    // Write role to Firestore
-    const role = body.role || 'cajero';
-    await fetch(
-      `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles?documentId=${data.localId}`,
-      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { role: { stringValue: role }, email: { stringValue: body.email } } }) }
-    );
-    
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }
 
@@ -167,7 +145,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     if (body.displayName !== undefined) updates.displayName = body.displayName;
     if (body.disabled !== undefined) updates.disableUser = body.disabled;
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update?key=${apiKey}`,
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update`,
       { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(updates) }
     );
     const text = await res.text();
@@ -189,7 +167,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (method === 'DELETE' && path.startsWith('/api/users/')) {
     const uid = path.split('/api/users/')[1];
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:delete?key=${apiKey}`,
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:delete`,
       { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ localId: uid }) }
     );
     const text = await res.text();
