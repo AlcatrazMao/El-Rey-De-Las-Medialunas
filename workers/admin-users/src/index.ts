@@ -176,7 +176,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     });
     const text = await res.text();
     if (!res.ok) {
-      return { status: res.status, error: `Firebase API error (${res.status}): ${text.substring(0, 300)}` };
+      return { status: res.status, error: `Firebase API ${res.status} for project "${sa.project_id}": ${text.substring(0, 300)}` };
     }
     try {
       const data = JSON.parse(text);
