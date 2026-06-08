@@ -13,9 +13,10 @@ import { auth } from '../config/firebase';
 
 interface LoginPageProps {
   onLogin: (user: User) => void;
+  error?: string;
 }
 
-export function LoginPage({ onLogin }: LoginPageProps) {
+export function LoginPage({ onLogin, error }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');

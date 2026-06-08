@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from './config/firebase';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from './config/firebase';
 import { AppProvider, useApp } from './AppContext';
 import { MainHeadLayout } from './components/MainHeadLayout';
 import { LoginPage } from './components/LoginPage';
@@ -183,25 +184,31 @@ function ERPLayout() {
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [accessError, setAccessError] = useState('');
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       setAuthLoading(false);
+      if (user) {
+        try {
+          const snap = await getDoc(doc(db, 'user_roles', user.uid));
+          if (!snap.exists()) {
+            setAccessError('Acceso denegado');
+            await signOut(auth);
+          }
+        } catch { /* Firestore not ready */ }
+      }
     });
     return () => unsub();
   }, []);
 
   if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950">
-        <div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto" />
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950"><div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto" /></div>;
   }
 
-  if (!firebaseUser) {
-    return <LoginPage onLogin={(user) => setFirebaseUser(user)} />;
+  if (accessError || !firebaseUser) {
+    return <LoginPage onLogin={(user) => { setFirebaseUser(user); setAccessError(''); }} error={accessError} />;
   }
 
   return (

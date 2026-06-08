@@ -124,13 +124,12 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   // ── Create user (uses API key, client-side endpoint) ──
   if (method === 'POST' && path === '/api/users') {
     const body: any = await req.json();
-    const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:signUp?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const url = `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:signUp?key=${apiKey}`;
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: body.email, password: body.password, displayName: body.displayName, returnSecureToken: false }) }
     );
     const text = await res.text();
-    if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 300)}` };
+    if (!res.ok) return { status: res.status, error: `Firebase create failed (url=${url.substring(0, 120)}, status=${res.status}): ${text.substring(0, 300)}` };
     const data = JSON.parse(text);
     userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', role: body.role || 'cajero', disabled: false, created: new Date().toISOString() });
     
