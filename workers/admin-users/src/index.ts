@@ -126,6 +126,9 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   
   if (apiKey.length < 30) return { status: 500, error: `FIREBASE_API_KEY muy corta (${apiKey.length} chars). Seteala completa en Cloudflare Dashboard.` };
 
+  const token = await getAccessToken(env);
+  const sa = JSON.parse((env.FIREBASE_SERVICE_ACCOUNT || '').trim().startsWith('{') ? env.FIREBASE_SERVICE_ACCOUNT.trim() : atob(env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '')));
+
   // ── List users (from cache, synced with Firebase on create/delete) ──
   if (method === 'GET' && path === '/api/users') {
     return { status: 200, data: userCache };
