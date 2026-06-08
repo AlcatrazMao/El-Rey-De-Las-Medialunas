@@ -168,31 +168,29 @@ async function handleRequest(req: Request, env: Env, url: URL) {
 
   // ── List users ──
   if (method === 'GET' && path === '/api/users') {
-    const res = await fetch(
-      `https://identitytoolkit.googleapis.com/admin/v2/projects/${sa.project_id}/accounts:query?key=${env.FIREBASE_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ returnUserInfo: true, maxResults: 100 }),
-      }
-    );
-    const data: any = await res.json();
-    if (!res.ok) return { status: res.status, error: data.error?.message || 'Error' };
-    
-    const users = (data.accounts || []).map((u: any) => ({
-      uid: u.localId,
-      email: u.email || '',
-      displayName: u.displayName || '',
-      disabled: u.disabled || false,
-      emailVerified: u.emailVerified || false,
-      created: u.createdAt ? new Date(Number(u.createdAt)).toISOString() : '',
-      lastSignIn: u.lastLoginAt ? new Date(Number(u.lastLoginAt)).toISOString() : '',
-      provider: (u.providerUserInfo || []).map((p: any) => p.providerId).join(', '),
-    }));
-    return { status: 200, data: users };
+    const url = `https://identitytoolkit.googleapis.com/admin/v2/projects/${sa.project_id}/accounts:query`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ returnUserInfo: true, maxResults: 100 }),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      return { status: res.status, error: `Firebase API error (${res.status}): ${text.substring(0, 300)}` };
+    }
+    try {
+      const data = JSON.parse(text);
+      const users = (data.accounts || []).map((u: any) => ({
+        uid: u.localId, email: u.email || '', displayName: u.displayName || '',
+        disabled: u.disabled || false, emailVerified: u.emailVerified || false,
+        created: u.createdAt ? new Date(Number(u.createdAt)).toISOString() : '',
+        lastSignIn: u.lastLoginAt ? new Date(Number(u.lastLoginAt)).toISOString() : '',
+        provider: (u.providerUserInfo || []).map((p: any) => p.providerId).join(', '),
+      }));
+      return { status: 200, data: users };
+    } catch {
+      return { status: 500, error: `Firebase returned non-JSON: ${text.substring(0, 300)}` };
+    }
   }
 
   // ── Create user ──
