@@ -121,13 +121,13 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     return { status: 200, data: userCache };
   }
 
-  // ── Create user ──
+  // ── Create user (uses API key, client-side endpoint) ──
   if (method === 'POST' && path === '/api/users') {
     const body: any = await req.json();
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts`,
-      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: body.email, password: body.password, displayName: body.displayName, disabled: body.disabled || false }) }
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:signUp?key=${apiKey}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: body.email, password: body.password, displayName: body.displayName, returnSecureToken: false }) }
     );
     const text = await res.text();
     if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 300)}` };
