@@ -169,7 +169,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   // ── List users ──
   if (method === 'GET' && path === '/api/users') {
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/admin/v2/projects/${sa.project_id}/accounts:query`,
+      `https://identitytoolkit.googleapis.com/admin/v2/projects/${sa.project_id}/accounts:query?key=${env.FIREBASE_API_KEY}`,
       {
         method: 'POST',
         headers: {
@@ -199,7 +199,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (method === 'POST' && path === '/api/users') {
     const body: any = await req.json();
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts`,
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts?key=${env.FIREBASE_API_KEY}`,
       {
         method: 'POST',
         headers: {
@@ -231,7 +231,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     if (body.emailVerified !== undefined) updates.emailVerified = body.emailVerified;
 
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update`,
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update?key=${env.FIREBASE_API_KEY}`,
       {
         method: 'POST',
         headers: {
@@ -250,7 +250,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (method === 'DELETE' && path.startsWith('/api/users/')) {
     const uid = path.split('/api/users/')[1];
     const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:delete`,
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:delete?key=${env.FIREBASE_API_KEY}`,
       {
         method: 'POST',
         headers: {
