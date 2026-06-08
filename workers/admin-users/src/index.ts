@@ -150,7 +150,8 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     return { status: 429, error: 'Demasiados intentos. Esperá un minuto.' };
   }
   if (!authToken || authToken !== (env.AUTH_SECRET || '').trim()) {
-    return { status: 401, error: 'No autorizado' };
+    const sa = (env.AUTH_SECRET || '').trim();
+    return { status: 401, error: `No autorizado (token_len=${authToken.length}, secret_len=${sa.length}, secret_set=${!!env.AUTH_SECRET})` };
   }
 
   const token = await getAccessToken(env);
