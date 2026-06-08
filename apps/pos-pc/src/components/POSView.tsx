@@ -32,7 +32,8 @@ export const POSView: React.FC = () => {
     setActiveTab,
     selectedSellerId,
     setSelectedSellerId,
-    users
+    users,
+    customers
   } = useApp();
 
   const [selectedCategory, setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
@@ -41,6 +42,8 @@ export const POSView: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<Sale['paymentMethod']>('efectivo');
   const [customerName, setCustomerName] = useState('');
   const [customerDoc, setCustomerDoc] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   
   // Selection Modal states
   const [showSelectionModal, setShowSelectionModal] = useState(false);
@@ -676,30 +679,45 @@ export const POSView: React.FC = () => {
           </span>
         </div>
 
-        {/* Client identity block (essential for commercial transaction) */}
-        <div className="grid grid-cols-2 gap-2 mb-3 bg-gray-50 dark:bg-zinc-950/40 p-3 rounded-xl border border-gray-100 dark:border-zinc-850">
-          <div>
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide">Nombre Cliente</label>
-            <input
-              id="customer-name"
-              type="text"
-              placeholder="Consumidor Final"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              className="mt-1 w-full text-xs font-semibold bg-transparent border-b border-gray-200 dark:border-zinc-800 py-1 focus:outline-none focus:border-amber-500 text-gray-800 dark:text-zinc-100"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide">DNI / CUIT</label>
-            <input
-              id="customer-doc"
-              type="text"
-              placeholder="Opcional"
-              value={customerDoc}
-              onChange={(e) => setCustomerDoc(e.target.value)}
-              className="mt-1 w-full text-xs font-semibold bg-transparent border-b border-gray-200 dark:border-zinc-800 py-1 focus:outline-none focus:border-amber-500 text-gray-800 dark:text-zinc-100"
-            />
-          </div>
+        {/* Customer selector with search */}
+        <div className="mb-3 bg-gray-50 dark:bg-zinc-950/40 p-3 rounded-xl border border-gray-100 dark:border-zinc-850 relative">
+          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Cliente</label>
+          {customerName ? (
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <span className="text-sm font-bold text-gray-800 dark:text-zinc-100">{customerName}</span>
+                {customerDoc && <span className="text-xs text-gray-500 ml-2">({customerDoc})</span>}
+              </div>
+              <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); }}
+                className="text-xs text-red-500 hover:underline">Cambiar</button>
+            </div>
+          ) : (
+            <div>
+              <input type="text" placeholder="Buscar cliente o Consumidor Final..." value={customerSearch}
+                onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
+                onFocus={() => setShowCustomerDropdown(true)}
+                className="w-full text-xs bg-transparent border-b border-gray-200 dark:border-zinc-800 py-1 focus:outline-none focus:border-amber-500" />
+              {showCustomerDropdown && (
+                <div className="absolute left-3 right-3 mt-1 bg-white dark:bg-zinc-900 border rounded-xl shadow-lg z-30 max-h-48 overflow-y-auto">
+                  <button onClick={() => { setCustomerName('Consumidor Final'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                    className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800 flex items-center gap-2">
+                    👤 Consumidor Final (Anónimo)
+                  </button>
+                  {customers.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.tax_id.includes(customerSearch) || c.email.includes(customerSearch)).slice(0, 5).map(c => (
+                    <button key={c.id} onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800">
+                      <div className="font-bold">{c.name}</div>
+                      {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
+                    </button>
+                  ))}
+                  <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); alert('Cliente creado (demo)'); }}
+                    className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800">
+                    + Crear nuevo cliente
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Cart Item rows list */}
