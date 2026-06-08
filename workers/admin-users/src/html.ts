@@ -95,6 +95,20 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 <script>
 let AUTH = "";
 
+// Auto-login from URL hash (#auth=SECRET)
+if (location.hash.startsWith("#auth=")) {
+  AUTH = decodeURIComponent(location.hash.slice(6));
+  document.getElementById("authSecret").value = "••••••••";
+  loadUsers().then(function() {
+    document.getElementById("connectStatus").innerHTML = "<div class=badge badge-active style=font-size:.8rem;padding:6px 12px>Conectado</div>";
+    document.getElementById("usersCard").style.display = "block";
+    history.replaceState(null, "", location.pathname);
+  }).catch(function() {
+    AUTH = "";
+    document.getElementById("connectStatus").innerHTML = "<div class=badge badge-disabled style=font-size:.8rem;padding:6px 12px>Auto-login falló</div>";
+  });
+}
+
 document.getElementById("btnConnect").onclick = function() {
   AUTH = document.getElementById("authSecret").value;
   if (!AUTH) return toast("Ingresa la clave","error");
