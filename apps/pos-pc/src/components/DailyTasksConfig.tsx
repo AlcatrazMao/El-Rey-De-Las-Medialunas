@@ -144,6 +144,55 @@ export const DailyTasksConfig: React.FC<Props> = ({ onClose, onSync }) => {
           + Agregar fecha especial
         </button>
       </div>
+
+      {/* Add Daily Task Modal */}
+      {showDailyForm && <TaskForm type="daily" onSave={(t) => handleSaveDaily(t)} onClose={() => setShowDailyForm(false)} />}
+      {/* Add Special Task Modal */}
+      {showSpecialForm && <TaskForm type="special" onSave={(t) => handleAddSpecial(t)} onClose={() => setShowSpecialForm(false)} />}
     </div>
   );
 };
+
+// Inline form component
+function TaskForm({ type, onSave, onClose }: { type: 'daily' | 'special'; onSave: (t: any) => void; onClose: () => void }) {
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [role, setRole] = useState<DailyTask['assignedRole']>('all');
+  const [prio, setPrio] = useState<DailyTask['priority']>('medium');
+  const [time, setTime] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+
+  const save = () => {
+    if (!title.trim()) return;
+    onSave({ title, description: desc, assignedRole: role, priority: prio, time: time || undefined, date });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <h4 className="text-sm font-bold mb-3">{type === 'daily' ? 'Nueva Tarea Diaria' : 'Nueva Fecha Especial'}</h4>
+        <div className="space-y-2">
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Título" className="w-full px-3 py-2 border rounded-lg text-sm" autoFocus />
+          <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Descripción" rows={2} className="w-full px-3 py-2 border rounded-lg text-xs" />
+          {type === 'special' && <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />}
+          {type === 'daily' && <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />}
+          <div className="flex gap-2">
+            <select value={role} onChange={e => setRole(e.target.value as any)} className="flex-1 px-2 py-2 border rounded-lg text-xs">
+              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+            <select value={prio} onChange={e => setPrio(e.target.value as any)} className="flex-1 px-2 py-2 border rounded-lg text-xs">
+              <option value="high">🔴 Alta</option>
+              <option value="medium">🟡 Media</option>
+              <option value="low">⚪ Baja</option>
+            </select>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button onClick={onClose} className="flex-1 py-2 border rounded-xl text-sm">Cancelar</button>
+            <button onClick={save} className="flex-1 py-2 bg-amber-500 text-white rounded-xl text-sm font-bold">Guardar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
