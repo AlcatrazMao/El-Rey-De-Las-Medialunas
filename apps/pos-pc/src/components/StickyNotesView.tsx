@@ -1,14 +1,20 @@
-import React, { useState } from 'react';
-import { Plus, LayoutGrid, List, StickyNote as StickyNoteIcon, Download, Upload } from 'lucide-react';
+﻿import React, { useState, useEffect } from 'react';
+import { Plus, LayoutGrid, List, StickyNote as StickyNoteIcon, CalendarCheck } from 'lucide-react';
 import { useStickyNotes, type StickyNote } from '../hooks/useStickyNotes';
 import { NotesCanvas } from './NotesCanvas';
 import { NotesList } from './NotesList';
+import { useApp } from '../AppContext';
+import { DailyTasksConfig } from './DailyTasksConfig';
 
 export const StickyNotesView: React.FC = () => {
-  const { notes, addNote, deleteNote, updateNote, toggleStatus } = useStickyNotes();
+  const { notes, addNote, deleteNote, updateNote, toggleStatus, syncDailyTasks } = useStickyNotes();
+  const { activeUser } = useApp();
   const [view, setView] = useState<'canvas' | 'list'>('canvas');
   const [showNewForm, setShowNewForm] = useState(false);
+  const [showTaskConfig, setShowTaskConfig] = useState(false);
   const [newNote, setNewNote] = useState({ title: '', content: '', category: 'general' as StickyNote['category'], priority: 'medium' as StickyNote['priority'] });
+
+  useEffect(() => { syncDailyTasks(activeUser.role); }, []);
 
   const handleAdd = () => {
     if (!newNote.title.trim()) return;
@@ -44,6 +50,10 @@ export const StickyNotesView: React.FC = () => {
               <List className="w-3.5 h-3.5 inline mr-1" />Lista
             </button>
           </div>
+          <button onClick={() => setShowTaskConfig(!showTaskConfig)}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${showTaskConfig ? 'bg-amber-500 text-white' : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400'}`}>
+            <CalendarCheck className="w-3.5 h-3.5" /> Tareas
+          </button>
           <button onClick={() => setShowNewForm(!showNewForm)}
             className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 transition-colors">
             <Plus className="w-3.5 h-3.5" /> Nueva
@@ -51,11 +61,13 @@ export const StickyNotesView: React.FC = () => {
         </div>
       </div>
 
+      {showTaskConfig && <DailyTasksConfig onClose={() => setShowTaskConfig(false)} onSync={() => syncDailyTasks(activeUser.role)} />}
+
       {/* New note form */}
       {showNewForm && (
         <div className="bg-white dark:bg-zinc-900 border border-amber-200 dark:border-zinc-800 rounded-xl p-3 space-y-2">
           <input value={newNote.title} onChange={e => setNewNote({ ...newNote, title: e.target.value })}
-            placeholder="Título de la nota" onKeyDown={e => e.key === 'Enter' && handleAdd()}
+            placeholder="T├¡tulo de la nota" onKeyDown={e => e.key === 'Enter' && handleAdd()}
             className="w-full px-3 py-2 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-sm font-bold" autoFocus />
           <textarea value={newNote.content} onChange={e => setNewNote({ ...newNote, content: e.target.value })}
             placeholder="Contenido..." rows={2}
@@ -63,18 +75,18 @@ export const StickyNotesView: React.FC = () => {
           <div className="flex items-center gap-2">
             <select value={newNote.category} onChange={e => setNewNote({ ...newNote, category: e.target.value as any })}
               className="px-2 py-1.5 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-xs">
-              <option value="general">📌 General</option>
-              <option value="tarea">📋 Tarea</option>
-              <option value="ventas">💸 Ventas</option>
-              <option value="inventario">📦 Inventario</option>
-              <option value="caja">💰 Caja</option>
-              <option value="produccion">🏭 Producción</option>
+              <option value="general">­ƒôî General</option>
+              <option value="tarea">­ƒôï Tarea</option>
+              <option value="ventas">­ƒÆ© Ventas</option>
+              <option value="inventario">­ƒôª Inventario</option>
+              <option value="caja">­ƒÆ░ Caja</option>
+              <option value="produccion">­ƒÅ¡ Producci├│n</option>
             </select>
             <select value={newNote.priority} onChange={e => setNewNote({ ...newNote, priority: e.target.value as any })}
               className="px-2 py-1.5 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-xs">
-              <option value="high">🔴 Alta</option>
-              <option value="medium">🟡 Media</option>
-              <option value="low">⚪ Baja</option>
+              <option value="high">­ƒö┤ Alta</option>
+              <option value="medium">­ƒƒí Media</option>
+              <option value="low">ÔÜ¬ Baja</option>
             </select>
             <div className="flex-1" />
             <button onClick={() => setShowNewForm(false)}
