@@ -93,8 +93,9 @@ function ERPLayout() {
         ];
       case 'panadero':
         return [
+          { id: 'supply_requests', label: 'Producción', icon: <TrendingUp className="h-4 w-4 text-emerald-500" /> },
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
-          { id: 'supply_requests', label: 'Pedidos', icon: <TrendingUp className="h-4 w-4 text-emerald-500" /> }
+          { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> }
         ];
       default:
         return [
