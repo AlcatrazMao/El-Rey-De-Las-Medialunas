@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Plus, Calendar, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { type DailyTask, type SpecialTask, getDefaultDailyTasks, loadDailyTasks, saveDailyTasks, loadSpecialTasks, saveSpecialTasks } from '../hooks/dailyTasks';
 
@@ -40,16 +40,18 @@ export const DailyTasksConfig: React.FC<Props> = ({ onClose, onSync }) => {
     setShowDailyForm(false);
   };
 
+  // Auto-save when dailyTasks changes
+  useEffect(() => { saveDailyTasks(dailyTasks); }, [dailyTasks]);
+  useEffect(() => { saveSpecialTasks(specialTasks); }, [specialTasks]);
+
   const toggleDay = (taskId: string, day: number) => {
     setDailyTasks(prev => prev.map(t => t.id === taskId ? {
       ...t, days: t.days.includes(day) ? t.days.filter(d => d !== day) : [...t.days, day].sort()
     } : t));
-    saveDailyTasks(dailyTasks);
   };
 
   const toggleActive = (taskId: string) => {
     setDailyTasks(prev => prev.map(t => t.id === taskId ? { ...t, active: !t.active } : t));
-    saveDailyTasks(dailyTasks);
   };
 
   const deleteDaily = (taskId: string) => {

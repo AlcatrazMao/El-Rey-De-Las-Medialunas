@@ -299,6 +299,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       console.error('Error parsing cash sessions history from localStorage:', e);
     localStorage.removeItem('pan_erp_cash_sessions_history');
     localStorage.removeItem('pan_erp_customers');
+    localStorage.removeItem('erp_sticky_notes_v2');
+    localStorage.removeItem('erp_daily_tasks');
+    localStorage.removeItem('erp_special_tasks');
+    localStorage.removeItem('erp_sessions');
       return [];
     }
   });
@@ -784,7 +788,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
   };
 
   const addIngredient = (newIng: Omit<Ingredient, 'id'>) => {
-    const ingId = `ing_${newIng.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+    const ingId = `ing_${newIng.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}`;
     const item: Ingredient = {
       ...newIng,
       id: ingId
@@ -813,7 +817,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
   };
 
   const addProduct = (newProd: Omit<Product, 'id' | 'code'>) => {
-    const prodId = `prod_${newProd.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+    const prodId = `prod_${newProd.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}`;
     const code = `77912345${Math.floor(10000 + Math.random() * 90000)}`;
     const productInstance: Product = {
       elaborationDate: new Date().toISOString().split('T')[0],

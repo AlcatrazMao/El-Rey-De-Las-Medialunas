@@ -45,7 +45,7 @@ export interface Sale {
   total: number;
   tax: number;
   paymentMethod: 'efectivo' | 'tarjeta' | 'mercado_pago' | 'paypal';
-  paymentStatus: 'completed' | 'failed' | 'pending';
+  paymentStatus: 'completed' | 'failed' | 'pending' | 'voided';
   operatorRole: string;
   operatorName: string;
   customerName?: string;

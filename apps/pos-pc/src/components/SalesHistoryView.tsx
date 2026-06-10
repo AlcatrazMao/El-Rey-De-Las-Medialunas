@@ -71,7 +71,7 @@ export const SalesHistoryView: React.FC = () => {
 
     // Remove sale or change status to voided/failed
     setSales(prev =>
-      prev.map(s => (s.id === sale.id ? { ...s, paymentStatus: 'failed' as const, invoiceNumber: `VOID-${s.invoiceNumber.slice(5)}` } : s))
+      prev.map(s => (s.id === sale.id ? { ...s, paymentStatus: 'voided' as const, invoiceNumber: `VOID-${s.invoiceNumber.slice(5)}` } : s))
     );
 
     addSystemNotification(
