@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { loadDailyTasks, loadSpecialTasks, type DailyTask, type SpecialTask } from './dailyTasks';
 
 export interface StickyNote {
@@ -105,45 +105,32 @@ export function useStickyNotes() {
   }, [notes.length]);
 
   // Generate today's daily tasks as sticky notes
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
+
   const syncDailyTasks = useCallback((userRole: string) => {
-    const today = new Date().getDay(); // 0=Sun, 6=Sat
+    const today = new Date().getDay();
     const todayStr = new Date().toISOString().split('T')[0];
     const dailyTasks = loadDailyTasks();
     const specialTasks = loadSpecialTasks();
 
-    // Remove old auto-generated task notes for today
-    const existingTaskIds = notes.filter(n => n.category === 'tarea' && n.id.startsWith('auto_')).map(n => n.title);
+    // Check existing titles to avoid duplicates
+    const existingTitles = new Set(notesRef.current.map(n => n.title));
     
-    // Daily tasks for today
     dailyTasks.filter(t => t.active && t.days.includes(today) && (t.assignedRole === userRole || t.assignedRole === 'all')).forEach(t => {
       const key = `[Diaria] ${t.title}`;
-      if (!existingTaskIds.includes(key)) {
-        addNote({
-          title: key,
-          content: `${t.description}\n⏰ ${t.time || 'Sin hora'}`,
-          category: 'tarea',
-          priority: t.priority,
-          x: 40 + Math.random() * 200,
-          y: 40 + Math.random() * 200,
-        });
+      if (!existingTitles.has(key)) {
+        addNote({ title: key, content: `${t.description}\n⏰ ${t.time || 'Sin hora'}`, category: 'tarea', priority: t.priority, x: 40 + Math.random() * 200, y: 40 + Math.random() * 200 });
       }
     });
 
-    // Special tasks for today
     specialTasks.filter(t => t.date === todayStr && (t.assignedRole === userRole || t.assignedRole === 'all')).forEach(t => {
       const key = `[Especial] ${t.title}`;
-      if (!existingTaskIds.includes(key)) {
-        addNote({
-          title: key,
-          content: t.description,
-          category: 'tarea',
-          priority: t.priority,
-          x: 40 + Math.random() * 200,
-          y: 40 + Math.random() * 200,
-        });
+      if (!existingTitles.has(key)) {
+        addNote({ title: key, content: t.description, category: 'tarea', priority: t.priority, x: 40 + Math.random() * 200, y: 40 + Math.random() * 200 });
       }
     });
-  }, [notes]);
+  }, []);
 
   return { notes, addNote, deleteNote, updateNote, toggleStatus, addAutoNote, syncDailyTasks, setNotes };
 }
