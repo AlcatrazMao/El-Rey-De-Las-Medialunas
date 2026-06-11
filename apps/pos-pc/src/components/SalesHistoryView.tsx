@@ -1,22 +1,19 @@
-import React, { useState } from 'react';
-import { useApp } from '../AppContext';
-import { exportSalesToCSV, printTicketOrInvoice } from '../utils/exportUtils';
 import {
   Download,
   Search,
-  RotateCcw,
   Receipt,
   FileDown,
   Printer,
-  ChevronDown,
-  CircleAlert,
   Calendar,
   X,
-  CreditCard,
-  User,
   Trash2
 } from 'lucide-react';
-import { Sale } from '../types';
+import * as React from 'react'
+import {  } from 'react';
+
+import { useApp } from '../AppContext';
+import type { Sale } from '../types';
+import { exportSalesToCSV, printTicketOrInvoice } from '../utils/exportUtils';
 
 export const SalesHistoryView: React.FC = () => {
   const {
@@ -27,7 +24,6 @@ export const SalesHistoryView: React.FC = () => {
     updateProductStock,
     ingredients,
     updateIngredientStock,
-    batches,
     setBatches
   } = useApp();
 
@@ -42,6 +38,7 @@ export const SalesHistoryView: React.FC = () => {
 
   // Void/Cancel Sale (gently restores stock!)
   const handleVoidSale = (sale: Sale) => {
+    // eslint-disable-next-line no-alert -- confirm is appropriate UX for void action
     if (!window.confirm(`¿Estás seguro de que deseas anular la factura ${sale.invoiceNumber}? El importe de $${sale.total.toFixed(2)} será revertido y los productos reingresarán al stock.`)) {
       return;
     }
@@ -141,7 +138,7 @@ export const SalesHistoryView: React.FC = () => {
         <select
           id="filter-method"
           value={methodFilter}
-          onChange={(e) => setMethodFilter(e.target.value as any)}
+          onChange={(e) => setMethodFilter(e.target.value as Sale['paymentMethod'])}
           className="w-full text-xs font-bold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-805 rounded-xl p-3 focus:outline-none text-gray-700 dark:text-zinc-350"
         >
           <option value="todos">💳 Todos los Métodos de Pago</option>
@@ -155,7 +152,7 @@ export const SalesHistoryView: React.FC = () => {
         <select
           id="filter-status"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as any)}
+          onChange={(e) => setStatusFilter(e.target.value as Sale['paymentStatus'])}
           className="w-full text-xs font-bold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-805 rounded-xl p-3 focus:outline-none text-gray-700 dark:text-zinc-350"
         >
           <option value="todos">📂 Todos los Estados</option>

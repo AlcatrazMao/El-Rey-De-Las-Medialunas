@@ -1,6 +1,6 @@
 import { NetworkMonitor } from "./network-monitor";
-import { pushChanges } from "./push";
 import { pullChanges } from "./pull";
+import { pushChanges } from "./push";
 import type {
   SyncResult,
   PushSummary,

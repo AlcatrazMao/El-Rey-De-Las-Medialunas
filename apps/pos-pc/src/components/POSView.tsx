@@ -1,6 +1,3 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useApp } from '../AppContext';
-import { printTicketOrInvoice } from '../utils/exportUtils';
 import {
   ShoppingCart,
   ScanBarcode,
@@ -11,14 +8,17 @@ import {
   Cpu,
   ReceiptText,
   CreditCard,
-  Sparkles,
-  Wifi,
   X,
   Printer,
   FileDown,
   CircleAlert
 } from 'lucide-react';
-import { CategoryType, Product, Sale } from '../types';
+import * as React from 'react'
+import {  } from 'react';
+
+import { useApp } from '../AppContext';
+import type { CategoryType, Product, Sale } from '../types';
+import { printTicketOrInvoice } from '../utils/exportUtils';
 
 export const POSView: React.FC = () => {
   const {
@@ -27,7 +27,6 @@ export const POSView: React.FC = () => {
     gateways,
     activeUser,
     addSystemNotification,
-    ingredients,
     currentCashSession,
     setActiveTab,
     selectedSellerId,
@@ -129,8 +128,8 @@ export const POSView: React.FC = () => {
     // apply sorting if key is active
     if (modalSortKey) {
       list.sort((a, b) => {
-        let valA: any = 0;
-        let valB: any = 0;
+        let valA: string | number = 0;
+        let valB: string | number = 0;
         if (modalSortKey === 'monto') {
           valA = a.price;
           valB = b.price;
@@ -335,6 +334,7 @@ export const POSView: React.FC = () => {
   // Audio Beep generator
   const playBeep = (freq = 880, duration = 0.08) => {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- webkitAudioContext fallback for Safari
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -345,6 +345,7 @@ export const POSView: React.FC = () => {
       osc.start();
       osc.stop(audioCtx.currentTime + duration);
     } catch (e) {
+      // eslint-disable-next-line no-console -- expected when browser blocks audio
       console.log('Audio disabled until user interacts with document.');
     }
   };
@@ -483,6 +484,7 @@ export const POSView: React.FC = () => {
           setCart([]); // optionally clean cart on failure to represent reset or let it stay
         } else {
           // Business validations failed (e.g. stock issue)
+          // eslint-disable-next-line no-alert -- fallback for critical validation errors
           alert(`Error de validación de Inventario: ${result.error}`);
         }
       }, 1500);
@@ -591,7 +593,6 @@ export const POSView: React.FC = () => {
             filteredProducts.map(prod => {
               const inStock = prod.stock > 0;
               const lowStock = prod.stock <= prod.minStock;
-              const hasIngredients = prod.ingredients && prod.ingredients.length > 0;
 
               return (
                 <button
@@ -710,7 +711,9 @@ export const POSView: React.FC = () => {
                       {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
                     </button>
                   ))}
-                  <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); alert('Cliente creado (demo)'); }}
+                  <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); 
+                    // eslint-disable-next-line no-alert -- demo placeholder
+                    alert('Cliente creado (demo)'); }}
                     className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800">
                     + Crear nuevo cliente
                   </button>
@@ -1159,6 +1162,7 @@ export const POSView: React.FC = () => {
                                 if (isSorted) {
                                   setModalSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                                 } else {
+                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic sort key
                                   setModalSortKey(col.id as any);
                                   setModalSortOrder('asc');
                                 }

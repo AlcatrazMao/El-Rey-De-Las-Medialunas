@@ -1,4 +1,4 @@
-import { Sale, Ingredient, Expense } from '../types';
+import type { Sale, Ingredient, Expense } from '../types';
 
 /**
  * Downloads arbitrary structural rows as a clean CSV file

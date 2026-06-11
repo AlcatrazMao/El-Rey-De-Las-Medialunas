@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { loadDailyTasks, loadSpecialTasks, type DailyTask, type SpecialTask } from './dailyTasks';
+
+import { loadDailyTasks, loadSpecialTasks } from './dailyTasks';
 
 export interface StickyNote {
   id: string;
@@ -76,7 +77,7 @@ export function useStickyNotes() {
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) setNotes(JSON.parse(saved));
-      } catch {}
+      } catch { /* ignore parse errors */ }
     };
     window.addEventListener('sticky-note-added', reload);
     return () => window.removeEventListener('sticky-note-added', reload);

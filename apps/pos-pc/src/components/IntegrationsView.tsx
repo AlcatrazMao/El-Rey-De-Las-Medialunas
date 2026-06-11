@@ -1,6 +1,7 @@
-import React from 'react';
+import { Globe, ShieldCheck, KeyRound, Check, HelpCircle, EyeOff } from 'lucide-react';
+import * as React from 'react';
+
 import { useApp } from '../AppContext';
-import { Globe, CreditCard, ShieldCheck, KeyRound, Check, HelpCircle, EyeOff } from 'lucide-react';
 
 export const IntegrationsView: React.FC = () => {
   const { gateways, toggleGateway } = useApp();

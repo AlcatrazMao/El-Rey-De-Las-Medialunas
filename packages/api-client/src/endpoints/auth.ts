@@ -7,6 +7,7 @@ import type {
   ValidateTokenResponse,
   User,
 } from "@medialunas/shared/types/api";
+
 import type { ApiClient } from "../client";
 
 export class AuthEndpoints {

@@ -1,4 +1,5 @@
 import type { SyncPushRequest, SyncPushResponse, SyncPullResponse } from "@medialunas/shared/types/api";
+
 import type { ApiClient } from "../client";
 
 export class SyncEndpoints {

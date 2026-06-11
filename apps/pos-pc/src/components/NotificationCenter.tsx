@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useApp } from '../AppContext';
 import { Bell, Check, Trash2, CircleAlert, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import * as React from 'react'
+import { useState, useRef, useEffect } from 'react';
+
+import { useApp } from '../AppContext';
 
 export const NotificationCenter: React.FC = () => {
   const { notifications, markNotificationAsRead, clearNotifications } = useApp();

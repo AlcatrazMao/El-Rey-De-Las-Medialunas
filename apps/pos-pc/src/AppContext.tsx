@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import type { User } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from './config/firebase';
+import * as React from 'react'
+import { createContext, useContext, useState, useEffect } from 'react';
+
+import { auth } from './config/firebase';
 import { addAutoNote } from './hooks/useStickyNotes';
-import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, fetchCustomersFromD1 } from './services/d1-sync';
-import { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 import {
   INITIAL_INGREDIENTS,
   INITIAL_PRODUCTS,
@@ -14,6 +14,8 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS
 } from './initialData';
+import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, fetchCustomersFromD1 } from './services/d1-sync';
+import type { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 
 interface AppContextType {
   ingredients: Ingredient[];
@@ -97,7 +99,7 @@ const safeParse = <T,>(key: string, fallback: T): T => {
   }
 };
 
-export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: import('firebase/auth').User; firestoreRole?: string | null }> = ({ children, firebaseUser, firestoreRole }) => {
+export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: User; firestoreRole?: string | null }> = ({ children, firebaseUser, firestoreRole }) => {
   // Initialize state from local storage or defaults
   const [ingredients, setIngredients] = useState<Ingredient[]>(() => 
     safeParse('pan_erp_ingredients', INITIAL_INGREDIENTS)
@@ -385,7 +387,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       let addedAny = false;
       
       setWithdrawalRequests(prev => {
-        let updated = [...prev];
+        const updated = [...prev];
         expiredAutoBatches.forEach(b => {
           const exists = updated.some(r => r.batchId === b.id && r.status === 'pending');
           if (!exists) {
@@ -463,7 +465,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
         if (d1Customers.length > 0) {
           setCustomers(prev => {
             const existing = new Set(prev.map(c => c.id));
-            return [...prev, ...d1Customers.filter((c: any) => !existing.has(c.id))];
+            return [...prev, ...d1Customers.filter((c: { id: string }) => !existing.has(c.id))];
           });
         }
       }).catch(() => {});
@@ -497,6 +499,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
   // Trigger audio alert / browser notifications mock
   const playAlertSound = (type: PushNotification['type']) => {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- webkitAudioContext fallback for Safari
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -556,6 +559,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       setTimeout(() => audioCtx.close(), maxDuration);
     } catch (e) {
       // Audio context issue (e.g. user hasn't interacted yet)
+      // eslint-disable-next-line no-console -- expected when browser blocks audio
       console.log('Audio notification delayed due to browser interaction policies.');
     }
   };

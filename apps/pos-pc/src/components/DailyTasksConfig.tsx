@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Calendar, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Calendar, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import * as React from 'react'
+import {  } from 'react';
+
 import { type DailyTask, type SpecialTask, getDefaultDailyTasks, loadDailyTasks, saveDailyTasks, loadSpecialTasks, saveSpecialTasks } from '../hooks/dailyTasks';
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -156,6 +158,7 @@ export const DailyTasksConfig: React.FC<Props> = ({ onClose, onSync }) => {
 };
 
 // Inline form component
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic form handler accepting Partial<DailyTask | SpecialTask>
 function TaskForm({ type, onSave, onClose }: { type: 'daily' | 'special'; onSave: (t: any) => void; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -180,10 +183,10 @@ function TaskForm({ type, onSave, onClose }: { type: 'daily' | 'special'; onSave
           {type === 'special' && <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />}
           {type === 'daily' && <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />}
           <div className="flex gap-2">
-            <select value={role} onChange={e => setRole(e.target.value as any)} className="flex-1 px-2 py-2 border rounded-lg text-xs">
+            <select value={role} onChange={e => setRole(e.target.value as DailyTask['assignedRole'])} className="flex-1 px-2 py-2 border rounded-lg text-xs">
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
-            <select value={prio} onChange={e => setPrio(e.target.value as any)} className="flex-1 px-2 py-2 border rounded-lg text-xs">
+            <select value={prio} onChange={e => setPrio(e.target.value as DailyTask['priority'])} className="flex-1 px-2 py-2 border rounded-lg text-xs">
               <option value="high">🔴 Alta</option>
               <option value="medium">🟡 Media</option>
               <option value="low">⚪ Baja</option>

@@ -6,6 +6,7 @@ import type {
   UpdateCustomerRequest,
   Sale,
 } from "@medialunas/shared/types/api";
+
 import type { ApiClient } from "../client";
 import type { CustomerDebt } from "../types";
 

@@ -1,24 +1,16 @@
-import React, { useState } from 'react';
-import { useApp } from '../AppContext';
 import { 
   Coins, 
   Lock, 
   Unlock, 
-  Calendar, 
   History, 
-  TrendingUp, 
-  Wallet, 
-  CircleAlert, 
-  FileSpreadsheet,
-  PlusCircle,
+  CircleAlert,
   Clock,
-  ArrowUpRight,
-  ShieldAlert,
-  Sparkles,
-  User,
-  CheckCircle2
+  ShieldAlert
 } from 'lucide-react';
-import { CashSession } from '../types';
+import * as React from 'react'
+import { useState } from 'react';
+
+import { useApp } from '../AppContext';
 
 export const CashSessionView: React.FC = () => {
   const { 
@@ -37,9 +29,6 @@ export const CashSessionView: React.FC = () => {
   const [closingAmount, setClosingAmount] = useState<number>(0);
   const [closingNote, setClosingNote] = useState<string>('Cierre de caja de turno regular sin inconvenientes.');
   const [showConfirmClose, setShowConfirmClose] = useState(false);
-
-  // Helper calculation for default closing sum
-  const defaultExpected = currentCashSession ? currentCashSession.expectedAmount : 0;
 
   const handleOpen = (e: React.FormEvent) => {
     e.preventDefault();

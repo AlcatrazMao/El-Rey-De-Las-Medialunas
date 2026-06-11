@@ -1,4 +1,4 @@
-import { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway } from './types';
+import type { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway } from './types';
 
 export const INITIAL_INGREDIENTS: Ingredient[] = [
   { id: 'ing_harina', name: 'Harina de Trigo 0000', stock: 150, unit: 'kg', minStock: 30, unitCost: 1.2 },

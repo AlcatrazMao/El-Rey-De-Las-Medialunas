@@ -1,27 +1,24 @@
-import React, { useState } from 'react';
-import { useApp } from '../AppContext';
-import type { Customer, CustomerTimelineEntry } from '../types';
 import {
   Search,
-  Plus,
   Phone,
   Mail,
-  MapPin,
   CreditCard,
-  FileText,
   Clock,
   X,
-  Check,
   Edit3,
   UserPlus,
   Building2,
   Users,
   TrendingUp,
   Hash,
-  Ban,
   ArrowUpRight,
   History
 } from 'lucide-react';
+import * as React from 'react'
+import { useState } from 'react';
+
+import { useApp } from '../AppContext';
+import type { Customer, CustomerTimelineEntry } from '../types';
 
 const EMPTY_CUSTOMER: Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'timeline' | 'total_purchases' | 'last_purchase_date' | 'current_debt'> = {
   name: '',

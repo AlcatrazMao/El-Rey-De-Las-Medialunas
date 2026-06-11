@@ -1,4 +1,5 @@
 import type { AuditEntriesResponse } from "@medialunas/shared/types/api";
+
 import type { ApiClient } from "../client";
 
 export interface AuditFilters {

@@ -1,6 +1,3 @@
-import React, { useState } from 'react';
-import { useApp } from '../AppContext';
-import { exportIngredientsToCSV } from '../utils/exportUtils';
 import {
   Download,
   Plus,
@@ -8,19 +5,18 @@ import {
   Wheat,
   Activity,
   AlertTriangle,
-  RotateCcw,
-  Sparkles,
   Search,
-  CheckCircle,
   X,
-  Calendar,
   Check,
   History,
-  Trash2,
-  FileText,
   ShieldAlert
 } from 'lucide-react';
-import { Ingredient, Product, CategoryType, ProductIngredient, ProductBatch, BatchWithdrawalRequest } from '../types';
+import * as React from 'react'
+import { useState } from 'react';
+
+import { useApp } from '../AppContext';
+import type { Ingredient, Product, CategoryType} from '../types';
+import { exportIngredientsToCSV } from '../utils/exportUtils';
 
 export const InventoryView: React.FC = () => {
   const {
@@ -34,8 +30,6 @@ export const InventoryView: React.FC = () => {
     setActiveTab,
     batches = [],
     withdrawalRequests = [],
-    addBatch,
-    requestBatchWithdrawal,
     approveWithdrawalRequest,
     rejectWithdrawalRequest,
     activeUser
@@ -85,7 +79,7 @@ export const InventoryView: React.FC = () => {
   };
 
   const getPrioritizedExpiryProducts = () => {
-    let list = products.filter(p => p.durabilityDays !== undefined);
+    const list = products.filter(p => p.durabilityDays !== undefined);
     
     list.sort((a, b) => {
       const daysA = getProductExpiryDays(a);
@@ -129,10 +123,6 @@ export const InventoryView: React.FC = () => {
   const [prodMinStock, setProdMinStock] = useState(10);
   const [prodImage, setProdImage] = useState('🥖');
   const [selectedRecipeIngredients, setSelectedRecipeIngredients] = useState<{ ingredientId: string; quantity: number }[]>([]);
-
-  // Individual stock adjust
-  const [editingStockId, setEditingStockId] = useState<string | null>(null);
-  const [tempStockValue, setTempStockValue] = useState<number>(0);
 
   // Handle ingredient addition
   const handleCreateInsumoSubmit = (e: React.FormEvent) => {
@@ -736,7 +726,7 @@ export const InventoryView: React.FC = () => {
                       <button
                         key={opt.id}
                         type="button"
-                        onClick={() => handleSavePriorityConfig(opt.id as any, priorityAlertDays, priorityCategory)}
+                        onClick={() => handleSavePriorityConfig(opt.id as 'categoria' | 'precio' | 'unidades', priorityAlertDays, priorityCategory)}
                         className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
                           priorityCriteria === opt.id
                             ? 'bg-amber-500/10 border-amber-500 text-amber-900 dark:text-amber-305'
@@ -874,7 +864,6 @@ export const InventoryView: React.FC = () => {
                 .map(req => {
                   const isPending = req.status === 'pending';
                   const isApproved = req.status === 'approved';
-                  const isRejected = req.status === 'rejected';
                   const reqDate = new Date(req.date);
 
                   return (

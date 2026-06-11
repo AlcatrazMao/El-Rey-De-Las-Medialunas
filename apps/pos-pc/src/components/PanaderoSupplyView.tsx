@@ -1,10 +1,5 @@
-import React, { useState } from 'react';
-import { useApp } from '../AppContext';
 import { 
   TrendingUp, 
-  Package, 
-  ArrowRightLeft, 
-  Plus, 
   Clock, 
   CheckCircle2, 
   X, 
@@ -12,6 +7,10 @@ import {
   Sparkles, 
   Workflow 
 } from 'lucide-react';
+import * as React from 'react'
+import {  } from 'react';
+
+import { useApp } from '../AppContext';
 
 export const PanaderoSupplyView: React.FC = () => {
   const {
@@ -35,7 +34,6 @@ export const PanaderoSupplyView: React.FC = () => {
   const [productReason, setProductReason] = useState<string>('Producción fresca lista en el horno. Solicito traslado a mostrador.');
 
   const activeIngredient = ingredients.find(i => i.id === selectedIngredientId);
-  const activeProduct = products.find(p => p.id === selectedProductId);
 
   const handleIngredientSubmit = (e: React.FormEvent) => {
     e.preventDefault();

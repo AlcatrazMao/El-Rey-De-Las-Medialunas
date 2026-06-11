@@ -1,16 +1,15 @@
-import React, { useState } from 'react';
-import { useApp } from '../AppContext';
 import { 
-  X, 
-  Trash2, 
-  AlertTriangle, 
+  X,
+  Trash2,
   CheckCircle2, 
   Plus, 
   History, 
-  Clock, 
-  Package, 
-  Eye 
+  Clock 
 } from 'lucide-react';
+import * as React from 'react'
+import {  } from 'react';
+
+import { useApp } from '../AppContext';
 
 export const CajeroMermaView: React.FC = () => {
   const {

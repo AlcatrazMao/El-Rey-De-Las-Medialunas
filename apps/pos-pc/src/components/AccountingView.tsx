@@ -1,28 +1,27 @@
-import React, { useState } from 'react';
-import { useApp } from '../AppContext';
-import { exportExpensesToCSV } from '../utils/exportUtils';
 import {
   HandCoins,
   TrendingUp,
   Plus,
   Search,
   Scale,
-  Calendar,
   DollarSign,
   Download,
   AlertCircle,
-  X,
-  Sparkles
+  X
 } from 'lucide-react';
-import { Expense } from '../types';
+import * as React from 'react'
+import {  } from 'react';
+
+import { useApp } from '../AppContext';
+import type { Expense } from '../types';
+import { exportExpensesToCSV } from '../utils/exportUtils';
 
 export const AccountingView: React.FC = () => {
   const {
     sales,
     expenses,
     addExpense,
-    products,
-    addSystemNotification
+    products
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -201,7 +200,7 @@ export const AccountingView: React.FC = () => {
         <select
           id="filter-exp-category"
           value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value as any)}
+           onChange={(e) => setCategoryFilter(e.target.value as Expense['category'])}
           className="w-full text-xs font-bold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-805 rounded-xl p-3 focus:outline-none text-gray-700 dark:text-zinc-350"
         >
           <option value="todos">🗂️ Todas las Categorías de Egreso</option>
@@ -316,7 +315,7 @@ export const AccountingView: React.FC = () => {
                 <select
                   id="modal-exp-category"
                   value={expCategory}
-                  onChange={(e) => setExpCategory(e.target.value as any)}
+                   onChange={(e) => setExpCategory(e.target.value as Expense['category'])}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100 font-bold"
                 >
                   <option value="materia_prima">Materia Prima</option>

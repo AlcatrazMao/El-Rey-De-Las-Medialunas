@@ -7,6 +7,7 @@ import type {
   CloseCashSessionRequest,
   CashMovementRequest,
 } from "@medialunas/shared/types/api";
+
 import type { ApiClient } from "../client";
 
 export interface CashSessionFilters {

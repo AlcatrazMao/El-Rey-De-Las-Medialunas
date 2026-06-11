@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Check, X, Edit3, Calendar, Flag, Filter, ArrowUpDown } from 'lucide-react';
+import { Check, X, Edit3, Calendar, Flag, Filter } from 'lucide-react';
+import * as React from 'react'
+import { useState } from 'react';
+
 import type { StickyNote } from '../hooks/useStickyNotes';
 
 interface NotesListProps {

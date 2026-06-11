@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import type { User } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { 
   LogIn, 
   Mail, 
@@ -8,7 +9,9 @@ import {
   EyeOff,
   Store
 } from 'lucide-react';
-import { signInWithEmailAndPassword, onAuthStateChanged, signOut, User } from 'firebase/auth';
+import * as React from 'react'
+import { useState } from 'react';
+
 import { auth } from '../config/firebase';
 
 interface LoginPageProps {
@@ -30,10 +33,11 @@ export function LoginPage({ onLogin, accessError }: LoginPageProps) {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       onLogin(result.user);
-    } catch (err: any) {
-      setError(err.code === 'auth/invalid-credential' 
+    } catch (err) {
+      const fbErr = err as { code?: string };
+      setError(fbErr.code === 'auth/invalid-credential' 
         ? 'Email o contraseña incorrectos' 
-        : err.code === 'auth/too-many-requests'
+        : fbErr.code === 'auth/too-many-requests'
         ? 'Demasiados intentos. Esperá unos minutos.'
         : 'Error al iniciar sesión');
     } finally {

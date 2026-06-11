@@ -1,10 +1,13 @@
-﻿import React, { useState, useEffect } from 'react';
 import { Plus, LayoutGrid, List, StickyNote as StickyNoteIcon, CalendarCheck } from 'lucide-react';
+import * as React from 'react'
+import {  } from 'react';
+
+import { useApp } from '../AppContext';
 import { useStickyNotes, type StickyNote } from '../hooks/useStickyNotes';
+
+import { DailyTasksConfig } from './DailyTasksConfig';
 import { NotesCanvas } from './NotesCanvas';
 import { NotesList } from './NotesList';
-import { useApp } from '../AppContext';
-import { DailyTasksConfig } from './DailyTasksConfig';
 
 export const StickyNotesView: React.FC = () => {
   const { notes, addNote, deleteNote, updateNote, toggleStatus, syncDailyTasks } = useStickyNotes();
@@ -73,16 +76,16 @@ export const StickyNotesView: React.FC = () => {
             placeholder="Contenido..." rows={2}
             className="w-full px-3 py-2 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-xs resize-none" />
           <div className="flex items-center gap-2">
-            <select value={newNote.category} onChange={e => setNewNote({ ...newNote, category: e.target.value as any })}
+            <select value={newNote.category} onChange={e => setNewNote({ ...newNote, category: e.target.value as StickyNote['category'] })}
               className="px-2 py-1.5 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-xs">
-              <option value="general">­ƒôî General</option>
-              <option value="tarea">­ƒôï Tarea</option>
-              <option value="ventas">­ƒÆ© Ventas</option>
-              <option value="inventario">­ƒôª Inventario</option>
-              <option value="caja">­ƒÆ░ Caja</option>
-              <option value="produccion">­ƒÅ¡ Producci├│n</option>
+              <option value="general">General</option>
+              <option value="tarea">Tarea</option>
+              <option value="ventas">Ventas</option>
+              <option value="inventario">Inventario</option>
+              <option value="caja">Caja</option>
+              <option value="produccion">Producción</option>
             </select>
-            <select value={newNote.priority} onChange={e => setNewNote({ ...newNote, priority: e.target.value as any })}
+            <select value={newNote.priority} onChange={e => setNewNote({ ...newNote, priority: e.target.value as StickyNote['priority'] })}
               className="px-2 py-1.5 bg-gray-50 dark:bg-zinc-950 border rounded-lg text-xs">
               <option value="high">­ƒö┤ Alta</option>
               <option value="medium">­ƒƒí Media</option>

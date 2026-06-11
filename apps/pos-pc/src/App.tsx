@@ -1,26 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from './config/firebase';
-import { AppProvider, useApp } from './AppContext';
-import { MainHeadLayout } from './components/MainHeadLayout';
-import { LoginPage } from './components/LoginPage';
-import { Dashboard } from './components/Dashboard';
-import { POSView } from './components/POSView';
-import { InventoryView } from './components/InventoryView';
-import { SalesHistoryView } from './components/SalesHistoryView';
-import { AccountingView } from './components/AccountingView';
-import { IntegrationsView } from './components/IntegrationsView';
-import { CajeroMermaView } from './components/CajeroMermaView';
-import { PanaderoSupplyView } from './components/PanaderoSupplyView';
-import { CashSessionView } from './components/CashSessionView';
-import { CustomersView } from './components/CustomersView';
-import { AdminUsersView } from './components/AdminUsersView';
-import { StickyNotesView } from './components/StickyNotesView';
+import type { User } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
   LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote
 } from 'lucide-react';
+import * as React from 'react'
+import { useState, useEffect } from 'react';
+
+import { AppProvider, useApp } from './AppContext';
+import { AccountingView } from './components/AccountingView';
+import { AdminUsersView } from './components/AdminUsersView';
+import { CajeroMermaView } from './components/CajeroMermaView';
+import { CashSessionView } from './components/CashSessionView';
+import { CustomersView } from './components/CustomersView';
+import { Dashboard } from './components/Dashboard';
+import { IntegrationsView } from './components/IntegrationsView';
+import { InventoryView } from './components/InventoryView';
+import { LoginPage } from './components/LoginPage';
+import { MainHeadLayout } from './components/MainHeadLayout';
+import { PanaderoSupplyView } from './components/PanaderoSupplyView';
+import { POSView } from './components/POSView';
+import { SalesHistoryView } from './components/SalesHistoryView';
+import { StickyNotesView } from './components/StickyNotesView';
+import { auth } from './config/firebase';
+
 
 interface SavedSession { email: string; name: string; role: string; }
 
@@ -28,7 +32,7 @@ function ERPLayout() {
   const { activeTab, setActiveTab, activeUser, logout } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showSessionMenu, setShowSessionMenu] = useState(false);
-  const [showAddSession, setShowAddSession] = useState(false);
+  const [_showAddSession, setShowAddSession] = useState(false);
 
   // Load saved sessions from localStorage
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>(() => {

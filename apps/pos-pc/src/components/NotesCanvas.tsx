@@ -1,5 +1,7 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { X, Calendar, Flag, Edit3 } from 'lucide-react';
+import { X, Calendar, Flag } from 'lucide-react';
+import * as React from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react';
+
 import type { StickyNote } from '../hooks/useStickyNotes';
 
 interface NotesCanvasProps {

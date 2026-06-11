@@ -6,6 +6,7 @@ function getToken(): string | null {
   return localStorage.getItem("firebase_token");
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- API response shape is unknown
 async function apiFetch(path: string, options: RequestInit = {}): Promise<any> {
   const token = getToken();
   if (!token) return null;
@@ -64,6 +65,7 @@ export async function fetchSalesFromD1(from?: string, to?: string): Promise<Sale
 
 // ── Products ──────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- D1 API response shape varies
 export async function fetchProductsFromD1(branchId?: string): Promise<any[]> {
   const params = new URLSearchParams();
   if (branchId) params.set("branch_id", branchId);
@@ -93,6 +95,7 @@ export async function syncStockMovementToD1(movement: {
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- D1 API response shape varies
 export async function fetchInventoryFromD1(branchId?: string): Promise<any[]> {
   const params = new URLSearchParams();
   if (branchId) params.set("branch_id", branchId);
@@ -103,6 +106,7 @@ export async function fetchInventoryFromD1(branchId?: string): Promise<any[]> {
 
 // ── Customers ─────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- customer data from localStorage may be incomplete
 export async function syncCustomerToD1(customer: any): Promise<void> {
   await apiFetch("/api/v1/customers", {
     method: "POST",
@@ -119,6 +123,7 @@ export async function syncCustomerToD1(customer: any): Promise<void> {
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- D1 API response shape varies
 export async function fetchCustomersFromD1(): Promise<any[]> {
   const data = await apiFetch("/api/v1/customers?limit=200");
   return data?.data || [];

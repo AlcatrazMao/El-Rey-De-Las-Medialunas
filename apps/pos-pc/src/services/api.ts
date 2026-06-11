@@ -1,4 +1,4 @@
-import { ApiClient, createApiClient } from "@medialunas/api-client";
+import { createApiClient } from "@medialunas/api-client";
 
 // API Worker URL — configurable per environment
 const API_URL = import.meta.env.VITE_API_URL || "https://el-rey-api-production.elprincipitodeargentina.workers.dev";

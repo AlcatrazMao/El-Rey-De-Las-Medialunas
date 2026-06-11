@@ -5,6 +5,7 @@ import type {
   CreateSupplierRequest,
   UpdateSupplierRequest,
 } from "@medialunas/shared/types/api";
+
 import type { ApiClient } from "../client";
 
 export interface SupplierFilters {

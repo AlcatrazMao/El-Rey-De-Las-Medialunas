@@ -1,14 +1,13 @@
-import React from 'react';
-import { useApp } from '../AppContext';
-import { NotificationCenter } from './NotificationCenter';
 import {
-  Users,
   RotateCcw,
-  Wifi,
-  CloudLightning,
   ChevronDown
 } from 'lucide-react';
-import { UserRole } from '../types';
+import * as React from 'react';
+
+import { useApp } from '../AppContext';
+
+
+import { NotificationCenter } from './NotificationCenter';
 
 export const MainHeadLayout: React.FC = () => {
   const {
@@ -88,6 +87,7 @@ export const MainHeadLayout: React.FC = () => {
           <button
             id="btn-system-reset"
             onClick={() => {
+              // eslint-disable-next-line no-alert -- confirm is appropriate UX for destructive action
               if (window.confirm('¿Estás seguro de que deseas reiniciar todos los datos a los valores por defecto? Se perderán las ventas del día.')) {
                 resetAllData();
               }

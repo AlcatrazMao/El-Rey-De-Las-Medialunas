@@ -1,24 +1,14 @@
-import React, { useState } from 'react';
-import { useApp } from '../AppContext';
-import { exportSalesToCSV } from '../utils/exportUtils';
 import {
   TrendingUp,
   LayoutDashboard,
-  Wheat,
-  Scale,
   Settings2,
   AlertTriangle,
-  Receipt,
-  ShoppingCart,
-  Check,
-  Plus,
-  ArrowUpRight,
-  Sparkles,
-  HelpCircle,
-  Clock,
-  CheckCircle2,
-  X
+  Check
 } from 'lucide-react';
+import * as React from 'react'
+import { useState } from 'react';
+
+import { useApp } from '../AppContext';
 
 export const Dashboard: React.FC = () => {
   const {
@@ -86,6 +76,7 @@ export const Dashboard: React.FC = () => {
     if (isPresent) {
       // Don't let users empty all widgets so they don't see a blank screen
       if (activeUser.customPanels.length <= 1) {
+        // eslint-disable-next-line no-alert -- temporary UX for widget minimum warning
         alert('Debes dejar al menos una sección activa para visualizar el tablero.');
         return;
       }
@@ -119,8 +110,6 @@ export const Dashboard: React.FC = () => {
   const totalRevenue = successfulSales.reduce((acc, s) => acc + s.total, 0);
   const totalExpenses = expenses.reduce((acc, e) => acc + e.amount, 0);
   const totalInsumosSobrantesValue = ingredients.reduce((sum, ing) => sum + (ing.stock * ing.unitCost), 0);
-  const lowIngredientsCount = ingredients.filter(i => i.stock <= i.minStock).length;
-
   {/* RENDER INDIVIDUAL WIDGET: FINANCIAL SUMMARY BENTO DECORATORS */}
   const renderWidgetFacturacion = () => {
     return (
