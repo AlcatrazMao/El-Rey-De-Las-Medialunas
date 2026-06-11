@@ -24,10 +24,15 @@
   --color-amber-100: #FFF1DF;     /* Active state hover backgrounds */
   --color-amber-200: #FCEBD3;
   --color-amber-305: #F7D0A2;
+  --color-amber-350: #D4B28A;
+  --color-amber-405: #C09B76;
   --color-amber-450: #B78D6C;
-  --color-amber-500: #8B5E3C;     /* Primary brand color (Miga & Horno Brown) */
-  --color-amber-600: #724A2E;     /* Darker brown hover state */
-  --color-amber-700: #5D4037;     /* Display headers font-serif text */
+  --color-amber-500: #8B5E3C;
+  --color-amber-505: #7D5434;
+  --color-amber-550: #734A2E;
+  --color-amber-600: #724A2E;
+  --color-amber-700: #5D4037;
+  --color-amber-805: #4F3931;
   --color-amber-850: #49312A;
   --color-amber-955: #3A231C;
 
@@ -41,6 +46,7 @@
   /* Natural/Earthy Green instead of vivid green */
   --color-emerald-50: #F3F6F3;
   --color-emerald-100: #E3ECE4;
+  --color-emerald-450: #6A8A72;
   --color-emerald-500: #5F7D65;    /* Sage/Olive green for successful items */
   --color-emerald-600: #4A634F;
   --color-emerald-700: #394C3D;
