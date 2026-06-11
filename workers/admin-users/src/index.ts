@@ -133,15 +133,16 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     const data = JSON.parse(text);
     userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', role: body.role || 'cajero', disabled: false, created: new Date().toISOString() });
     
-    // Also write role to Firestore via REST API
+    // Write role to Firestore
     const role = body.role || 'cajero';
-    try {
-      await fetch(
-        `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles?documentId=${data.localId}`,
-        { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: { role: { stringValue: role } } }) }
-      );
-    } catch { /* Firestore might not be ready */ }
+    const fsRes = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles?documentId=${data.localId}`,
+      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { role: { stringValue: role }, email: { stringValue: body.email } } }) }
+    );
+    if (!fsRes.ok) {
+      console.error('Firestore write failed:', await fsRes.text());
+    }
     
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }

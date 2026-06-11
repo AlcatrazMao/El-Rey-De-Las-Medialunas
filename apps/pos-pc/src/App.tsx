@@ -217,36 +217,31 @@ export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [accessError, setAccessError] = useState('');
+  const [firestoreRole, setFirestoreRole] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
-      setFirebaseUser(user);
-      setAuthLoading(false);
       if (user) {
         try {
           const snap = await getDoc(doc(db, 'user_roles', user.uid));
           if (!snap.exists()) {
-            setAccessError('Acceso denegado');
+            setAccessError('Usuario no autorizado. Contactá al administrador.');
             await signOut(auth);
+          } else {
+            setFirestoreRole(snap.data().role || null);
+            setFirebaseUser(user);
           }
-        } catch { /* Firestore not ready */ }
+        } catch {
+          setAccessError('Error al verificar acceso. Reintentá.');
+          await signOut(auth);
+        }
+      } else {
+        setFirebaseUser(null);
       }
+      setAuthLoading(false);
     });
     return () => unsub();
   }, []);
-
-  // Also fetch role from Firestore and pass to AppProvider
-  const [firestoreRole, setFirestoreRole] = useState<string | null>(null);
-  useEffect(() => {
-    if (!firebaseUser) return;
-    const fetch = async () => {
-      try {
-        const snap = await getDoc(doc(db, 'user_roles', firebaseUser.uid));
-        if (snap.exists()) setFirestoreRole(snap.data().role || null);
-      } catch { setFirestoreRole(null); }
-    };
-    fetch();
-  }, [firebaseUser]);
 
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950"><div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto" /></div>;

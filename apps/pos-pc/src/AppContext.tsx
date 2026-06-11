@@ -314,16 +314,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     catch { return []; }
   });
 
-  // User role from Firestore if available, otherwise email-based fallback
-  const detectedRole = firestoreRole || 
-    ((firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner')) ? 'admin'
-     : firebaseUser.email?.includes('cajero') ? 'cajero' : 'panadero');
-  
+  // User role from Firestore — NO email fallback
   const firebaseMappedUser: User = {
     id: firebaseUser.uid,
     name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
     email: firebaseUser.email || '',
-    role: detectedRole as UserRole,
+    role: (firestoreRole || 'panadero') as UserRole,
     avatar: firebaseUser.photoURL || '',
     customPanels: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner'))
       ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
