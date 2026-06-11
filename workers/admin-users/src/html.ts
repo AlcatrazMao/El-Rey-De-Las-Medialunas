@@ -95,8 +95,9 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 
 <script>
 let AUTH = "";
+let RELOGIN_COUNT = 0;
 let INACTIVITY_TIMER = null;
-const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos
+const TIMEOUT_MS = 10 * 60 * 1000;
 
 function resetTimer() {
   if (INACTIVITY_TIMER) clearTimeout(INACTIVITY_TIMER);
@@ -123,6 +124,7 @@ function connect() {
   AUTH = document.getElementById("authSecret").value;
   if (!AUTH) return toast("Ingresa la clave","error");
   document.getElementById("authSecret").type = "password";
+  RELOGIN_COUNT = 0;
   resetTimer();
   // Clear cache on fresh login
   api("POST", "/api/sync").then(function() {
@@ -140,6 +142,7 @@ window.addEventListener("message", function(e) {
   if (e.data && e.data.type === "auth" && e.data.secret) {
     AUTH = e.data.secret;
     document.getElementById("authSecret").value = "••••••••";
+    RELOGIN_COUNT = 0;
     resetTimer();
     api("POST", "/api/sync").then(function() { return loadUsers(); }).then(function() {
       document.getElementById("connectStatus").innerHTML = "<div class=badge badge-active style=font-size:.8rem;padding:6px 12px>Conectado</div>";
@@ -179,14 +182,18 @@ document.getElementById("userForm").onsubmit = handleSubmit;
 async function api(method, path, body) {
   var headers = { "Content-Type": "application/json", "Authorization": "Bearer " + AUTH };
   var res = await fetch(path, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined });
-  if (res.status === 401 || res.status === 429) {
-    // Auto-relogin on auth error or rate limit
+  if ((res.status === 401 || res.status === 429) && RELOGIN_COUNT < 1) {
+    RELOGIN_COUNT++;
     logout();
     toast("Sesión expirada. Reingresá la clave.", "error");
     throw new Error("Sesión expirada");
   }
+  if (res.status === 401 || res.status === 429) {
+    throw new Error("Error de autenticación. Recargá la página.");
+  }
   var data = await res.json();
   if (!res.ok && data.error) throw new Error(data.error);
+  RELOGIN_COUNT = 0; // reset on success
   resetTimer();
   return data;
 }
