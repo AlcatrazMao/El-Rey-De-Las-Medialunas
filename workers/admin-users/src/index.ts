@@ -104,32 +104,30 @@ async function getAccessToken(env: Env): Promise<string> {
 async function handleRequest(req: Request, env: Env, url: URL) {
   const path = url.pathname;
   const method = req.method;
+  const ah = req.headers.get('Authorization');
 
-  // Public: get role for a user (used by POS login, no auth needed)
+  // Role check: validates Firebase token by decoding JWT
   if (method === 'GET' && path.startsWith('/api/role/')) {
     const uid = path.split('/api/role/')[1];
-    // Check worker cache first
+    const fbToken = ah?.startsWith('Bearer ') ? ah.slice(7) : '';
+    if (!fbToken) return { status: 401, error: 'Token requerido' };
+    // Decode JWT to verify the token belongs to this user
+    try {
+      const parts = fbToken.split('.');
+      if (parts.length !== 3) throw new Error('Invalid JWT');
+      const payload = JSON.parse(atob(parts[1]!));
+      if (payload.sub !== uid) return { status: 403, error: 'No autorizado' };
+      // Check expiry
+      if (payload.exp * 1000 < Date.now()) return { status: 401, error: 'Token expirado' };
+    } catch {
+      return { status: 401, error: 'Token inválido' };
+    }
     const cached = userCache.find(u => u.uid === uid);
     if (cached) return { status: 200, data: { role: cached.role } };
-    // Try Firestore via OAuth2
-    try {
-      const t = await getAccessToken(env);
-      const sa = JSON.parse((env.FIREBASE_SERVICE_ACCOUNT || '').trim().startsWith('{') ? env.FIREBASE_SERVICE_ACCOUNT.trim() : atob(env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '')));
-      const fsRes = await fetch(
-        `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles/${uid}`,
-        { headers: { 'Authorization': `Bearer ${t}` } }
-      );
-      if (fsRes.ok) {
-        const fsData: any = await fsRes.json();
-        const role = fsData.fields?.role?.stringValue || null;
-        return { status: 200, data: { role } };
-      }
-    } catch { /* Firestore not available */ }
-    return { status: 404, error: 'Not found' };
+    return { status: 404, error: 'Usuario no registrado' };
   }
 
-  // Auth required for everything below
-  const ah = req.headers.get('Authorization');
+  // Auth (AUTH_SECRET) required for everything below
   const at = ah?.startsWith('Bearer ') ? ah.slice(7) : '';
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
   if (!checkRateLimit(ip)) return { status: 429, error: 'Demasiados intentos' };
@@ -180,16 +178,13 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     const data = JSON.parse(text);
     userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', role: body.role || 'cajero', disabled: false, created: new Date().toISOString() });
     
-    // Write role to Firestore
+    // Set Firebase custom claims (role is embedded in the JWT token)
     const role = body.role || 'cajero';
-    const fsRes = await fetch(
-      `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles?documentId=${data.localId}`,
+    await fetch(
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update`,
       { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { role: { stringValue: role }, email: { stringValue: body.email } } }) }
+        body: JSON.stringify({ localId: data.localId, customAttributes: JSON.stringify({ role }) }) }
     );
-    if (!fsRes.ok) {
-      console.error('Firestore write failed:', await fsRes.text());
-    }
     
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }

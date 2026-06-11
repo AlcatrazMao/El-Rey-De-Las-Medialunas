@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './config/firebase';
 import { AppProvider, useApp } from './AppContext';
 import { MainHeadLayout } from './components/MainHeadLayout';
@@ -47,7 +47,7 @@ function ERPLayout() {
 
   const switchSession = async (session: SavedSession) => {
     if (session.email === activeUser.email) return;
-    await signOut(auth);
+    await auth.signOut();
     // Use stored role for quick switch, Firebase will update on next auth
     localStorage.setItem('erp_quick_role', session.role);
     setShowSessionMenu(false);
@@ -232,13 +232,17 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Step 2: Check role via admin worker (no Firestore dependency)
+  // Step 2: Get role from admin worker (validates Firebase token)
   useEffect(() => {
     if (!firebaseUser) return;
     let cancelled = false;
     const check = async () => {
       try {
-        const res = await fetch(`https://admin-users-production.elprincipitodeargentina.workers.dev/api/role/${firebaseUser.uid}`);
+        const fbToken = await firebaseUser.getIdToken();
+        const res = await fetch(
+          `https://admin-users-production.elprincipitodeargentina.workers.dev/api/role/${firebaseUser.uid}`,
+          { headers: { Authorization: `Bearer ${fbToken}` } }
+        );
         if (res.ok) {
           const data = await res.json();
           if (!cancelled) {
@@ -247,17 +251,15 @@ export default function App() {
             setAuthLoading(false);
           }
         } else {
-          // No role found — default to panadero
+          // User not registered by admin
           if (!cancelled) {
-            setFirestoreRole('panadero');
-            setFsCheckDone(true);
+            setAccessError('Usuario no registrado. Contactá al administrador.');
             setAuthLoading(false);
           }
         }
       } catch {
         if (!cancelled) {
-          setFirestoreRole('panadero');
-          setFsCheckDone(true);
+          setAccessError('Error de conexión. Reintentá.');
           setAuthLoading(false);
         }
       }
