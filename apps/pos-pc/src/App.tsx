@@ -251,9 +251,9 @@ export default function App() {
             setAuthLoading(false);
           }
         }
-      } catch {
+      } catch (err: any) {
         if (!cancelled) {
-          setAccessError('Error al conectar con la base de datos. Reintentá en unos segundos.');
+          setAccessError('Error Firestore: ' + (err.message || err.code || 'desconocido') + '. Reintentá.');
           setAuthLoading(false);
         }
       }

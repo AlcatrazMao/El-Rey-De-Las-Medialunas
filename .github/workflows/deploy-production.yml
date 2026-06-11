@@ -66,9 +66,9 @@ jobs:
             (cd $dir && npx wrangler deploy --env production)
           done
           echo "--- workers/admin-users ---"
-          # Delete non-production worker if it exists (from previous deploy without --env)
+          # Delete non-production admin worker (ignore if doesn't exist)
           (cd workers/admin-users && npx wrangler delete admin-users 2>&1) || true
-          # Deploy production worker
+          echo "Deploying admin-users-production..."
           (cd workers/admin-users && npx wrangler deploy --env production)
 
           # Admin secrets set manually in Cloudflare Dashboard
