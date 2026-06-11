@@ -134,6 +134,7 @@ export function useStickyNotes() {
     dailyTasks.filter(t => t.active && t.days.includes(today) && (t.assignedRole === userRole || t.assignedRole === 'all')).forEach(t => {
       const key = `[Diaria] ${t.title}`;
       if (!existingTitles.has(key)) {
+        existingTitles.add(key);
         addNote({ title: key, content: `${t.description}\n⏰ ${t.time || 'Sin hora'}`, category: 'tarea', priority: t.priority, x: 40 + Math.random() * 200, y: 40 + Math.random() * 200 });
       }
     });
@@ -141,6 +142,7 @@ export function useStickyNotes() {
     specialTasks.filter(t => t.date === todayStr && (t.assignedRole === userRole || t.assignedRole === 'all')).forEach(t => {
       const key = `[Especial] ${t.title}`;
       if (!existingTitles.has(key)) {
+        existingTitles.add(key);
         addNote({ title: key, content: t.description, category: 'tarea', priority: t.priority, x: 40 + Math.random() * 200, y: 40 + Math.random() * 200 });
       }
     });

@@ -50,8 +50,6 @@ function ERPLayout() {
   const switchSession = async (session: SavedSession) => {
     if (session.email === activeUser.email) return;
     await auth.signOut();
-    // Use stored role for quick switch, Firebase will update on next auth
-    localStorage.setItem('erp_quick_role', session.role);
     setShowSessionMenu(false);
   };
 
@@ -288,7 +286,10 @@ export default function App() {
   // Store Firebase token for D1 API calls
   useEffect(() => {
     if (!firebaseUser) return;
-    firebaseUser.getIdToken().then(t => localStorage.setItem('firebase_token', t));
+    firebaseUser.getIdToken().then(t => {
+      localStorage.setItem('firebase_token', t);
+      window.dispatchEvent(new Event('firebase-token-ready'));
+    });
     // Refresh token every 30 min
     const interval = setInterval(() => {
       firebaseUser.getIdToken(true).then(t => localStorage.setItem('firebase_token', t));

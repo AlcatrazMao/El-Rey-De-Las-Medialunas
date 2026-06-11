@@ -456,17 +456,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     localStorage.setItem('pan_erp_customers', JSON.stringify(customers));
   }, [customers]);
 
-  // Load D1 data on startup (merge with localStorage)
+  // Load D1 data on startup (retry when token is ready)
   useEffect(() => {
-    fetchCustomersFromD1().then(d1Customers => {
-      if (d1Customers.length > 0) {
-        setCustomers(prev => {
-          const existing = new Set(prev.map(c => c.id));
-          const merged = [...prev, ...d1Customers.filter((c: any) => !existing.has(c.id))];
-          return merged;
-        });
-      }
-    }).catch(() => {});
+    const loadFromD1 = () => {
+      fetchCustomersFromD1().then(d1Customers => {
+        if (d1Customers.length > 0) {
+          setCustomers(prev => {
+            const existing = new Set(prev.map(c => c.id));
+            return [...prev, ...d1Customers.filter((c: any) => !existing.has(c.id))];
+          });
+        }
+      }).catch(() => {});
+    };
+    // Try immediately (token might already be cached)
+    loadFromD1();
+    // Also listen for token-ready event (first login)
+    window.addEventListener('firebase-token-ready', loadFromD1);
+    return () => window.removeEventListener('firebase-token-ready', loadFromD1);
   }, []);
 
   // Use local user if selected via dropdown, otherwise Firebase-mapped user
