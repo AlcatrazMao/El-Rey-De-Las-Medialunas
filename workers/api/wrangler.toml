@@ -40,6 +40,33 @@ APP_ENV = "development"
 [env.staging.vars]
 APP_ENV = "staging"
 
+[env.production]
+workers_dev = false
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "el-rey-db"
+database_id = "D1_ID_PLACEHOLDER"
+
+[[env.production.kv_namespaces]]
+binding = "CACHE"
+id = "KV_CACHE_PLACEHOLDER"
+
+[[env.production.kv_namespaces]]
+binding = "SESSIONS"
+id = "KV_SESSIONS_PLACEHOLDER"
+
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "KV_RATE_LIMIT_PLACEHOLDER"
+
+[[env.production.queues.producers]]
+binding = "INVENTORY_QUEUE"
+queue = "inventory-processing"
+
+[[env.production.queues.producers]]
+binding = "REPORTS_QUEUE"
+queue = "report-generation"
+
 [env.production.vars]
 APP_ENV = "production"
-FIREBASE_API_KEY = "${FIREBASE_API_KEY}"

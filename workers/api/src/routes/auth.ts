@@ -1,7 +1,11 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Env, Variables } from "../types/bindings";
 
 export const authRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// CORS for auth endpoints
+authRoutes.use("*", cors({ origin: "*", allowMethods: ["POST", "GET", "OPTIONS"], allowHeaders: ["Content-Type", "Authorization"] }));
 
 // Rate limit: 10 login attempts per minute per IP
 const loginLimits = new Map<string, { count: number; reset: number }>();
