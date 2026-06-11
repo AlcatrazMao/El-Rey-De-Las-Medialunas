@@ -34,6 +34,8 @@ export const SalesHistoryView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<'todos' | Sale['paymentMethod']>('todos');
   const [statusFilter, setStatusFilter] = useState<'todos' | Sale['paymentStatus']>('todos');
+  const [sortCol, setSortCol] = useState<'date' | 'total' | 'invoice'>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   
   // Dialog to view ticket detail
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
@@ -89,8 +91,12 @@ export const SalesHistoryView: React.FC = () => {
                           sale.operatorName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesMethod = methodFilter === 'todos' || sale.paymentMethod === methodFilter;
     const matchesStatus = statusFilter === 'todos' || sale.paymentStatus === statusFilter;
-
     return matchesSearch && matchesMethod && matchesStatus;
+  }).sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    if (sortCol === 'date') return dir * (new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (sortCol === 'total') return dir * (b.total - a.total);
+    return dir * a.invoiceNumber.localeCompare(b.invoiceNumber);
   });
 
   return (
@@ -163,15 +169,21 @@ export const SalesHistoryView: React.FC = () => {
       <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-gray-50 dark:bg-zinc-950 text-[10px] font-bold text-gray-500 uppercase tracking-wider select-none border-b border-gray-100 dark:border-zinc-855">
+            <thead className="bg-gray-50 dark:bg-zinc-950 text-[10px] font-bold text-gray-500 uppercase tracking-wider select-none border-b border-gray-100 dark:border-zinc-800">
               <tr>
-                <th className="py-4 px-5">Comp. Factura</th>
-                <th className="py-4 px-5">Fecha / Arqueo</th>
-                <th className="py-4 px-5">Operador Cajero</th>
-                <th className="py-4 px-5">Cliente Comprador</th>
-                <th className="py-4 px-5">Detalle Artículos</th>
-                <th className="py-4 px-5 text-center">Medio de Cobro</th>
-                <th className="py-4 px-5 text-right">Monto Total</th>
+                <th className="py-4 px-5 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('invoice'); setSortDir(sortCol === 'invoice' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc'); }}>
+                  Factura {sortCol === 'invoice' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th className="py-4 px-5 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('date'); setSortDir(sortCol === 'date' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc'); }}>
+                  Fecha {sortCol === 'date' ? (sortDir === 'asc' ? '▲' : '▼') : '▼'}
+                </th>
+                <th className="py-4 px-5">Operador</th>
+                <th className="py-4 px-5">Cliente</th>
+                <th className="py-4 px-5">Artículos</th>
+                <th className="py-4 px-5 text-center">Pago</th>
+                <th className="py-4 px-5 text-right cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('total'); setSortDir(sortCol === 'total' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc'); }}>
+                  Total {sortCol === 'total' ? (sortDir === 'asc' ? '▲' : '▼') : '▼'}
+                </th>
                 <th className="py-4 px-5 text-center">Acciones</th>
               </tr>
             </thead>
