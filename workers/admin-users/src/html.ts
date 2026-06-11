@@ -69,7 +69,7 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 <div class="actions">
 <button class="btn btn-primary" id="btnNew">+ Nuevo</button>
 <button class="btn btn-sm" id="btnRefresh">Refrescar</button>
-<button class="btn btn-sm" id="btnSync" style="background:#f0f0f0;color:#666">Sincronizar</button>
+<button class="btn btn-sm" id="btnSync" style="background:#f0f0f0;color:#666">Guardar</button>
 </div>
 <div style="overflow-x:auto">
 <table><thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Creado</th><th style="width:100px"></th></tr></thead><tbody id="usersTable"></tbody></table>
@@ -179,8 +179,15 @@ document.getElementById("userForm").onsubmit = handleSubmit;
 async function api(method, path, body) {
   var headers = { "Content-Type": "application/json", "Authorization": "Bearer " + AUTH };
   var res = await fetch(path, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401 || res.status === 429) {
+    // Auto-relogin on auth error or rate limit
+    logout();
+    toast("Sesión expirada. Reingresá la clave.", "error");
+    throw new Error("Sesión expirada");
+  }
   var data = await res.json();
   if (!res.ok && data.error) throw new Error(data.error);
+  resetTimer();
   return data;
 }
 
