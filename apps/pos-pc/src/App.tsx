@@ -76,7 +76,7 @@ function ERPLayout() {
       case 'notes': return <StickyNotesView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
-        if (activeUser.role === 'panadero') return <InventoryView />;
+        if (activeUser.role === 'panadero') return <StickyNotesView />;
         return <Dashboard />;
     }
   };

@@ -322,7 +322,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     role: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner')) ? 'admin'
           : firebaseUser.email?.includes('cajero') ? 'cajero' : 'panadero',
     avatar: firebaseUser.photoURL || '',
-    customPanels: [],
+    customPanels: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner'))
+      ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
+      : firebaseUser.email?.includes('cajero')
+      ? ['widget_facturacion', 'widget_alertas']
+      : ['widget_inventario', 'widget_alertas'],
   };
 
   const [users, setUsers] = useState<User[]>([firebaseMappedUser]);

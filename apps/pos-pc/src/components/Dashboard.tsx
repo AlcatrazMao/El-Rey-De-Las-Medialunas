@@ -376,7 +376,8 @@ export const Dashboard: React.FC = () => {
           </p>
         </div>
 
-        {/* Customization launcher */}
+        {/* Customization launcher — admin only */}
+        {activeUser.role === 'admin' && (
         <button
           id="btn-customize-dashboard"
           onClick={() => setShowConfigModal(true)}
@@ -384,6 +385,7 @@ export const Dashboard: React.FC = () => {
         >
           <Settings2 className="h-4.5 w-4.5 text-amber-500" /> Personalizar mi Panel
         </button>
+        )}
       </div>
 
       {/* UNIFIED APPROVAL CENTER FOR ADMIN */}
