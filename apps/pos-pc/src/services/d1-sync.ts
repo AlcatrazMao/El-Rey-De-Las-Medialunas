@@ -21,7 +21,12 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<any> {
     console.warn(`D1 ${options.method || 'GET'} ${path} failed:`, res.status);
     return null;
   }
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    console.warn(`D1 ${path} returned non-JSON`);
+    return null;
+  }
 }
 
 // ── Sales ─────────────────────────────────────────────────────────────
@@ -101,7 +106,16 @@ export async function fetchInventoryFromD1(branchId?: string): Promise<any[]> {
 export async function syncCustomerToD1(customer: any): Promise<void> {
   await apiFetch("/api/v1/customers", {
     method: "POST",
-    body: JSON.stringify(customer),
+    body: JSON.stringify({
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      address: customer.address,
+      tax_id: customer.tax_id,
+      type: customer.type,
+      condicion_fiscal: customer.condicion_fiscal,
+      credit_limit: customer.credit_limit,
+    }),
   });
 }
 
