@@ -248,7 +248,7 @@ export const PanaderoSupplyView: React.FC = () => {
                 <button
                   type="submit"
                   id="btn-submit-supply-prod"
-                  className="w-full py-3 bg-emerald-550 hover:bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer shadow-md transition-all active:scale-95"
+                   className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer shadow-md transition-all active:scale-95"
                 >
                   Solicitar Traslado de Productos ✓
                 </button>
