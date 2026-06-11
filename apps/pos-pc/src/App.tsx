@@ -235,6 +235,19 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // Also fetch role from Firestore and pass to AppProvider
+  const [firestoreRole, setFirestoreRole] = useState<string | null>(null);
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const fetch = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'user_roles', firebaseUser.uid));
+        if (snap.exists()) setFirestoreRole(snap.data().role || null);
+      } catch { setFirestoreRole(null); }
+    };
+    fetch();
+  }, [firebaseUser]);
+
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950"><div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto" /></div>;
   }
@@ -244,7 +257,7 @@ export default function App() {
   }
 
   return (
-    <AppProvider firebaseUser={firebaseUser}>
+    <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole}>
       <ERPLayout />
     </AppProvider>
   );

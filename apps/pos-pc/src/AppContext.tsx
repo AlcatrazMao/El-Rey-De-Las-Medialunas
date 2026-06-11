@@ -96,7 +96,7 @@ const safeParse = <T,>(key: string, fallback: T): T => {
   }
 };
 
-export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: import('firebase/auth').User }> = ({ children, firebaseUser }) => {
+export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: import('firebase/auth').User; firestoreRole?: string | null }> = ({ children, firebaseUser, firestoreRole }) => {
   // Initialize state from local storage or defaults
   const [ingredients, setIngredients] = useState<Ingredient[]>(() => 
     safeParse('pan_erp_ingredients', INITIAL_INGREDIENTS)
@@ -314,13 +314,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     catch { return []; }
   });
 
-  // User already verified by App.tsx Firestore check
+  // User role from Firestore if available, otherwise email-based fallback
+  const detectedRole = firestoreRole || 
+    ((firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner')) ? 'admin'
+     : firebaseUser.email?.includes('cajero') ? 'cajero' : 'panadero');
+  
   const firebaseMappedUser: User = {
     id: firebaseUser.uid,
     name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
     email: firebaseUser.email || '',
-    role: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner')) ? 'admin'
-          : firebaseUser.email?.includes('cajero') ? 'cajero' : 'panadero',
+    role: detectedRole as UserRole,
     avatar: firebaseUser.photoURL || '',
     customPanels: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner'))
       ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
