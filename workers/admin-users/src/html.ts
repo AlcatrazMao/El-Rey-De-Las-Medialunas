@@ -69,6 +69,7 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 <div class="actions">
 <button class="btn btn-primary" id="btnNew">+ Nuevo</button>
 <button class="btn btn-sm" id="btnRefresh">Refrescar</button>
+<button class="btn btn-sm" id="btnSync" style="background:#f0f0f0;color:#666">Sincronizar</button>
 </div>
 <div style="overflow-x:auto">
 <table><thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Creado</th><th style="width:100px"></th></tr></thead><tbody id="usersTable"></tbody></table>
@@ -94,13 +95,53 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 
 <script>
 let AUTH = "";
+let INACTIVITY_TIMER = null;
+const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos
 
-// Auto-login via postMessage from parent iframe
+function resetTimer() {
+  if (INACTIVITY_TIMER) clearTimeout(INACTIVITY_TIMER);
+  INACTIVITY_TIMER = setTimeout(logout, TIMEOUT_MS);
+}
+
+function logout() {
+  AUTH = "";
+  userCache = [];
+  document.getElementById("usersCard").style.display = "none";
+  document.getElementById("connectStatus").innerHTML = "";
+  document.getElementById("authSecret").value = "";
+  document.getElementById("authSecret").type = "password";
+  if (INACTIVITY_TIMER) clearTimeout(INACTIVITY_TIMER);
+}
+
+// Track activity
+["click", "keydown", "mousemove", "scroll", "touchstart"].forEach(function(e) {
+  document.addEventListener(e, resetTimer);
+});
+
+// Connect: clear cache first, then load
+function connect() {
+  AUTH = document.getElementById("authSecret").value;
+  if (!AUTH) return toast("Ingresa la clave","error");
+  document.getElementById("authSecret").type = "password";
+  resetTimer();
+  // Clear cache on fresh login
+  api("POST", "/api/sync").then(function() {
+    return loadUsers();
+  }).then(function() {
+    document.getElementById("connectStatus").innerHTML = "<div class=badge badge-active style=font-size:.8rem;padding:6px 12px>Conectado</div>";
+    document.getElementById("usersCard").style.display = "block";
+  }).catch(function() {
+    document.getElementById("connectStatus").innerHTML = "<div class=badge badge-disabled style=font-size:.8rem;padding:6px 12px>Clave incorrecta</div>";
+  });
+}
+
+// Auto-login via postMessage
 window.addEventListener("message", function(e) {
   if (e.data && e.data.type === "auth" && e.data.secret) {
     AUTH = e.data.secret;
     document.getElementById("authSecret").value = "••••••••";
-    loadUsers().then(function() {
+    resetTimer();
+    api("POST", "/api/sync").then(function() { return loadUsers(); }).then(function() {
       document.getElementById("connectStatus").innerHTML = "<div class=badge badge-active style=font-size:.8rem;padding:6px 12px>Conectado</div>";
       document.getElementById("usersCard").style.display = "block";
     }).catch(function() {
@@ -124,18 +165,12 @@ if (location.hash.startsWith("#auth=")) {
   });
 }
 
-document.getElementById("btnConnect").onclick = function() {
-  AUTH = document.getElementById("authSecret").value;
-  if (!AUTH) return toast("Ingresa la clave","error");
-  loadUsers().then(function() {
-    document.getElementById("connectStatus").innerHTML = "<div class=badge badge-active style=font-size:.8rem;padding:6px 12px>Conectado</div>";
-    document.getElementById("usersCard").style.display = "block";
-  }).catch(function() {
-    document.getElementById("connectStatus").innerHTML = "<div class=badge badge-disabled style=font-size:.8rem;padding:6px 12px>Clave incorrecta</div>";
-  });
-};
+document.getElementById("btnConnect").onclick = connect;
 
 document.getElementById("btnRefresh").onclick = loadUsers;
+document.getElementById("btnSync").onclick = function() {
+  api("POST", "/api/sync").then(function() { toast("Caché limpiada", "success"); loadUsers(); }).catch(function(e) { toast(e.message, "error"); });
+};
 document.getElementById("btnNew").onclick = openCreateModal;
 document.getElementById("btnCancel").onclick = closeModal;
 document.getElementById("modal").onclick = function(e) { if (e.target === this) closeModal(); };

@@ -115,7 +115,10 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   const token = await getAccessToken(env);
   const sa = JSON.parse((env.FIREBASE_SERVICE_ACCOUNT || '').trim().startsWith('{') ? env.FIREBASE_SERVICE_ACCOUNT.trim() : atob(env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '')));
 
-  // ── Debug endpoint ──
+  // Sync cache
+  if (method === 'POST' && path === '/api/sync') { userCache = []; return { status: 200, data: { message: 'Cache cleared' } }; }
+  
+  // List users
   if (method === 'GET' && path === '/api/users') {
     return { status: 200, data: userCache };
   }
