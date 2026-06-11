@@ -14,7 +14,7 @@ export const StickyNotesView: React.FC = () => {
   const [showTaskConfig, setShowTaskConfig] = useState(false);
   const [newNote, setNewNote] = useState({ title: '', content: '', category: 'general' as StickyNote['category'], priority: 'medium' as StickyNote['priority'] });
 
-  useEffect(() => { syncDailyTasks(activeUser.role); }, []);
+  useEffect(() => { syncDailyTasks(activeUser.role); }, [activeUser.role]);
 
   const handleAdd = () => {
     if (!newNote.title.trim()) return;

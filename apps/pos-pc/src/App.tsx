@@ -36,10 +36,12 @@ function ERPLayout() {
     catch { return []; }
   });
 
-  // Save current session when user changes
+  // Save current session when user changes (uses ref to avoid stale closure)
+  const sessionsRef = React.useRef(savedSessions);
+  sessionsRef.current = savedSessions;
   useEffect(() => {
     if (!activeUser?.email) return;
-    const sessions = savedSessions.filter(s => s.email !== activeUser.email);
+    const sessions = sessionsRef.current.filter(s => s.email !== activeUser.email);
     sessions.unshift({ email: activeUser.email, name: activeUser.name, role: activeUser.role });
     localStorage.setItem('erp_sessions', JSON.stringify(sessions));
     setSavedSessions(sessions);
@@ -239,7 +241,7 @@ export default function App() {
     const check = async () => {
       try {
         const idToken = await firebaseUser.getIdToken();
-        const res = await fetch('https://el-rey-api-production.elprincipitodeargentina.workers.dev/api/v1/auth/login', {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || 'https://el-rey-api-production.elprincipitodeargentina.workers.dev'}/api/v1/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ idToken }),
