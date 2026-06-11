@@ -37,6 +37,7 @@ export default {
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface Env {
+  DB?: D1Database;
   FIREBASE_SERVICE_ACCOUNT: string;
   FIREBASE_API_KEY: string;
   AUTH_SECRET: string;
@@ -185,6 +186,13 @@ async function handleRequest(req: Request, env: Env, url: URL) {
       { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ localId: data.localId, customAttributes: JSON.stringify({ role }) }) }
     );
+    
+    // Sync to D1
+    if (env.DB) {
+      await env.DB.prepare(
+        "INSERT INTO users (id, firebase_uid, email, name, role) VALUES (?, ?, ?, ?, ?) ON CONFLICT(firebase_uid) DO UPDATE SET role = ?"
+      ).bind(data.localId, data.localId, data.email, body.displayName || '', role, role).run();
+    }
     
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }
