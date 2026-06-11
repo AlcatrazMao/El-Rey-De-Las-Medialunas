@@ -218,34 +218,64 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [accessError, setAccessError] = useState('');
   const [firestoreRole, setFirestoreRole] = useState<string | null>(null);
+  const [fsCheckDone, setFsCheckDone] = useState(false);
 
+  // Step 1: Firebase Auth
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        try {
-          const snap = await getDoc(doc(db, 'user_roles', user.uid));
-          if (!snap.exists()) {
-            setAccessError('Usuario no autorizado. Contactá al administrador.');
-            await signOut(auth);
-          } else {
-            const data = snap.data();
-            // Firestore REST API stores as { fields: { role: { stringValue: "admin" } } }
-            // Web SDK stores as { role: "admin" }. Handle both.
-            const role = data.role || data.fields?.role?.stringValue || null;
-            setFirestoreRole(role);
-            setFirebaseUser(user);
-          }
-        } catch {
-          // Firestore might not be ready — let user in, role defaults to panadero
-          setFirebaseUser(user);
-        }
-      } else {
-        setFirebaseUser(null);
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
+      if (!user) {
+        setAuthLoading(false);
+        setFirestoreRole(null);
+        setFsCheckDone(false);
       }
-      setAuthLoading(false);
     });
     return () => unsub();
   }, []);
+
+  // Step 2: Firestore role check (only when Firebase user is ready)
+  useEffect(() => {
+    if (!firebaseUser) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'user_roles', firebaseUser.uid));
+        if (!snap.exists()) {
+          if (!cancelled) setAccessError('Usuario no autorizado.');
+        } else {
+          const data = snap.data();
+          const role = data.role || data.fields?.role?.stringValue || null;
+          if (!cancelled) {
+            setFirestoreRole(role);
+            setFsCheckDone(true);
+            setAuthLoading(false);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setAccessError('Error al conectar con la base de datos. Reintentá en unos segundos.');
+          setAuthLoading(false);
+        }
+      }
+    };
+    check();
+    return () => { cancelled = true; };
+  }, [firebaseUser]);
+
+  // Loading: Firebase auth or Firestore check not done
+  if (authLoading && !accessError && !fsCheckDone) {
+    return <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950"><div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto" /></div>;
+  }
+
+  // Error
+  if (accessError) {
+    return <LoginPage onLogin={(user) => { setFirebaseUser(user); setAccessError(''); setAuthLoading(true); setFsCheckDone(false); }} accessError={accessError} />;
+  }
+
+  // Not logged in
+  if (!firebaseUser || !fsCheckDone) {
+    return <LoginPage onLogin={(user) => { setFirebaseUser(user); setAccessError(''); setAuthLoading(true); setFsCheckDone(false); }} />;
+  }
 
   // Store Firebase token for D1 API calls
   useEffect(() => {
