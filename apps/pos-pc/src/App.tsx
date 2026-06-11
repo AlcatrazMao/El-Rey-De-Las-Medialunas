@@ -76,7 +76,7 @@ function ERPLayout() {
       case 'notes': return <StickyNotesView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
-        if (activeUser.role === 'panadero') return <StickyNotesView />;
+        if (activeUser.role === 'panadero') return <Dashboard />;
         return <Dashboard />;
     }
   };
@@ -93,6 +93,7 @@ function ERPLayout() {
         ];
       case 'panadero':
         return [
+          { id: 'dashboard', label: 'Tablero', icon: <LayoutDashboard className="h-4 w-4" /> },
           { id: 'supply_requests', label: 'Producción', icon: <TrendingUp className="h-4 w-4 text-emerald-500" /> },
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> }
