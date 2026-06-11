@@ -1,3 +1,4 @@
+import type { User as FirebaseUser } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
 import * as React from 'react'
 import { createContext, useContext, useState, useEffect } from 'react';
@@ -98,7 +99,7 @@ const safeParse = <T,>(key: string, fallback: T): T => {
   }
 };
 
-export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: User; firestoreRole?: string | null }> = ({ children, firebaseUser, firestoreRole }) => {
+export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: FirebaseUser; firestoreRole?: string | null }> = ({ children, firebaseUser, firestoreRole }) => {
   // Initialize state from local storage or defaults
   const [ingredients, setIngredients] = useState<Ingredient[]>(() => 
     safeParse('pan_erp_ingredients', INITIAL_INGREDIENTS)
