@@ -4,6 +4,7 @@ import type { Env, Variables } from "../types/bindings";
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://localhost:5174",
+  "https://rey-de-las-medialunas.web.app",
   "https://pos.elreydelasmedialunas.com",
   "https://admin.elreydelasmedialunas.com",
   "https://tablet.elreydelasmedialunas.com",

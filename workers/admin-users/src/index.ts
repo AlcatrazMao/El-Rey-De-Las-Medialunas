@@ -161,8 +161,31 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     return { status: 404, error: 'Usuario no encontrado' };
   }
   
-  // List users
+  // List users — always fetch fresh from Firebase Auth (cache is volatile)
   if (method === 'GET' && path === '/api/users') {
+    try {
+      const res = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts?maxResults=1000`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const fbData: any = await res.json();
+        const users = (fbData.users || []).map((u: any) => {
+          let role = 'cajero';
+          try { role = JSON.parse(u.customAttributes || '{}').role || 'cajero'; } catch {}
+          return {
+            uid: u.localId,
+            email: u.email || '',
+            displayName: u.displayName || '',
+            role,
+            disabled: u.disabled || false,
+            created: u.createdAt ? new Date(Number(u.createdAt)).toISOString() : '',
+          };
+        });
+        userCache = users;
+        return { status: 200, data: users };
+      }
+    } catch {}
     return { status: 200, data: userCache };
   }
 
@@ -193,7 +216,23 @@ async function handleRequest(req: Request, env: Env, url: URL) {
         "INSERT INTO users (id, firebase_uid, email, name, role) VALUES (?, ?, ?, ?, ?) ON CONFLICT(firebase_uid) DO UPDATE SET role = ?"
       ).bind(data.localId, data.localId, data.email, body.displayName || '', role, role).run();
     }
-    
+
+    // Sync to Firestore user_roles collection (used by POS login role check)
+    await fetch(
+      `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles/${data.localId}?updateMask.fieldPaths=role&updateMask.fieldPaths=email&updateMask.fieldPaths=name`,
+      {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: {
+            role: { stringValue: role },
+            email: { stringValue: data.email },
+            name: { stringValue: body.displayName || '' },
+          },
+        }),
+      }
+    );
+
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }
 
