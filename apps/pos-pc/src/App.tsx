@@ -228,7 +228,11 @@ export default function App() {
             setAccessError('Usuario no autorizado. Contactá al administrador.');
             await signOut(auth);
           } else {
-            setFirestoreRole(snap.data().role || null);
+            const data = snap.data();
+            // Firestore REST API stores as { fields: { role: { stringValue: "admin" } } }
+            // Web SDK stores as { role: "admin" }. Handle both.
+            const role = data.role || data.fields?.role?.stringValue || null;
+            setFirestoreRole(role);
             setFirebaseUser(user);
           }
         } catch {
