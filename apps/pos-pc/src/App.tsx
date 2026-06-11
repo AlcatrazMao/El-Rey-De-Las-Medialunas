@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut, signInWithEmailAndPassword, User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from './config/firebase';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { auth } from './config/firebase';
 import { AppProvider, useApp } from './AppContext';
 import { MainHeadLayout } from './components/MainHeadLayout';
 import { LoginPage } from './components/LoginPage';
@@ -233,27 +232,32 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Step 2: Firestore role check (only when Firebase user is ready)
+  // Step 2: Check role via admin worker (no Firestore dependency)
   useEffect(() => {
     if (!firebaseUser) return;
     let cancelled = false;
     const check = async () => {
       try {
-        const snap = await getDoc(doc(db, 'user_roles', firebaseUser.uid));
-        if (!snap.exists()) {
-          if (!cancelled) setAccessError('Usuario no autorizado.');
-        } else {
-          const data = snap.data();
-          const role = data.role || data.fields?.role?.stringValue || null;
+        const res = await fetch(`https://admin-users-production.elprincipitodeargentina.workers.dev/api/role/${firebaseUser.uid}`);
+        if (res.ok) {
+          const data = await res.json();
           if (!cancelled) {
-            setFirestoreRole(role);
+            setFirestoreRole(data.data?.role || null);
+            setFsCheckDone(true);
+            setAuthLoading(false);
+          }
+        } else {
+          // No role found — default to panadero
+          if (!cancelled) {
+            setFirestoreRole('panadero');
             setFsCheckDone(true);
             setAuthLoading(false);
           }
         }
-      } catch (err: any) {
+      } catch {
         if (!cancelled) {
-          setAccessError('Error Firestore: ' + (err.message || err.code || 'desconocido') + '. Reintentá.');
+          setFirestoreRole('panadero');
+          setFsCheckDone(true);
           setAuthLoading(false);
         }
       }

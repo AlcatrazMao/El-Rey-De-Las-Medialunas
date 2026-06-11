@@ -105,7 +105,30 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   const path = url.pathname;
   const method = req.method;
 
-  // Auth
+  // Public: get role for a user (used by POS login, no auth needed)
+  if (method === 'GET' && path.startsWith('/api/role/')) {
+    const uid = path.split('/api/role/')[1];
+    // Check worker cache first
+    const cached = userCache.find(u => u.uid === uid);
+    if (cached) return { status: 200, data: { role: cached.role } };
+    // Try Firestore via OAuth2
+    try {
+      const t = await getAccessToken(env);
+      const sa = JSON.parse((env.FIREBASE_SERVICE_ACCOUNT || '').trim().startsWith('{') ? env.FIREBASE_SERVICE_ACCOUNT.trim() : atob(env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '')));
+      const fsRes = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles/${uid}`,
+        { headers: { 'Authorization': `Bearer ${t}` } }
+      );
+      if (fsRes.ok) {
+        const fsData: any = await fsRes.json();
+        const role = fsData.fields?.role?.stringValue || null;
+        return { status: 200, data: { role } };
+      }
+    } catch { /* Firestore not available */ }
+    return { status: 404, error: 'Not found' };
+  }
+
+  // Auth required for everything below
   const ah = req.headers.get('Authorization');
   const at = ah?.startsWith('Bearer ') ? ah.slice(7) : '';
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
@@ -117,6 +140,27 @@ async function handleRequest(req: Request, env: Env, url: URL) {
 
   // Sync cache
   if (method === 'POST' && path === '/api/sync') { userCache = []; return { status: 200, data: { message: 'Cache cleared' } }; }
+
+  // Get role for a specific user (used by POS login)
+  if (method === 'GET' && path.startsWith('/api/role/')) {
+    const uid = path.split('/api/role/')[1];
+    // Check cache first
+    const cached = userCache.find(u => u.uid === uid);
+    if (cached) return { status: 200, data: { role: cached.role } };
+    // Try Firestore via REST API
+    try {
+      const fsRes = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles/${uid}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (fsRes.ok) {
+        const fsData: any = await fsRes.json();
+        const role = fsData.fields?.role?.stringValue || null;
+        return { status: 200, data: { role } };
+      }
+    } catch {}
+    return { status: 404, error: 'Usuario no encontrado' };
+  }
   
   // List users
   if (method === 'GET' && path === '/api/users') {
