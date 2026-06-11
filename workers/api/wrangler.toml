@@ -35,6 +35,11 @@ queue = "report-generation"
 
 [vars]
 APP_NAME = "El Rey De Las Medialunas"
+APP_ENV = "development"
+
+[env.staging.vars]
+APP_ENV = "staging"
 
 [env.production.vars]
 APP_ENV = "production"
+FIREBASE_API_KEY = "${FIREBASE_API_KEY}"

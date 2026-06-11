@@ -8,6 +8,7 @@ export interface Env {
   INVENTORY_QUEUE: Queue<unknown>;
   REPORTS_QUEUE: Queue<unknown>;
   FIREBASE_SERVICE_ACCOUNT?: string;
+  FIREBASE_API_KEY?: string;
   APP_ENV?: string;
   APP_NAME?: string;
 }

@@ -232,22 +232,34 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Step 2: Get role from Firebase Custom Claims (embedded in ID token)
+  // Step 2: Validate against D1 via API Worker
   useEffect(() => {
     if (!firebaseUser) return;
     let cancelled = false;
     const check = async () => {
       try {
-        const result = await firebaseUser.getIdTokenResult();
-        const role = (result.claims as any).role || null;
-        if (!cancelled) {
-          setFirestoreRole(role);
-          setFsCheckDone(true);
-          setAuthLoading(false);
+        const idToken = await firebaseUser.getIdToken();
+        const res = await fetch('https://el-rey-api-production.elprincipitodeargentina.workers.dev/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        });
+        const data = await res.json();
+        if (data.success && data.data?.user) {
+          if (!cancelled) {
+            setFirestoreRole(data.data.user.role || null);
+            setFsCheckDone(true);
+            setAuthLoading(false);
+          }
+        } else {
+          if (!cancelled) {
+            setAccessError(data.error?.message || 'Usuario no registrado.');
+            setAuthLoading(false);
+          }
         }
       } catch {
         if (!cancelled) {
-          setAccessError('Error al obtener permisos. Reintentá.');
+          setAccessError('Error de conexión. Reintentá.');
           setAuthLoading(false);
         }
       }
