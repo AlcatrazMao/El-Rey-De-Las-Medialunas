@@ -3,7 +3,7 @@ import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './config/firebase';
 import { addAutoNote } from './hooks/useStickyNotes';
-import { syncSaleToD1 } from './services/d1-sync';
+import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, fetchCustomersFromD1 } from './services/d1-sync';
 import { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 import {
   INITIAL_INGREDIENTS,
@@ -346,6 +346,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     };
     setCustomers(prev => [newCustomer, ...prev]);
     addSystemNotification('👤 Cliente Creado', `${newCustomer.name} fue registrado.`, 'success');
+    syncCustomerToD1(newCustomer).catch(() => {});
   };
 
   const updateCustomer = (id: string, data: Partial<Customer>) => {
@@ -459,6 +460,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
   useEffect(() => {
     localStorage.setItem('pan_erp_customers', JSON.stringify(customers));
   }, [customers]);
+
+  // Load D1 data on startup (merge with localStorage)
+  useEffect(() => {
+    fetchCustomersFromD1().then(d1Customers => {
+      if (d1Customers.length > 0) {
+        setCustomers(prev => {
+          const existing = new Set(prev.map(c => c.id));
+          const merged = [...prev, ...d1Customers.filter((c: any) => !existing.has(c.id))];
+          return merged;
+        });
+      }
+    }).catch(() => {});
+  }, []);
 
   // Use local user if selected via dropdown, otherwise Firebase-mapped user
   const activeUser = (users && users.length > 0 && activeUserId)
@@ -1196,6 +1210,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       'success'
     );
     addAutoNote('🏦 Caja abierta', `Saldo inicial: $${initialAmount.toFixed(2)}\nAbierta por: ${activeUser.name}`, 'caja', 'medium');
+    syncCashSessionToD1({
+      branch_id: '00000000000000000000000000000001',
+      opening_amount: initialAmount,
+      status: 'open',
+      opened_at: newSession.openedAt,
+    }).catch(() => {});
   };
 
   const closeCashSession = (realAmount: number, note?: string) => {

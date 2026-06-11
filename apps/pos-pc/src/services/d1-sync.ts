@@ -2,23 +2,36 @@ import type { Sale } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://el-rey-api-production.elprincipitodeargentina.workers.dev";
 
-/**
- * Sync a sale to D1 via the API Worker.
- * Non-blocking — failures are silent (localStorage is the source of truth).
- */
-export async function syncSaleToD1(sale: Sale): Promise<void> {
-  const token = localStorage.getItem("firebase_token");
-  if (!token) return; // No auth, skip sync
+function getToken(): string | null {
+  return localStorage.getItem("firebase_token");
+}
 
-  const res = await fetch(`${API_URL}/api/v1/sales`, {
-    method: "POST",
+async function apiFetch(path: string, options: RequestInit = {}): Promise<any> {
+  const token = getToken();
+  if (!token) return null;
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...options.headers,
     },
+  });
+  if (!res.ok) {
+    console.warn(`D1 ${options.method || 'GET'} ${path} failed:`, res.status);
+    return null;
+  }
+  return res.json();
+}
+
+// ── Sales ─────────────────────────────────────────────────────────────
+
+export async function syncSaleToD1(sale: Sale): Promise<void> {
+  await apiFetch("/api/v1/sales", {
+    method: "POST",
     body: JSON.stringify({
       client_id: sale.id,
-      branch_id: "00000000000000000000000000000001", // Casa Central
+      branch_id: "00000000000000000000000000000001",
       customer_id: sale.customerId || null,
       items: sale.items.map(item => ({
         product_id: item.productId,
@@ -27,38 +40,90 @@ export async function syncSaleToD1(sale: Sale): Promise<void> {
         discount: 0,
         notes: null,
       })),
-      payments: [{
-        payment_method: sale.paymentMethod,
-        amount: sale.total,
-        reference: null,
-      }],
+      payments: [{ payment_method: sale.paymentMethod, amount: sale.total, reference: null }],
       notes: sale.customerName ? `Cliente: ${sale.customerName}` : null,
     }),
   });
-
-  if (!res.ok) {
-    console.warn("D1 sync failed:", await res.text());
-  }
 }
 
-/**
- * Fetch sales from D1.
- */
-export async function fetchSalesFromD1(branchId?: string, from?: string, to?: string): Promise<Sale[]> {
-  const token = localStorage.getItem("firebase_token");
-  if (!token) return [];
-
+export async function fetchSalesFromD1(from?: string, to?: string): Promise<Sale[]> {
   const params = new URLSearchParams();
-  if (branchId) params.set("branch_id", branchId);
   if (from) params.set("from_date", from);
   if (to) params.set("to_date", to);
   params.set("limit", "100");
+  params.set("sort_by", "created_at");
+  params.set("sort_order", "desc");
+  const data = await apiFetch(`/api/v1/sales?${params}`);
+  return data?.data || [];
+}
 
-  const res = await fetch(`${API_URL}/api/v1/sales?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
+// ── Products ──────────────────────────────────────────────────────────
+
+export async function fetchProductsFromD1(branchId?: string): Promise<any[]> {
+  const params = new URLSearchParams();
+  if (branchId) params.set("branch_id", branchId);
+  params.set("limit", "200");
+  const data = await apiFetch(`/api/v1/products?${params}`);
+  return data?.data || [];
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────
+
+export async function syncStockMovementToD1(movement: {
+  product_id: string;
+  branch_id: string;
+  movement_type: string;
+  quantity: number;
+  reason: string;
+}): Promise<void> {
+  await apiFetch("/api/v1/inventory/movements", {
+    method: "POST",
+    body: JSON.stringify({
+      product_id: movement.product_id,
+      branch_id: movement.branch_id || "00000000000000000000000000000001",
+      movement_type: movement.movement_type,
+      quantity: movement.quantity,
+      reason: movement.reason,
+    }),
   });
+}
 
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.data || [];
+export async function fetchInventoryFromD1(branchId?: string): Promise<any[]> {
+  const params = new URLSearchParams();
+  if (branchId) params.set("branch_id", branchId);
+  params.set("limit", "200");
+  const data = await apiFetch(`/api/v1/inventory?${params}`);
+  return data?.data || [];
+}
+
+// ── Customers ─────────────────────────────────────────────────────────
+
+export async function syncCustomerToD1(customer: any): Promise<void> {
+  await apiFetch("/api/v1/customers", {
+    method: "POST",
+    body: JSON.stringify(customer),
+  });
+}
+
+export async function fetchCustomersFromD1(): Promise<any[]> {
+  const data = await apiFetch("/api/v1/customers?limit=200");
+  return data?.data || [];
+}
+
+// ── Cash ──────────────────────────────────────────────────────────────
+
+export async function syncCashSessionToD1(session: {
+  branch_id: string;
+  opening_amount: number;
+  closing_amount?: number;
+  status: string;
+  opened_at: string;
+  closed_at?: string;
+}): Promise<void> {
+  if (session.status === "open") {
+    await apiFetch("/api/v1/cash-sessions/open", {
+      method: "POST",
+      body: JSON.stringify({ branch_id: session.branch_id, opening_amount: session.opening_amount }),
+    });
+  }
 }
