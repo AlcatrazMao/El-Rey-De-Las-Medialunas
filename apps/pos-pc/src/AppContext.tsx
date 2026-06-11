@@ -3,6 +3,7 @@ import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './config/firebase';
 import { addAutoNote } from './hooks/useStickyNotes';
+import { syncSaleToD1 } from './services/d1-sync';
 import { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 import {
   INITIAL_INGREDIENTS,
@@ -766,6 +767,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
     
     // Auto-note for sales
     addAutoNote(`💸 Venta ${invoiceNumber}`, `Total: $${newSaleInstance.total.toFixed(2)}\nItems: ${saleLineItems.length}\nPago: ${paymentMethod}`, 'ventas', 'low');
+
+    // Sync to D1 in background (non-blocking)
+    syncSaleToD1(newSaleInstance).catch(() => { /* D1 might be offline */ });
 
     // Alert about low stock elements
     lowStockAlerts.forEach(alertMessage => {
