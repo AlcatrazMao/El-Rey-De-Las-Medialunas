@@ -1,4 +1,3 @@
-import type { User } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
 import * as React from 'react'
 import { createContext, useContext, useState, useEffect } from 'react';

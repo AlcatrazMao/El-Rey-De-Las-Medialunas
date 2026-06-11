@@ -1,6 +1,6 @@
 import { Plus, LayoutGrid, List, StickyNote as StickyNoteIcon, CalendarCheck } from 'lucide-react';
 import * as React from 'react'
-import {  } from 'react';
+import { useState, useEffect } from 'react';
 
 import { useApp } from '../AppContext';
 import { useStickyNotes, type StickyNote } from '../hooks/useStickyNotes';

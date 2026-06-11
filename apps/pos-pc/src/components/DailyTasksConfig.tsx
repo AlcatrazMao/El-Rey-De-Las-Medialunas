@@ -1,6 +1,6 @@
 import { X, Calendar, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import * as React from 'react'
-import {  } from 'react';
+import { useState, useEffect } from 'react';
 
 import { type DailyTask, type SpecialTask, getDefaultDailyTasks, loadDailyTasks, saveDailyTasks, loadSpecialTasks, saveSpecialTasks } from '../hooks/dailyTasks';
 
