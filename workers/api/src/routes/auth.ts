@@ -42,7 +42,7 @@ authRoutes.post("/login", async (c) => {
     try {
       const cached = await c.env.CACHE.get(`user:${uid}`, "json");
       if (cached) user = cached as any;
-    } catch {}
+    } catch { /* cache write failed */ }
 
     // 3. Fallback to D1
     if (!user) {
@@ -57,15 +57,15 @@ authRoutes.post("/login", async (c) => {
       // Cache in KV for 1 hour
       try {
         await c.env.CACHE.put(`user:${uid}`, JSON.stringify(user), { expirationTtl: 3600 });
-      } catch {}
-    }
+    } catch { /* KV read failed */ }
+      }
 
     // 4. Audit log
     try {
       await c.env.DB.prepare(
         "INSERT INTO audit_log (id, user_id, action, entity_type, entity_id, ip_address, created_at) VALUES (?, ?, 'auth.login', 'users', ?, ?, datetime('now'))"
       ).bind(crypto.randomUUID(), uid, uid, ip).run();
-    } catch {}
+    } catch { /* cache write failed */ }
 
     return c.json({
       success: true,
