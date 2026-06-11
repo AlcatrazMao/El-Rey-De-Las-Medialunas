@@ -232,34 +232,22 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Step 2: Get role from admin worker (validates Firebase token)
+  // Step 2: Get role from Firebase Custom Claims (embedded in ID token)
   useEffect(() => {
     if (!firebaseUser) return;
     let cancelled = false;
     const check = async () => {
       try {
-        const fbToken = await firebaseUser.getIdToken();
-        const res = await fetch(
-          `https://admin-users-production.elprincipitodeargentina.workers.dev/api/role/${firebaseUser.uid}`,
-          { headers: { Authorization: `Bearer ${fbToken}` } }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) {
-            setFirestoreRole(data.data?.role || null);
-            setFsCheckDone(true);
-            setAuthLoading(false);
-          }
-        } else {
-          // User not registered by admin
-          if (!cancelled) {
-            setAccessError('Usuario no registrado. Contactá al administrador.');
-            setAuthLoading(false);
-          }
+        const result = await firebaseUser.getIdTokenResult();
+        const role = (result.claims as any).role || null;
+        if (!cancelled) {
+          setFirestoreRole(role);
+          setFsCheckDone(true);
+          setAuthLoading(false);
         }
       } catch {
         if (!cancelled) {
-          setAccessError('Error de conexión. Reintentá.');
+          setAccessError('Error al obtener permisos. Reintentá.');
           setAuthLoading(false);
         }
       }
