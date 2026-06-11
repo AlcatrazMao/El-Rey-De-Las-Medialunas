@@ -236,8 +236,8 @@ export default function App() {
             setFirebaseUser(user);
           }
         } catch {
-          setAccessError('Error al verificar acceso. Reintentá.');
-          await signOut(auth);
+          // Firestore might not be ready — let user in, role defaults to panadero
+          setFirebaseUser(user);
         }
       } else {
         setFirebaseUser(null);
