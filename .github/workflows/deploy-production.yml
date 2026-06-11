@@ -43,13 +43,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid":"\K[0-9a-f-]+(?=","name":"el-rey-db")' | head -1)
-          [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"name":"el-rey-db","uuid":"\K[0-9a-f-]+' | head -1)
-          # Fallback: take any UUID from d1 list
-          [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid":"\K[0-9a-f-]+(?=","name":"el-rey-db")' | head -1 || echo "")
+          [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"name":"el-rey-db","uuid":"\K[0-9a-f-]+' | head -1 || echo "")
+          [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || echo "")
           echo "D1_ID=$D1_ID"
 
-          KV_JSON=$(npx wrangler kv:namespace list --json 2>&1) || KV_JSON="[]"
+          KV_JSON=$(npx wrangler kv:namespace list --json 2>&1 || echo "[]")
           echo "KV_JSON=$KV_JSON"
           KV_IDS=($(echo "$KV_JSON" | grep -oP '"id"\s*:\s*"\K[0-9a-f]{32}' || echo ""))
           KV0=${KV_IDS[0]:-}; KV1=${KV_IDS[1]:-}; KV2=${KV_IDS[2]:-}
