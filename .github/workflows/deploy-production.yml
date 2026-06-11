@@ -50,8 +50,10 @@ jobs:
           echo "D1_ID=$D1_ID"
 
           KV_JSON=$(npx wrangler kv:namespace list --json 2>&1) || KV_JSON="[]"
-          KV_IDS=($(echo "$KV_JSON" | grep -oP '[0-9a-f]{32}' || true))
+          echo "KV_JSON=$KV_JSON"
+          KV_IDS=($(echo "$KV_JSON" | grep -oP '"id"\s*:\s*"\K[0-9a-f]{32}' || echo ""))
           KV0=${KV_IDS[0]:-}; KV1=${KV_IDS[1]:-}; KV2=${KV_IDS[2]:-}
+          echo "KV IDs: $KV0 $KV1 $KV2"
 
           # Replace placeholders in ALL wrangler.toml files
           find workers -name wrangler.toml | while read f; do
