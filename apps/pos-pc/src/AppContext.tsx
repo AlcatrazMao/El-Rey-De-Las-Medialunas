@@ -298,12 +298,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: im
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       console.error('Error parsing cash sessions history from localStorage:', e);
-    localStorage.removeItem('pan_erp_cash_sessions_history');
-    localStorage.removeItem('pan_erp_customers');
-    localStorage.removeItem('erp_sticky_notes_v2');
-    localStorage.removeItem('erp_daily_tasks');
-    localStorage.removeItem('erp_special_tasks');
-    localStorage.removeItem('erp_sessions');
+      localStorage.removeItem('pan_erp_cash_sessions_history');
       return [];
     }
   });

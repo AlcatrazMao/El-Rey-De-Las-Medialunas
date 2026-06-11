@@ -30,7 +30,7 @@ export async function syncSaleToD1(sale: Sale): Promise<void> {
   await apiFetch("/api/v1/sales", {
     method: "POST",
     body: JSON.stringify({
-      client_id: sale.id,
+      client_id: sale.customerId || null,
       branch_id: "00000000000000000000000000000001",
       customer_id: sale.customerId || null,
       items: sale.items.map(item => ({

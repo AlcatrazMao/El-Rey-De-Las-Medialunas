@@ -44,6 +44,8 @@ export function addAutoNote(title: string, content: string, category: StickyNote
       priority,
     });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+    // Dispatch event so the hook picks it up
+    window.dispatchEvent(new CustomEvent('sticky-note-added'));
   } catch { /* localStorage not available */ }
 }
 
@@ -67,6 +69,18 @@ export function useStickyNotes() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
   }, [notes]);
+
+  // Listen for auto-notes added outside React state
+  useEffect(() => {
+    const reload = () => {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) setNotes(JSON.parse(saved));
+      } catch {}
+    };
+    window.addEventListener('sticky-note-added', reload);
+    return () => window.removeEventListener('sticky-note-added', reload);
+  }, []);
 
   const addNote = useCallback((note: Partial<StickyNote> = {}) => {
     const newNote: StickyNote = {
