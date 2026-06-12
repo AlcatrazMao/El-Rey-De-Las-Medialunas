@@ -165,7 +165,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
         const role = fsData.fields?.role?.stringValue || null;
         return { status: 200, data: { role } };
       }
-    } catch {}
+    } catch (e) { console.error('[admin] Firestore role fetch failed:', e); }
     return { status: 404, error: 'Usuario no encontrado' };
   }
   
@@ -208,7 +208,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
                 ).bind(u.uid, u.uid, u.email, u.displayName || '', u.role)
               );
               if (stmts.length > 0) await env.DB!.batch(stmts);
-            } catch {}
+            } catch (e) { console.error('[admin] D1 user sync failed:', e); }
           })();
         }
 
@@ -243,7 +243,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
         { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ localId: data.localId, customAttributes: JSON.stringify({ role }) }) }
       );
-    } catch {}
+    } catch (e) { console.error('[admin] Firebase custom claims failed:', e); }
 
     // Sync to D1
     if (env.DB) {
@@ -251,7 +251,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
         await env.DB.prepare(
           "INSERT INTO users (id, firebase_uid, email, name, role) VALUES (?, ?, ?, ?, ?) ON CONFLICT(firebase_uid) DO UPDATE SET role = ?"
         ).bind(data.localId, data.localId, data.email, body.displayName || '', role, role).run();
-      } catch {}
+      } catch (e) { console.error('[admin] D1 user insert failed:', e); }
     }
 
     // Sync to Firestore user_roles
@@ -270,7 +270,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
           }),
         }
       );
-    } catch {}
+    } catch (e) { console.error('[admin] Firestore user_roles sync failed:', e); }
 
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }

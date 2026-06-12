@@ -213,44 +213,32 @@ productRoutes.put("/:id", async (c) => {
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
+  const setClauses: string[] = [];
+  const values: (string | number | boolean | null)[] = [];
+
+  for (const field of ["code", "name", "description", "barcode", "category_id", "unit"] as const) {
+    if (field in body) { setClauses.push(`${field} = ?`); values.push(body[field] ?? null); }
+  }
+  for (const field of ["price", "cost", "tax_rate", "min_stock", "max_stock"] as const) {
+    if (field in body) { setClauses.push(`${field} = ?`); values.push(body[field] ?? null); }
+  }
+  for (const field of ["is_raw_material", "is_producible", "is_active"] as const) {
+    if (field in body) {
+      setClauses.push(`${field} = ?`);
+      values.push(body[field] == null ? null : body[field] ? 1 : 0);
+    }
+  }
+
+  if (setClauses.length === 0) {
+    return c.json({ success: false, error: "No fields to update" }, 400);
+  }
+
+  setClauses.push("updated_at = ?");
+  values.push(now, id);
+
   await db
-    .prepare(
-      `UPDATE products SET
-         code         = COALESCE(?, code),
-         name         = COALESCE(?, name),
-         description  = COALESCE(?, description),
-         barcode      = COALESCE(?, barcode),
-         category_id  = COALESCE(?, category_id),
-         unit         = COALESCE(?, unit),
-         price        = COALESCE(?, price),
-         cost         = COALESCE(?, cost),
-         tax_rate     = COALESCE(?, tax_rate),
-         min_stock    = COALESCE(?, min_stock),
-         max_stock    = COALESCE(?, max_stock),
-         is_raw_material = COALESCE(?, is_raw_material),
-         is_producible   = COALESCE(?, is_producible),
-         is_active       = COALESCE(?, is_active),
-         updated_at   = ?
-       WHERE id = ? AND deleted_at IS NULL`
-    )
-    .bind(
-      body.code ?? null,
-      body.name ?? null,
-      body.description ?? null,
-      body.barcode ?? null,
-      body.category_id ?? null,
-      body.unit ?? null,
-      body.price ?? null,
-      body.cost ?? null,
-      body.tax_rate ?? null,
-      body.min_stock ?? null,
-      body.max_stock ?? null,
-      body.is_raw_material !== undefined ? (body.is_raw_material ? 1 : 0) : null,
-      body.is_producible !== undefined ? (body.is_producible ? 1 : 0) : null,
-      body.is_active !== undefined ? (body.is_active ? 1 : 0) : null,
-      now,
-      id
-    )
+    .prepare(`UPDATE products SET ${setClauses.join(", ")} WHERE id = ? AND deleted_at IS NULL`)
+    .bind(...values)
     .run();
 
   return c.json({ success: true, data: { id } });
