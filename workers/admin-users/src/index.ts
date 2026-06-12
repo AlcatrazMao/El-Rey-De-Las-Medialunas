@@ -212,36 +212,43 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     const data = JSON.parse(text);
     userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', role: body.role || 'cajero', disabled: false, created: new Date().toISOString() });
     
-    // Set Firebase custom claims (role is embedded in the JWT token)
     const role = body.role || 'cajero';
-    await fetch(
-      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update`,
-      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ localId: data.localId, customAttributes: JSON.stringify({ role }) }) }
-    );
-    
+
+    // Set Firebase custom claims
+    try {
+      await fetch(
+        `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update`,
+        { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ localId: data.localId, customAttributes: JSON.stringify({ role }) }) }
+      );
+    } catch {}
+
     // Sync to D1
     if (env.DB) {
-      await env.DB.prepare(
-        "INSERT INTO users (id, firebase_uid, email, name, role) VALUES (?, ?, ?, ?, ?) ON CONFLICT(firebase_uid) DO UPDATE SET role = ?"
-      ).bind(data.localId, data.localId, data.email, body.displayName || '', role, role).run();
+      try {
+        await env.DB.prepare(
+          "INSERT INTO users (id, firebase_uid, email, name, role) VALUES (?, ?, ?, ?, ?) ON CONFLICT(firebase_uid) DO UPDATE SET role = ?"
+        ).bind(data.localId, data.localId, data.email, body.displayName || '', role, role).run();
+      } catch {}
     }
 
-    // Sync to Firestore user_roles collection (used by POS login role check)
-    await fetch(
-      `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles/${data.localId}?updateMask.fieldPaths=role&updateMask.fieldPaths=email&updateMask.fieldPaths=name`,
-      {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: {
-            role: { stringValue: role },
-            email: { stringValue: data.email },
-            name: { stringValue: body.displayName || '' },
-          },
-        }),
-      }
-    );
+    // Sync to Firestore user_roles
+    try {
+      await fetch(
+        `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles/${data.localId}?updateMask.fieldPaths=role&updateMask.fieldPaths=email&updateMask.fieldPaths=name`,
+        {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: {
+              role: { stringValue: role },
+              email: { stringValue: data.email },
+              name: { stringValue: body.displayName || '' },
+            },
+          }),
+        }
+      );
+    } catch {}
 
     return { status: 201, data: { uid: data.localId, email: data.email } };
   }
