@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { authMiddleware } from "./middleware/auth";
 import { corsMiddleware } from "./middleware/cors";
 import { errorHandler } from "./middleware/error-handler";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
@@ -26,6 +27,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.use("*", corsMiddleware());
 app.use("*", rateLimitMiddleware());
+app.use("*", authMiddleware());
 app.onError(errorHandler);
 
 app.route("/api/v1/auth", authRoutes);

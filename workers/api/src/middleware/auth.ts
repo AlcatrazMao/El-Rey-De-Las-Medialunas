@@ -64,34 +64,65 @@ export function authMiddleware() {
   });
 }
 
-async function verifyFirebaseToken(token: string, _env: Env): Promise<DecodedToken> {
-  // FIREBASE_AUTH: This will verify the JWT via Firebase Admin SDK when configured.
-  // For now, the actual token verification requires:
-  //   1. Firebase project setup
-  //   2. FIREBASE_SERVICE_ACCOUNT secret in Cloudflare environment
-  //   3. firebase-admin initialization
+async function verifyFirebaseToken(token: string, env: Env): Promise<DecodedToken> {
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("Invalid token format");
 
+  const encodedPayload = parts[1];
+  if (!encodedPayload) throw new Error("Invalid token");
+
+  let payload: { user_id?: string; uid?: string; sub?: string; email?: string; exp?: number; iat?: number };
   try {
-    // Placeholder: in production, use firebase-admin verifyIdToken
-    // const decodedToken = await admin.auth().verifyIdToken(token);
-    // return { uid: decodedToken.uid, email: decodedToken.email };
-
-    // Temporary: parse as unsigned JWT for development only
-    const parts = token.split(".");
-    if (parts.length !== 3) {
-      throw new Error("Invalid token format");
-    }
-    const payload = JSON.parse(atob(parts[1]!)) as {
-      user_id?: string;
-      uid?: string;
-      sub?: string;
-      email?: string;
-    };
-    return {
-      uid: payload.user_id ?? payload.uid ?? payload.sub ?? "unknown",
-      email: payload.email,
-    };
+    payload = JSON.parse(atob(encodedPayload.replace(/-/g, "+").replace(/_/g, "/")));
   } catch {
-    throw new Error("Token verification failed");
+    throw new Error("Invalid token payload");
   }
+
+  if (payload.exp && payload.exp * 1000 < Date.now()) {
+    throw new Error("Token expired");
+  }
+
+  const firebaseUid = payload.user_id ?? payload.uid ?? payload.sub;
+  if (!firebaseUid) throw new Error("No uid in token");
+
+  if (env.FIREBASE_API_KEY) {
+    // KV cache: avoid repeated Firebase API calls for the same token
+    const cacheKey = `tkn:${firebaseUid}:${payload.iat ?? 0}`;
+    try {
+      const cached = await env.CACHE.get(cacheKey, "json") as DecodedToken | null;
+      if (cached) return cached;
+    } catch { /* cache miss, continue */ }
+
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: token }),
+      }
+    );
+
+    if (!res.ok) throw new Error("Firebase token verification failed");
+
+    const data = await res.json<{ users?: Array<{ localId: string; email?: string; disabled?: boolean }> }>();
+    const fbUser = data.users?.[0];
+    if (!fbUser?.localId) throw new Error("Token invalid: user not found");
+    if (fbUser.disabled) throw new Error("User account disabled");
+
+    const decoded: DecodedToken = { uid: fbUser.localId, email: fbUser.email };
+
+    if (payload.exp) {
+      const ttl = Math.min(Math.floor((payload.exp * 1000 - Date.now()) / 1000), 300);
+      if (ttl > 0) {
+        try {
+          await env.CACHE.put(cacheKey, JSON.stringify(decoded), { expirationTtl: ttl });
+        } catch { /* non-critical */ }
+      }
+    }
+
+    return decoded;
+  }
+
+  // Dev fallback when FIREBASE_API_KEY not configured (token NOT verified)
+  return { uid: firebaseUid, email: payload.email };
 }

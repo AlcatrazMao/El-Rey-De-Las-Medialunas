@@ -1,39 +1,11 @@
 import { Hono } from "hono";
 
 import type { Env, Variables } from "../types/bindings";
+import { resolveUser } from "../lib/resolve-user";
 
 export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
-const FALLBACK_USER = "00000000000000000000000000000001";
-
-async function resolveUser(
-  db: D1Database,
-  authHeader: string | null
-): Promise<{ id: string } | null> {
-  if (!authHeader) return null;
-  try {
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.slice(7)
-      : authHeader;
-    const parts = token.split(".");
-    const encodedPayload = parts[1];
-    if (parts.length < 2 || !encodedPayload) return null;
-    const payload = JSON.parse(atob(encodedPayload.replace(/-/g, "+").replace(/_/g, "/")));
-    const firebaseUid: string | undefined =
-      payload.user_id ?? payload.uid ?? payload.sub;
-    if (!firebaseUid) return null;
-    const row = await db
-      .prepare(
-        "SELECT id FROM users WHERE firebase_uid = ? AND is_active = 1 LIMIT 1"
-      )
-      .bind(firebaseUid)
-      .first<{ id: string }>();
-    return row ?? null;
-  } catch {
-    return null;
-  }
-}
 
 // GET /
 salesRoutes.get("/", async (c) => {
@@ -145,8 +117,10 @@ salesRoutes.post("/", async (c) => {
   }>();
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const user = await resolveUser(db, c.req.header("Authorization") ?? null);
-  const userId = user?.id ?? FALLBACK_USER;
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userId = user.id;
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   const saleNumberRow = await db
@@ -246,8 +220,10 @@ salesRoutes.post("/:id/void", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json<{ void_reason?: string }>().catch(() => ({}));
 
-  const user = await resolveUser(db, c.req.header("Authorization") ?? null);
-  const userId = user?.id ?? FALLBACK_USER;
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userId = user.id;
 
   const sale = await db
     .prepare("SELECT id, status FROM sales WHERE id = ? LIMIT 1")

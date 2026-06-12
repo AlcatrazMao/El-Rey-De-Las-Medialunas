@@ -45,14 +45,13 @@ export const InventoryView: React.FC = () => {
 
   // Expiry Priority States
   const [priorityCriteria, setPriorityCriteria] = useState<'categoria' | 'precio' | 'unidades'>(() => {
-    return (localStorage.getItem('pan_erp_criteria') as 'categoria' | 'precio' | 'unidades') || 'categoria';
+    try { return (localStorage.getItem('pan_erp_criteria') as 'categoria' | 'precio' | 'unidades') || 'categoria'; } catch { return 'categoria'; }
   });
   const [priorityAlertDays, setPriorityAlertDays] = useState<number>(() => {
-    const saved = localStorage.getItem('pan_erp_alert_days');
-    return saved ? Number(saved) : 2;
+    try { const saved = localStorage.getItem('pan_erp_alert_days'); return saved ? Number(saved) : 2; } catch { return 2; }
   });
   const [priorityCategory, setPriorityCategory] = useState<string>(() => {
-    return localStorage.getItem('pan_erp_prio_cat') || 'pasteleria';
+    try { return localStorage.getItem('pan_erp_prio_cat') || 'pasteleria'; } catch { return 'pasteleria'; }
   });
 
   const handleSavePriorityConfig = (criteria: 'categoria' | 'precio' | 'unidades', days: number, cat: string) => {

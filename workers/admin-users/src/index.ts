@@ -132,7 +132,8 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   const at = ah?.startsWith('Bearer ') ? ah.slice(7) : '';
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
   if (!checkRateLimit(ip)) return { status: 429, error: 'Demasiados intentos' };
-  if (!at || at !== (env.AUTH_SECRET || '').trim()) return { status: 401, error: 'No autorizado' };
+  const secret = (env.AUTH_SECRET ?? "").trim();
+  if (!secret || !at || at !== secret) return { status: 401, error: 'No autorizado' };
   
   let token: string;
   let sa: any;

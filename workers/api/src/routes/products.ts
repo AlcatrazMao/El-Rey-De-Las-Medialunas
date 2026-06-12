@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import type { Env, Variables } from "../types/bindings";
+import { resolveUser } from "../lib/resolve-user";
 
 export const productRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -111,6 +112,10 @@ productRoutes.get("/:id", async (c) => {
 
 // POST /
 productRoutes.post("/", async (c) => {
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
   const db = c.env.DB;
   const body = await c.req.json<{
     code: string;
@@ -174,6 +179,10 @@ productRoutes.post("/", async (c) => {
 
 // PUT /:id
 productRoutes.put("/:id", async (c) => {
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
   const db = c.env.DB;
   const id = c.req.param("id");
   const body = await c.req.json<{
@@ -249,6 +258,10 @@ productRoutes.put("/:id", async (c) => {
 
 // DELETE /:id — soft delete
 productRoutes.delete("/:id", async (c) => {
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
   const db = c.env.DB;
   const id = c.req.param("id");
 

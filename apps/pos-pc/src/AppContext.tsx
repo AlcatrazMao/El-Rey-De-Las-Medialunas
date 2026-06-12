@@ -307,7 +307,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
-  const invoiceSeqRef = useRef(0);
+  const invoiceSeqRef = useRef<number>(
+    (() => { try { return parseInt(localStorage.getItem('pan_erp_invoice_seq') ?? '0', 10) || 0; } catch { return 0; } })()
+  );
   const [customers, setCustomers] = useState<Customer[]>(() => {
     try { const saved = localStorage.getItem('pan_erp_customers'); return saved ? JSON.parse(saved) : []; }
     catch { return []; }
@@ -715,6 +717,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     // Auto increment sequential invoice
     const dateToday = new Date();
     invoiceSeqRef.current = Math.max(invoiceSeqRef.current, sales.filter(s => s.paymentStatus === 'completed').length + 346) + 1;
+    try { localStorage.setItem('pan_erp_invoice_seq', String(invoiceSeqRef.current)); } catch { /* storage full */ }
     const sequenceStr = String(invoiceSeqRef.current).padStart(7, '0');
     const invoiceNumber = `FC-A-001-${sequenceStr}`;
 
@@ -929,6 +932,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     localStorage.removeItem('pan_erp_supply_requests');
     localStorage.removeItem('pan_erp_current_cash_session');
     localStorage.removeItem('pan_erp_cash_sessions_history');
+    localStorage.removeItem('pan_erp_invoice_seq');
 
     setIngredients(INITIAL_INGREDIENTS);
     setProducts(INITIAL_PRODUCTS);
@@ -939,6 +943,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     setGateways(PAYMENT_GATEWAYS);
     setActiveUserId('user_admin');
     setActiveTab('dashboard');
+    invoiceSeqRef.current = 0;
     setBatches([]);
     setWithdrawalRequests([]);
     setCurrentCashSession(null);

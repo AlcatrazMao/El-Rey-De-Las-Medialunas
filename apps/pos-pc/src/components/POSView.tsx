@@ -400,11 +400,11 @@ export const POSView: React.FC = () => {
       gain.connect(audioCtx.destination);
       osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
       gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      osc.addEventListener('ended', () => { audioCtx.close().catch(() => {}); });
       osc.start();
       osc.stop(audioCtx.currentTime + duration);
-    } catch (e) {
-      // eslint-disable-next-line no-console -- expected when browser blocks audio
-      console.log('Audio disabled until user interacts with document.');
+    } catch {
+      // audio blocked until user gesture
     }
   };
 
