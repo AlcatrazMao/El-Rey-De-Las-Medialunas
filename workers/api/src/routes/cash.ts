@@ -16,8 +16,9 @@ async function resolveUser(
       ? authHeader.slice(7)
       : authHeader;
     const parts = token.split(".");
-    if (parts.length < 2) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    const encodedPayload = parts[1];
+    if (parts.length < 2 || !encodedPayload) return null;
+    const payload = JSON.parse(atob(encodedPayload.replace(/-/g, "+").replace(/_/g, "/")));
     const firebaseUid: string | undefined =
       payload.user_id ?? payload.uid ?? payload.sub;
     if (!firebaseUid) return null;

@@ -28,26 +28,22 @@ const COLORS: Record<StickyNote['category'], string> = {
 };
 
 const STORAGE_KEY = 'erp_sticky_notes_v2';
+const ADD_NOTE_EVENT = 'sticky-note-add';
 
-// Helper to add auto-notes from anywhere (AppContext, etc.)
+// Despacha la nota vía evento — el hook la aplica al state directamente,
+// evitando el race condition de lectura/escritura paralela en localStorage.
 export function addAutoNote(title: string, content: string, category: StickyNote['category'], priority: StickyNote['priority'] = 'medium') {
-  try {
-    const notes: StickyNote[] = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    notes.unshift({
-      id: `auto_${Date.now()}`,
-      x: 40 + notes.length * 20,
-      y: 40 + notes.length * 20,
-      width: 260, height: 180,
-      title, content,
-      color: COLORS[category],
-      category, status: 'active',
-      created: new Date().toISOString(),
-      priority,
-    });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
-    // Dispatch event so the hook picks it up
-    window.dispatchEvent(new CustomEvent('sticky-note-added'));
-  } catch { /* localStorage not available */ }
+  const note: StickyNote = {
+    id: `auto_${Date.now()}`,
+    x: 40, y: 40,
+    width: 260, height: 180,
+    title, content,
+    color: COLORS[category],
+    category, status: 'active',
+    created: new Date().toISOString(),
+    priority,
+  };
+  window.dispatchEvent(new CustomEvent<StickyNote>(ADD_NOTE_EVENT, { detail: note }));
 }
 
 const defaultNotes: StickyNote[] = [
@@ -71,16 +67,19 @@ export function useStickyNotes() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
   }, [notes]);
 
-  // Listen for auto-notes added outside React state
+  // Recibe notas del evento ADD_NOTE_EVENT con los datos en detail,
+  // sin tocar localStorage — el useEffect de arriba persiste solo.
   useEffect(() => {
-    const reload = () => {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) setNotes(JSON.parse(saved));
-      } catch { /* ignore parse errors */ }
+    const onAdd = (e: Event) => {
+      const note = (e as CustomEvent<StickyNote>).detail;
+      if (!note?.id) return;
+      setNotes(prev => {
+        if (prev.some(n => n.id === note.id)) return prev;
+        return [{ ...note, x: 40 + prev.length * 20, y: 40 + prev.length * 20 }, ...prev];
+      });
     };
-    window.addEventListener('sticky-note-added', reload);
-    return () => window.removeEventListener('sticky-note-added', reload);
+    window.addEventListener(ADD_NOTE_EVENT, onAdd);
+    return () => window.removeEventListener(ADD_NOTE_EVENT, onAdd);
   }, []);
 
   const addNote = useCallback((note: Partial<StickyNote> = {}) => {
@@ -115,11 +114,10 @@ export function useStickyNotes() {
     setNotes(prev => prev.map(n => n.id === id ? { ...n, status: n.status === 'active' ? 'done' : 'active' } : n));
   }, []);
 
-  const addAutoNote = useCallback((title: string, content: string, category: StickyNote['category'], priority: StickyNote['priority'] = 'medium') => {
-    addNote({ title, content, category, priority, x: 40 + notes.length * 20, y: 40 + notes.length * 20 });
-  }, [notes.length]);
+  const addAutoNoteLocal = useCallback((title: string, content: string, category: StickyNote['category'], priority: StickyNote['priority'] = 'medium') => {
+    addNote({ title, content, category, priority });
+  }, [addNote]);
 
-  // Generate today's daily tasks as sticky notes
   const notesRef = useRef(notes);
   notesRef.current = notes;
 
@@ -129,9 +127,8 @@ export function useStickyNotes() {
     const dailyTasks = loadDailyTasks();
     const specialTasks = loadSpecialTasks();
 
-    // Check existing titles to avoid duplicates
     const existingTitles = new Set(notesRef.current.map(n => n.title));
-    
+
     dailyTasks.filter(t => t.active && t.days.includes(today) && (t.assignedRole === userRole || t.assignedRole === 'all')).forEach(t => {
       const key = `[Diaria] ${t.title}`;
       if (!existingTitles.has(key)) {
@@ -147,7 +144,7 @@ export function useStickyNotes() {
         addNote({ title: key, content: t.description, category: 'tarea', priority: t.priority, x: 40 + Math.random() * 200, y: 40 + Math.random() * 200 });
       }
     });
-  }, []);
+  }, [addNote]);
 
-  return { notes, addNote, deleteNote, updateNote, toggleStatus, addAutoNote, syncDailyTasks, setNotes };
+  return { notes, addNote, deleteNote, updateNote, toggleStatus, addAutoNote: addAutoNoteLocal, syncDailyTasks, setNotes };
 }
