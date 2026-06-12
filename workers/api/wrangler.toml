@@ -41,7 +41,7 @@ APP_ENV = "development"
 APP_ENV = "staging"
 
 [env.production]
-workers_dev = false
+workers_dev = true
 
 [[env.production.d1_databases]]
 binding = "DB"
