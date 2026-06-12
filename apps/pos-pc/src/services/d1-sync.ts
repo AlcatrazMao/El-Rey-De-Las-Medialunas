@@ -132,17 +132,40 @@ export async function fetchCustomersFromD1(): Promise<any[]> {
 // ── Cash ──────────────────────────────────────────────────────────────
 
 export async function syncCashSessionToD1(session: {
+  id: string;
   branch_id: string;
   opening_amount: number;
   closing_amount?: number;
   status: string;
   opened_at: string;
   closed_at?: string;
+  notes?: string;
 }): Promise<void> {
   if (session.status === "open") {
-    await apiFetch("/api/v1/cash-sessions/open", {
+    await apiFetch("/api/v1/cash/sessions/open", {
       method: "POST",
-      body: JSON.stringify({ branch_id: session.branch_id, opening_amount: session.opening_amount }),
+      body: JSON.stringify({
+        id: session.id,
+        branch_id: session.branch_id,
+        opening_amount: session.opening_amount,
+        notes: session.notes ?? null,
+      }),
     });
   }
+}
+
+export async function syncCashSessionCloseToD1(
+  sessionId: string,
+  closingAmount: number,
+  expectedAmount: number,
+  notes?: string
+): Promise<void> {
+  await apiFetch(`/api/v1/cash/sessions/${sessionId}/close`, {
+    method: "POST",
+    body: JSON.stringify({
+      closing_amount: closingAmount,
+      expected_amount: expectedAmount,
+      notes: notes ?? null,
+    }),
+  });
 }

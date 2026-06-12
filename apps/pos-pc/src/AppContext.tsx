@@ -14,7 +14,7 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS
 } from './initialData';
-import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, fetchCustomersFromD1 } from './services/d1-sync';
+import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, syncCashSessionCloseToD1, fetchCustomersFromD1 } from './services/d1-sync';
 import type { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 
 interface AppContextType {
@@ -1198,12 +1198,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       `Se abrió la caja con un saldo inicial de $${initialAmount.toFixed(2)} por ${activeUser.name}.`,
       'success'
     );
-    addAutoNote('🏦 Caja abierta', `Saldo inicial: $${initialAmount.toFixed(2)}\nAbierta por: ${activeUser.name}`, 'caja', 'medium');
     syncCashSessionToD1({
+      id: newSession.id,
       branch_id: '00000000000000000000000000000001',
       opening_amount: initialAmount,
       status: 'open',
       opened_at: newSession.openedAt,
+      notes: note ?? '',
     }).catch(() => {});
   };
 
@@ -1231,7 +1232,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       `Caja cerrada. Esperado: $${expected.toFixed(2)}, Real: $${realAmount.toFixed(2)}, Discrepancia: $${discrepancy.toFixed(2)}`,
       Math.abs(discrepancy) < 0.01 ? 'success' : 'warning'
     );
-    addAutoNote('🏦 Caja cerrada', `Esperado: $${expected.toFixed(2)}\nReal: $${realAmount.toFixed(2)}\nDiferencia: $${discrepancy.toFixed(2)}`, 'caja', Math.abs(discrepancy) > 1 ? 'high' : 'low');
+    syncCashSessionCloseToD1(
+      currentCashSession.id,
+      realAmount,
+      expected,
+      note
+    ).catch(() => {});
   };
 
   return (

@@ -47,7 +47,7 @@ export const POSView: React.FC = () => {
   // Selection Modal states
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [modalSelectedCategory, setModalSelectedCategory] = useState<CategoryType | 'todos' | null>(null);
-  const [modalOpenedFromFloating, setModalOpenedFromFloating] = useState(false);
+  const [modalMode, setModalMode] = useState<'list' | 'visual'>('list');
   const [modalSortKey, setModalSortKey] = useState<'monto' | 'orden' | 'fecha_elaboracion' | null>(null);
   const [modalSortOrder, setModalSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -158,6 +158,56 @@ export const POSView: React.FC = () => {
     return list;
   };
 
+  const renderProductGrid = (productsList: Product[]) => {
+    if (productsList.length === 0) {
+      return (
+        <div className="text-center py-12 text-gray-400 font-bold">
+          Ningún panificado en esta categoría.
+        </div>
+      );
+    }
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {productsList.map(prod => {
+          const inStock = prod.stock > 0;
+          const lowStock = prod.stock <= (prod.minStock || 5);
+          const cartItem = cart.find(item => item.product.id === prod.id);
+          const quantityInCart = cartItem ? cartItem.quantity : 0;
+          return (
+            <button
+              key={prod.id}
+              onClick={() => { addToCart(prod); playBeep(800, 0.05); }}
+              disabled={!inStock}
+              className={`relative flex flex-col justify-between text-left p-3 rounded-2xl border transition-all active:scale-97 cursor-pointer ${
+                !inStock
+                  ? 'bg-gray-100 dark:bg-zinc-950/20 border-gray-300 dark:border-zinc-800 opacity-60 cursor-not-allowed'
+                  : lowStock
+                  ? 'bg-amber-50/40 dark:bg-amber-950/10 border-amber-200 dark:border-amber-900/60 hover:bg-amber-50/70'
+                  : 'bg-white dark:bg-zinc-850 hover:bg-orange-50/30 dark:hover:bg-zinc-800 border-amber-100/40 dark:border-zinc-850/50 hover:border-amber-200 shadow-xs'
+              }`}
+            >
+              {quantityInCart > 0 && (
+                <span className="absolute top-2 right-2 bg-amber-500 text-white text-[10px] font-black rounded-full w-5 h-5 flex items-center justify-center">
+                  {quantityInCart}
+                </span>
+              )}
+              <div className="text-2xl mb-1" role="img" aria-label={prod.name}>{prod.image}</div>
+              <div>
+                <span className={`inline-block text-[9px] font-black px-1.5 py-0.5 rounded-full mb-1 ${
+                  !inStock ? 'bg-red-100 text-red-700' : lowStock ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {!inStock ? 'SIN STOCK' : `${prod.stock}u`}
+                </span>
+                <p className="font-extrabold text-xs text-gray-800 dark:text-zinc-100 leading-snug line-clamp-2">{prod.name}</p>
+              </div>
+              <span className="text-sm font-extrabold text-amber-600 dark:text-amber-500 mt-2">${prod.price.toFixed(2)}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   const renderProductList = (productsList: Product[]) => {
     if (productsList.length === 0) {
       return (
@@ -170,13 +220,13 @@ export const POSView: React.FC = () => {
     return (
       <div className="bg-white dark:bg-zinc-900 border border-gray-150 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-xs animate-fade-in">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs whitespace-nowrap">
+          <table className="w-full text-left text-xs">
             <thead className="bg-gray-50 dark:bg-zinc-950 text-[10px] uppercase font-bold text-gray-400 select-none">
               <tr className="border-b border-gray-150 dark:border-zinc-800">
                 <th className="py-3 px-4">Panificado</th>
-                <th className="py-3 px-4 text-center">Stock / Caducidad</th>
+                <th className="py-3 px-4 text-center hidden sm:table-cell">Stock / Caducidad</th>
                 <th className="py-3 px-3 text-right">Precio</th>
-                <th className="py-3 px-4 text-center">Acción / Cantidad</th>
+                <th className="py-3 px-4 text-center">Cantidad</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60 font-semibold text-gray-855 dark:text-zinc-200">
@@ -213,7 +263,7 @@ export const POSView: React.FC = () => {
                     </td>
 
                     {/* Column 2: Stock & Caducidad (Rojo/Amarillo/Verde) */}
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3 px-4 text-center hidden sm:table-cell">
                       <div className="flex flex-col items-center justify-center gap-1 select-none">
                         <span className={`inline-block text-[10px] font-black px-2.5 py-0.5 rounded-full ${
                           isLowStock 
@@ -362,7 +412,7 @@ export const POSView: React.FC = () => {
     const shouldOpen = localStorage.getItem('pan_erp_open_search_list');
     if (shouldOpen === 'true') {
       localStorage.removeItem('pan_erp_open_search_list');
-      setModalOpenedFromFloating(true);
+      setModalMode('visual');
       setModalSelectedCategory('todos');
       setSearchQuery('');
       setShowSelectionModal(true);
@@ -670,7 +720,7 @@ export const POSView: React.FC = () => {
           <button
             id="btn-trigger-search-modal"
             onClick={() => {
-              setModalOpenedFromFloating(false);
+              setModalMode('list');
               setModalSelectedCategory(null);
               setSearchQuery('');
               setShowSelectionModal(true);
@@ -1078,135 +1128,113 @@ export const POSView: React.FC = () => {
 
             {/* Modal Body */}
             <div className="flex-1 overflow-y-auto p-4 bg-amber-50/10 dark:bg-zinc-950/20">
-              
-              {/* Scenario A: Showing Search query results instantly across all categories */}
-              {searchQuery ? (
+              {modalMode === 'list' ? (
+                /* ── MODO LISTA: todos los productos en tabla directamente ── */
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">Resultados de Búsqueda ({filteredProducts.length})</span>
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer"
-                    >
-                      Limpiar filtro
-                    </button>
+                    <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                      {searchQuery
+                        ? `Resultados de búsqueda (${filteredProducts.length})`
+                        : `Todos los productos (${products.length})`}
+                    </span>
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer"
+                      >
+                        Limpiar filtro
+                      </button>
+                    )}
                   </div>
-                  {renderProductList(filteredProducts)}
-                </div>
-              ) : modalSelectedCategory === null ? (
-                /* Scenario B: Showing Categories list as beautiful visual CARDS */
-                <div>
-                  <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-3">Filtrar por Categoría</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {categoriesList.map(cat => {
-                      const count = cat.id === 'todos' 
-                        ? products.length 
-                        : products.filter(p => p.category === cat.id).length;
-
-                      return (
-                        <button
-                          key={cat.id}
-                          id={`btn-modal-cat-card-${cat.id}`}
-                          onClick={() => {
-                            setModalSelectedCategory(cat.id);
-                            playBeep(800, 0.05);
-                          }}
-                          className="p-5 rounded-3xl border bg-white dark:bg-zinc-900 border-gray-150 dark:border-zinc-800 hover:border-amber-400 dark:hover:border-amber-500 text-left flex flex-col justify-between h-32 cursor-pointer transition-all duration-305 transform hover:-translate-y-1 active:scale-97 hover:shadow-md group shadow-xs"
-                        >
-                          <div className="flex justify-between items-start w-full">
-                            <span className="text-3xl filter drop-shadow-xs transition-transform group-hover:scale-110" role="img" aria-label={cat.label}>
-                              {cat.icon}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full font-extrabold bg-gray-100 dark:bg-zinc-800 text-gray-500 text-right">
-                              {count}
-                            </span>
-                          </div>
-                          <div>
-                            <p className="font-extrabold text-sm text-gray-850 dark:text-zinc-100 capitalize">{cat.label}</p>
-                            <p className="text-[10px] text-gray-400 font-medium leading-none mt-0.5">Explorar menú →</p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {renderProductList(searchQuery ? filteredProducts : products)}
                 </div>
               ) : (
-                /* Scenario C: Showing Products in selected category */
-                <div>
-                  
-                  {/* Category Path Header & Sorting */}
-                  <div className="flex flex-col gap-2 pb-3 border-b border-gray-150 dark:border-zinc-800 mb-3">
-                    <div className="flex items-center justify-between">
-                      {!modalOpenedFromFloating && (
-                        <button
-                          onClick={() => {
-                            setModalSelectedCategory(null);
-                            playBeep(600, 0.05);
-                          }}
-                          className="text-xs font-extrabold text-amber-600 dark:text-amber-500 hover:text-amber-700 bg-amber-50 dark:bg-zinc-900 border border-amber-200 dark:border-zinc-800 px-3 py-1.5 rounded-xl cursor-pointer flex items-center gap-1 transition-colors"
-                        >
-                          ← Volver a Categorías
-                        </button>
-                      )}
-                      <span className="text-xs font-black text-gray-800 dark:text-zinc-50 capitalize bg-gray-100 dark:bg-zinc-800 px-3 py-1 rounded-lg">
-                        {modalOpenedFromFloating ? 'Menú de Productos Completo' : `Categoría: ${modalSelectedCategory}`}
-                      </span>
+                /* ── MODO VISUAL: categorías → grid de productos ── */
+                <>
+                  {searchQuery ? (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">Resultados ({filteredProducts.length})</span>
+                        <button onClick={() => setSearchQuery('')} className="text-[10px] text-amber-600 font-bold hover:underline cursor-pointer">Limpiar</button>
+                      </div>
+                      {renderProductList(filteredProducts)}
                     </div>
-
-                    {/* Columns or Filters bar for "Todos" or category items sorting */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-50 dark:bg-zinc-950 p-2 rounded-xl border border-gray-150 dark:border-zinc-850 mt-1 select-none">
-                      <span className="text-[10px] font-bold text-gray-550 uppercase tracking-wider">Ordenar productos:</span>
-                      <div className="flex items-center gap-1">
-                        {[
-                          { id: 'monto', label: '💵 Precio' },
-                          { id: 'orden', label: '🔤 Nombre' },
-                          { id: 'fecha_elaboracion', label: '📅 Elaboración' }
-                        ].map(col => {
-                          const isSorted = modalSortKey === col.id;
+                  ) : modalSelectedCategory === null ? (
+                    /* Categorías como cards */
+                    <div>
+                      <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-3">Filtrar por Categoría</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {categoriesList.map(cat => {
+                          const count = cat.id === 'todos' ? products.length : products.filter(p => p.category === cat.id).length;
                           return (
                             <button
-                              key={col.id}
-                              onClick={() => {
-                                if (isSorted) {
-                                  setModalSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setModalSortKey(col.id as 'monto' | 'orden' | 'fecha_elaboracion');
-                                  setModalSortOrder('asc');
-                                }
-                                playBeep(900, 0.05);
-                              }}
-                              className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${
-                                isSorted
-                                  ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-                                  : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 border-gray-200 dark:border-zinc-800'
-                              }`}
+                              key={cat.id}
+                              id={`btn-modal-cat-card-${cat.id}`}
+                              onClick={() => { setModalSelectedCategory(cat.id); playBeep(800, 0.05); }}
+                              className="p-5 rounded-3xl border bg-white dark:bg-zinc-900 border-gray-150 dark:border-zinc-800 hover:border-amber-400 dark:hover:border-amber-500 text-left flex flex-col justify-between h-32 cursor-pointer transition-all duration-305 transform hover:-translate-y-1 active:scale-97 hover:shadow-md group shadow-xs"
                             >
-                              {col.label} {isSorted && (modalSortOrder === 'asc' ? '▲' : '▼')}
+                              <div className="flex justify-between items-start w-full">
+                                <span className="text-3xl filter drop-shadow-xs transition-transform group-hover:scale-110" role="img" aria-label={cat.label}>{cat.icon}</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full font-extrabold bg-gray-100 dark:bg-zinc-800 text-gray-500">{count}</span>
+                              </div>
+                              <div>
+                                <p className="font-extrabold text-sm text-gray-850 dark:text-zinc-100 capitalize">{cat.label}</p>
+                                <p className="text-[10px] text-gray-400 font-medium leading-none mt-0.5">Explorar menú →</p>
+                              </div>
                             </button>
                           );
                         })}
-                        {modalSortKey && (
-                          <button
-                            onClick={() => {
-                              setModalSortKey(null);
-                              setModalSortOrder('asc');
-                            }}
-                            className="text-[10px] font-bold text-red-500 px-1.5 hover:underline cursor-pointer"
-                            title="Quitar orden"
-                          >
-                            Limpiar
-                          </button>
-                        )}
                       </div>
                     </div>
-
-                  </div>
-
-                  {/* Render list of products within selected category */}
-                  {renderProductList(getSortedModalProducts())}
-                </div>
+                  ) : (
+                    /* Grid de productos en categoría seleccionada */
+                    <div>
+                      <div className="flex flex-col gap-2 pb-3 border-b border-gray-150 dark:border-zinc-800 mb-3">
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={() => { setModalSelectedCategory(null); playBeep(600, 0.05); }}
+                            className="text-xs font-extrabold text-amber-600 dark:text-amber-500 hover:text-amber-700 bg-amber-50 dark:bg-zinc-900 border border-amber-200 dark:border-zinc-800 px-3 py-1.5 rounded-xl cursor-pointer flex items-center gap-1 transition-colors"
+                          >
+                            ← Volver a Categorías
+                          </button>
+                          <span className="text-xs font-black text-gray-800 dark:text-zinc-50 capitalize bg-gray-100 dark:bg-zinc-800 px-3 py-1 rounded-lg">
+                            {modalSelectedCategory === 'todos' ? 'Todos' : `Categoría: ${modalSelectedCategory}`}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-50 dark:bg-zinc-950 p-2 rounded-xl border border-gray-150 dark:border-zinc-850 mt-1 select-none">
+                          <span className="text-[10px] font-bold text-gray-550 uppercase tracking-wider">Ordenar:</span>
+                          <div className="flex items-center gap-1">
+                            {([
+                              { id: 'monto', label: '💵 Precio' },
+                              { id: 'orden', label: '🔤 Nombre' },
+                              { id: 'fecha_elaboracion', label: '📅 Elaboración' }
+                            ] as const).map(col => {
+                              const isSorted = modalSortKey === col.id;
+                              return (
+                                <button
+                                  key={col.id}
+                                  onClick={() => {
+                                    if (isSorted) { setModalSortOrder(prev => prev === 'asc' ? 'desc' : 'asc'); }
+                                    else { setModalSortKey(col.id as 'monto' | 'orden' | 'fecha_elaboracion'); setModalSortOrder('asc'); }
+                                    playBeep(900, 0.05);
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${isSorted ? 'bg-amber-500 text-white border-amber-600 shadow-sm' : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 border-gray-200 dark:border-zinc-800'}`}
+                                >
+                                  {col.label} {isSorted && (modalSortOrder === 'asc' ? '▲' : '▼')}
+                                </button>
+                              );
+                            })}
+                            {modalSortKey && (
+                              <button onClick={() => { setModalSortKey(null); setModalSortOrder('asc'); }} className="text-[10px] font-bold text-red-500 px-1.5 hover:underline cursor-pointer">Limpiar</button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {renderProductGrid(getSortedModalProducts())}
+                    </div>
+                  )}
+                </>
               )}
-
             </div>
 
             {/* Quick checkout summary footer inside the selection modal */}
@@ -1235,8 +1263,8 @@ export const POSView: React.FC = () => {
       <button
         id="btn-floating-lupa-search"
         onClick={() => {
-          setModalOpenedFromFloating(true);
-          setModalSelectedCategory('todos');
+          setModalMode('visual');
+          setModalSelectedCategory(null);
           setSearchQuery('');
           setShowSelectionModal(true);
           playBeep(705, 0.05);
