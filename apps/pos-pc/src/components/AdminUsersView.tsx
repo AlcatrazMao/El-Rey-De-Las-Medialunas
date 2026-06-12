@@ -13,22 +13,31 @@ export const AdminUsersView: React.FC = () => {
 
   useEffect(() => () => { if (sendAuthTimerRef.current) clearTimeout(sendAuthTimerRef.current); }, []);
 
-  // Send auth to iframe once it loads
+  // Sends the auth key to the iframe via postMessage
+  const postAuthToIframe = (key: string) => {
+    if (!iframeRef.current?.contentWindow) return;
+    iframeRef.current.contentWindow.postMessage({ type: 'auth', secret: key }, ADMIN_URL);
+  };
+
+  // Called from the key form: saves the key and reveals the iframe.
+  // handleLoad will fire postAuthToIframe once the iframe is ready.
   const sendAuth = () => {
     const key = secret || inputValue;
-    if (!key || !iframeRef.current?.contentWindow) return;
-    iframeRef.current.contentWindow.postMessage({ type: 'auth', secret: key }, ADMIN_URL);
+    if (!key) return;
     if (!secret) {
       sessionStorage.setItem('admin_secret', key);
       setSecret(key);
       setShowConfig(false);
+      return; // iframe not mounted yet — handleLoad will send auth
     }
+    postAuthToIframe(key);
   };
 
-  // Retry on iframe load
+  // Once iframe loads, read key directly from sessionStorage (state may not be updated yet)
   const handleLoad = () => {
-    if (secret) {
-      sendAuthTimerRef.current = setTimeout(sendAuth, 500);
+    const key = sessionStorage.getItem('admin_secret') || secret;
+    if (key) {
+      sendAuthTimerRef.current = setTimeout(() => postAuthToIframe(key), 500);
     }
   };
 
