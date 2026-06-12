@@ -1,5 +1,4 @@
 import { cors } from "hono/cors";
-import type { Env, Variables } from "../types/bindings";
 
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
@@ -11,7 +10,7 @@ const ALLOWED_ORIGINS = [
 ];
 
 export function corsMiddleware() {
-  return cors<{ Bindings: Env; Variables: Variables }>({
+  return cors({
     origin: (origin) => (ALLOWED_ORIGINS.includes(origin) ? origin : null),
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization", "X-Branch-Id", "X-Client-Version"],
