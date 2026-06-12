@@ -1,7 +1,7 @@
 import type { User as FirebaseUser } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
 import * as React from 'react'
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 
 import { auth } from './config/firebase';
 import { addAutoNote } from './hooks/useStickyNotes';
@@ -307,6 +307,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
+  const invoiceSeqRef = useRef(0);
   const [customers, setCustomers] = useState<Customer[]>(() => {
     try { const saved = localStorage.getItem('pan_erp_customers'); return saved ? JSON.parse(saved) : []; }
     catch { return []; }
@@ -319,9 +320,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     email: firebaseUser.email || '',
     role: (firestoreRole || 'panadero') as UserRole,
     avatar: firebaseUser.photoURL || '',
-    customPanels: (firebaseUser.email?.includes('admin') || firebaseUser.email?.includes('owner'))
+    customPanels: (firestoreRole === 'admin' || firestoreRole === 'owner')
       ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
-      : firebaseUser.email?.includes('cajero')
+      : firestoreRole === 'cajero'
       ? ['widget_facturacion', 'widget_alertas']
       : ['widget_inventario', 'widget_alertas'],
   };
@@ -711,7 +712,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     
     // Auto increment sequential invoice
     const dateToday = new Date();
-    const sequenceStr = String(sales.filter(s => s.paymentStatus === 'completed').length + 346).padStart(7, '0');
+    invoiceSeqRef.current = Math.max(invoiceSeqRef.current, sales.filter(s => s.paymentStatus === 'completed').length + 346) + 1;
+    const sequenceStr = String(invoiceSeqRef.current).padStart(7, '0');
     const invoiceNumber = `FC-A-001-${sequenceStr}`;
 
     // Determine operator: use selected seller, fallback to active user
@@ -1065,7 +1067,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   };
 
   const rejectWithdrawalRequest = (requestId: string, adminMemo: string) => {
-    setWithdrawRequests(prev =>
+    setWithdrawalRequests(prev =>
       prev.map(r => {
         if (r.id === requestId) {
           if (r.status !== 'pending') return r;
@@ -1119,64 +1121,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   };
 
   const approveSupplyRequest = (requestId: string, adminMemo: string) => {
-    setSupplyRequests(prev =>
-      prev.map(r => {
-        if (r.id === requestId) {
-          if (r.status !== 'pending') return r;
-          
-          const req = { ...r, status: 'approved' as const, adminMemo };
-          
-          if (req.type === 'ingredient') {
-            setIngredients(currentIngredients =>
-              currentIngredients.map(ing => {
-                if (ing.id === req.itemId) {
-                  return { ...ing, stock: ing.stock + req.quantity };
-                }
-                return ing;
-              })
-            );
-          } else {
-            setProducts(currentProducts =>
-              currentProducts.map(p => {
-                if (p.id === req.itemId) {
-                  return { ...p, stock: p.stock + req.quantity };
-                }
-                return p;
-              })
-            );
-            
-            setBatches(prevBatches => {
-              const freshElab = new Date();
-              const elabString = freshElab.toISOString().split('T')[0];
-              const expString = new Date(freshElab.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-              
-              return [
-                {
-                  id: `batch_supply_${Date.now()}_${Math.floor(Math.random() * 100)}`,
-                  productId: req.itemId,
-                  batchNumber: `L-${req.itemName.slice(0, 3).toUpperCase()}-R-${Math.floor(100 + Math.random() * 900)}`,
-                  quantity: req.quantity,
-                  stock: req.quantity,
-                  elaborationDate: elabString,
-                  expiryDate: expString,
-                  status: 'active',
-                  withdrawalMode: 'manual'
-                },
-                ...prevBatches
-              ];
-            });
-          }
-          
-          addSystemNotification(
-            '✅ Abastecimiento Aprobado',
-            `Se autorizó reposición de ${req.quantity} ${req.unit} para "${req.itemName}". Detalle admin: ${adminMemo}`,
-            'success'
-          );
-          
-          return req;
-        }
-        return r;
-      })
+    const req = supplyRequests.find(r => r.id === requestId);
+    if (!req || req.status !== 'pending') return;
+
+    const approved = { ...req, status: 'approved' as const, adminMemo };
+
+    setSupplyRequests(prev => prev.map(r => r.id === requestId ? approved : r));
+
+    if (approved.type === 'ingredient') {
+      setIngredients(prev => prev.map(ing =>
+        ing.id === approved.itemId ? { ...ing, stock: ing.stock + approved.quantity } : ing
+      ));
+    } else {
+      setProducts(prev => prev.map(p =>
+        p.id === approved.itemId ? { ...p, stock: p.stock + approved.quantity } : p
+      ));
+      const freshElab = new Date();
+      setBatches(prev => [
+        {
+          id: `batch_supply_${Date.now()}_${Math.floor(Math.random() * 100)}`,
+          productId: approved.itemId,
+          batchNumber: `L-${approved.itemName.slice(0, 3).toUpperCase()}-R-${Math.floor(100 + Math.random() * 900)}`,
+          quantity: approved.quantity,
+          stock: approved.quantity,
+          elaborationDate: freshElab.toISOString().split('T')[0],
+          expiryDate: new Date(freshElab.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          status: 'active' as const,
+          withdrawalMode: 'manual' as const
+        },
+        ...prev
+      ]);
+    }
+
+    addSystemNotification(
+      '✅ Abastecimiento Aprobado',
+      `Se autorizó reposición de ${approved.quantity} ${approved.unit} para "${approved.itemName}". Detalle admin: ${adminMemo}`,
+      'success'
     );
   };
 
@@ -1249,9 +1229,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     );
     addAutoNote('🏦 Caja cerrada', `Esperado: $${expected.toFixed(2)}\nReal: $${realAmount.toFixed(2)}\nDiferencia: $${discrepancy.toFixed(2)}`, 'caja', Math.abs(discrepancy) > 1 ? 'high' : 'low');
   };
-
-  // Alias for error proofing
-  const setWithdrawRequests = setWithdrawalRequests;
 
   return (
     <AppContext.Provider
