@@ -17,6 +17,7 @@ export const NotesCanvas: React.FC<NotesCanvasProps> = ({ notes, onUpdate, onDel
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const dragRef = useRef<{ id: string; ox: number; oy: number; nx: number; ny: number; moved: boolean } | null>(null);
+  const noteRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const canvasRef = useRef<HTMLDivElement>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
@@ -63,9 +64,14 @@ export const NotesCanvas: React.FC<NotesCanvasProps> = ({ notes, onUpdate, onDel
       dragRef.current.oy = e.clientY;
       dragRef.current.nx += dx;
       dragRef.current.ny += dy;
+      const el = noteRefs.current[dragRef.current.id];
+      if (el) {
+        el.style.left = `${Math.max(0, dragRef.current.nx)}px`;
+        el.style.top = `${Math.max(0, dragRef.current.ny)}px`;
+      }
     };
     const up = () => {
-      if (dragRef.current && dragRef.current.moved) {
+      if (dragRef.current?.moved) {
         onUpdate(dragRef.current.id, { x: Math.max(0, Math.round(dragRef.current.nx)), y: Math.max(0, Math.round(dragRef.current.ny)) });
       }
       setDragging(null);
@@ -101,13 +107,14 @@ export const NotesCanvas: React.FC<NotesCanvasProps> = ({ notes, onUpdate, onDel
         
         return (
           <div key={note.id}
+            ref={(el) => { noteRefs.current[note.id] = el; }}
             onPointerDown={(e) => handlePointerDown(e, note)}
             onDoubleClick={() => enterEdit(note)}
-            className={`absolute rounded-xl shadow-sm border-2 transition-all group cursor-grab active:cursor-grabbing
-              ${isDragging ? 'shadow-xl z-50 ring-2 ring-amber-500 scale-105' : 'z-10 hover:shadow-md'}
+            className={`absolute rounded-xl shadow-sm border-2 group cursor-grab active:cursor-grabbing
+              ${isDragging ? 'shadow-xl z-50 ring-2 ring-amber-500 scale-105' : 'z-10 hover:shadow-md transition-shadow'}
               ${isEditing ? 'ring-2 ring-amber-400 cursor-text z-40' : ''}
               ${note.status === 'done' ? 'opacity-70' : ''}`}
-            style={{ left: note.x, top: note.y, width: note.width, background: note.color }}>
+            style={{ left: note.x, top: note.y, width: note.width, background: note.color, willChange: isDragging ? 'left, top' : 'auto' }}>
             
             {/* Header bar */}
             <div className={`flex items-center gap-1.5 px-3 py-2 border-b border-black/5 ${isEditing ? 'bg-white/50' : ''}`}>
