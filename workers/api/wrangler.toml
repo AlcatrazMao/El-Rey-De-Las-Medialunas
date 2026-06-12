@@ -52,5 +52,22 @@ database_id = "D1_ID_PLACEHOLDER"
 binding = "CACHE"
 id = "KV_CACHE_PLACEHOLDER"
 
+[[env.production.kv_namespaces]]
+binding = "SESSIONS"
+id = "KV_SESSIONS_PLACEHOLDER"
+
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "KV_RATE_LIMIT_PLACEHOLDER"
+
+[[env.production.queues.producers]]
+binding = "INVENTORY_QUEUE"
+queue = "inventory-processing"
+
+[[env.production.queues.producers]]
+binding = "REPORTS_QUEUE"
+queue = "report-generation"
+
 [env.production.vars]
+APP_NAME = "El Rey De Las Medialunas"
 APP_ENV = "production"
