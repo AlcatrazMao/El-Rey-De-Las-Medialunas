@@ -190,6 +190,27 @@ async function handleRequest(req: Request, env: Env, url: URL) {
           };
         });
         userCache = users;
+
+        // Upsert all Firebase users to D1 so the API worker can authenticate them.
+        // Non-blocking — list response doesn't wait for batch to finish.
+        if (env.DB) {
+          (async () => {
+            try {
+              const stmts = users.map((u: any) =>
+                env.DB!.prepare(
+                  `INSERT INTO users (id, firebase_uid, email, name, role)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(firebase_uid) DO UPDATE SET
+                     email = excluded.email,
+                     name  = excluded.name,
+                     role  = excluded.role`
+                ).bind(u.uid, u.uid, u.email, u.displayName || '', u.role)
+              );
+              if (stmts.length > 0) await env.DB!.batch(stmts);
+            } catch {}
+          })();
+        }
+
         return { status: 200, data: users };
       }
       const errText = await res.text();
