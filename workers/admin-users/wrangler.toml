@@ -3,9 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
 
+[[d1_databases]]
+binding = "DB"
+database_name = "el-rey-db"
+database_id = "D1_ID_PLACEHOLDER"
+
 [env.production]
 
-[[d1_databases]]
+[[env.production.d1_databases]]
 binding = "DB"
 database_name = "el-rey-db"
 database_id = "D1_ID_PLACEHOLDER"
