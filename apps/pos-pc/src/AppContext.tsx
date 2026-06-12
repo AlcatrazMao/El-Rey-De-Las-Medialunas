@@ -344,7 +344,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     };
     setCustomers(prev => [newCustomer, ...prev]);
     addSystemNotification('👤 Cliente Creado', `${newCustomer.name} fue registrado.`, 'success');
-    syncCustomerToD1(newCustomer).catch(() => {});
+    syncCustomerToD1(newCustomer).catch((err: unknown) => {
+      console.warn('[D1 sync] customer failed:', err instanceof Error ? err.message : err);
+    });
   };
 
   const updateCustomer = (id: string, data: Partial<Customer>) => {
@@ -790,7 +792,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     addAutoNote(`💸 Venta ${invoiceNumber}`, `Total: $${newSaleInstance.total.toFixed(2)}\nItems: ${saleLineItems.length}\nPago: ${paymentMethod}`, 'ventas', 'low');
 
     // Sync to D1 in background (non-blocking)
-    syncSaleToD1(newSaleInstance).catch(() => { /* D1 might be offline */ });
+    syncSaleToD1(newSaleInstance).catch((err: unknown) => {
+      console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);
+    });
 
     // Alert about low stock elements
     lowStockAlerts.forEach(alertMessage => {

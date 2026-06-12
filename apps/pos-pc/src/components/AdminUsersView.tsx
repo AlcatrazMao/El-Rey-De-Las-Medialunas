@@ -1,14 +1,17 @@
 import { Users, Key } from 'lucide-react';
 import * as React from 'react'
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 
 const ADMIN_URL = 'https://admin-users-production.elprincipitodeargentina.workers.dev';
 
 export const AdminUsersView: React.FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const sendAuthTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [secret, setSecret] = useState(() => sessionStorage.getItem('admin_secret') || '');
   const [showConfig, setShowConfig] = useState(!sessionStorage.getItem('admin_secret'));
   const [inputValue, setInputValue] = useState('');
+
+  useEffect(() => () => { if (sendAuthTimerRef.current) clearTimeout(sendAuthTimerRef.current); }, []);
 
   // Send auth to iframe once it loads
   const sendAuth = () => {
@@ -25,7 +28,7 @@ export const AdminUsersView: React.FC = () => {
   // Retry on iframe load
   const handleLoad = () => {
     if (secret) {
-      setTimeout(sendAuth, 500);
+      sendAuthTimerRef.current = setTimeout(sendAuth, 500);
     }
   };
 

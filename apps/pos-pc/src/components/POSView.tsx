@@ -14,7 +14,7 @@ import {
   CircleAlert
 } from 'lucide-react';
 import * as React from 'react'
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
 import type { CategoryType, Product, Sale } from '../types';
@@ -58,6 +58,14 @@ export const POSView: React.FC = () => {
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [simulateFailedPayment, setSimulateFailedPayment] = useState(false);
   const [processingStatusText, setProcessingStatusText] = useState('');
+
+  const pendingTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const safeTimeout = (fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms);
+    pendingTimeoutsRef.current.push(id);
+    return id;
+  };
+  useEffect(() => () => { pendingTimeoutsRef.current.forEach(clearTimeout); }, []);
 
   if (!currentCashSession) {
     return (
@@ -413,7 +421,7 @@ export const POSView: React.FC = () => {
     setIsScanning(true);
     playBeep(350, 0.1);
     
-    setTimeout(() => {
+    safeTimeout(() => {
       // Pick a random product from Catalog
       const randomProduct = products[Math.floor(Math.random() * products.length)];
       if (randomProduct) {
@@ -449,11 +457,11 @@ export const POSView: React.FC = () => {
     };
 
     // Simulated cloud delay for high visual impact
-    setTimeout(() => {
+    safeTimeout(() => {
       setProcessingStatusText(`Autorizando cargo con ${gatewayNames[paymentMethod]}...`);
       playBeep(650, 0.1);
-      
-      setTimeout(() => {
+
+      safeTimeout(() => {
         // Execute sale operations
         const result = addSale(
           cart.map(item => ({ productId: item.product.id, quantity: item.quantity })),
@@ -1162,8 +1170,7 @@ export const POSView: React.FC = () => {
                                 if (isSorted) {
                                   setModalSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                                 } else {
-                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic sort key
-                                  setModalSortKey(col.id as any);
+                                  setModalSortKey(col.id as 'monto' | 'orden' | 'fecha_elaboracion');
                                   setModalSortOrder('asc');
                                 }
                                 playBeep(900, 0.05);

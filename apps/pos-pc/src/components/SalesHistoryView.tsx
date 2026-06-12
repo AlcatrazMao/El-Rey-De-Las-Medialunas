@@ -43,29 +43,36 @@ export const SalesHistoryView: React.FC = () => {
       return;
     }
 
-    // Restore products stock & batches
+    // Restore products stock & ingredients in one pass
     sale.items.forEach(item => {
       const dbProd = products.find(p => p.id === item.productId);
       if (dbProd) {
         updateProductStock(dbProd.id, dbProd.stock + item.quantity);
-        
-        // Restore batch stock (same FIFO order, reversed)
-        setBatches(prev => prev.map(b => {
-          if (b.productId === item.productId && b.quantity > b.stock) {
-            return { ...b, stock: b.stock + Math.min(item.quantity, b.quantity - b.stock) };
-          }
-          return b;
-        }));
-        
-        // Restore ingredients stock consumed in recipes
         dbProd.ingredients.forEach(recipeIng => {
           const dbIng = ingredients.find(i => i.id === recipeIng.ingredientId);
-          if (dbIng) {
-            const restoredWeight = recipeIng.quantity * item.quantity;
-            updateIngredientStock(dbIng.id, dbIng.stock + restoredWeight);
-          }
+          if (dbIng) updateIngredientStock(dbIng.id, dbIng.stock + recipeIng.quantity * item.quantity);
         });
       }
+    });
+
+    // Restore batch stock in a single setBatches call (reverse-FIFO, no over-restore)
+    setBatches(prev => {
+      const updated = [...prev];
+      for (const item of sale.items) {
+        let toRestore = item.quantity;
+        // Newest-expiry first = reverse of the FIFO order used at sale time
+        const eligible = updated
+          .map((b, idx) => ({ b, idx }))
+          .filter(({ b }) => b.productId === item.productId && b.quantity > b.stock)
+          .sort((a, z) => new Date(z.b.expiryDate).getTime() - new Date(a.b.expiryDate).getTime());
+        for (const { b, idx } of eligible) {
+          if (toRestore <= 0) break;
+          const canRestore = Math.min(toRestore, b.quantity - b.stock);
+          toRestore -= canRestore;
+          updated[idx] = { ...b, stock: b.stock + canRestore, status: 'active' as const };
+        }
+      }
+      return updated;
     });
 
     // Remove sale or change status to voided/failed
