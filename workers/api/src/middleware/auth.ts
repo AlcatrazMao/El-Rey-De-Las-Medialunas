@@ -1,6 +1,7 @@
-import { createMiddleware } from "hono/factory";
-import type { Env, Variables } from "../types/bindings";
 import type { Role } from "@medialunas/shared";
+import { createMiddleware } from "hono/factory";
+
+import type { Env, Variables } from "../types/bindings";
 
 const PUBLIC_ROUTES = [
   "/api/v1/health",

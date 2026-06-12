@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+
 import type { Env, Variables } from "../types/bindings";
 
 export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -161,8 +162,8 @@ salesRoutes.post("/", async (c) => {
   const payments = body.payments ?? [];
 
   let subtotal = body.subtotal;
-  let taxTotal = body.tax_total ?? 0;
-  let discountTotal = body.discount_total ?? 0;
+  const taxTotal = body.tax_total ?? 0;
+  const discountTotal = body.discount_total ?? 0;
 
   if (subtotal === undefined) {
     subtotal = items.reduce((acc, item) => acc + item.unit_price * item.quantity, 0);

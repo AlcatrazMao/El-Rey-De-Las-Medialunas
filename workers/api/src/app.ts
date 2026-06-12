@@ -1,25 +1,26 @@
 import { Hono } from "hono";
-import type { Env, Variables } from "./types/bindings";
+
 import { corsMiddleware } from "./middleware/cors";
-import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { errorHandler } from "./middleware/error-handler";
+import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { validate } from "./middleware/validate";
+import { auditRoutes } from "./routes/audit";
 import { authRoutes } from "./routes/auth";
 import { branchRoutes } from "./routes/branches";
-import { categoryRoutes } from "./routes/categories";
-import { productRoutes } from "./routes/products";
-import { inventoryRoutes } from "./routes/inventory";
-import { salesRoutes } from "./routes/sales";
-import { customerRoutes } from "./routes/customers";
 import { cashRoutes } from "./routes/cash";
+import { categoryRoutes } from "./routes/categories";
+import { customerRoutes } from "./routes/customers";
+import { expenseRoutes } from "./routes/expenses";
+import { inventoryRoutes } from "./routes/inventory";
 import { productionRoutes } from "./routes/production";
-import { supplierRoutes } from "./routes/suppliers";
+import { productRoutes } from "./routes/products";
 import { purchaseRoutes } from "./routes/purchases";
 import { reportRoutes } from "./routes/reports";
-import { syncRoutes } from "./routes/sync";
-import { auditRoutes } from "./routes/audit";
+import { salesRoutes } from "./routes/sales";
+import { supplierRoutes } from "./routes/suppliers";
 import { supplyRequestRoutes } from "./routes/supply-requests";
-import { expenseRoutes } from "./routes/expenses";
+import { syncRoutes } from "./routes/sync";
+import type { Env, Variables } from "./types/bindings";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

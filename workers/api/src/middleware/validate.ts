@@ -1,5 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import type { ZodSchema } from "zod";
+
 import type { Env, Variables } from "../types/bindings";
 
 interface ValidationTarget {

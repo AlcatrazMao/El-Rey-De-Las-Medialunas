@@ -1,5 +1,5 @@
-import type { Env } from "./types/bindings";
 import { app } from "./app";
+import type { Env } from "./types/bindings";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

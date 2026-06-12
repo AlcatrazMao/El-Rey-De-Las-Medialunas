@@ -1,6 +1,7 @@
-import type { ErrorHandler } from "hono";
-import type { Env, Variables } from "../types/bindings";
 import type { ApiError, ApiResponse } from "@medialunas/shared";
+import type { ErrorHandler } from "hono";
+
+import type { Env, Variables } from "../types/bindings";
 
 export const errorHandler: ErrorHandler<{ Bindings: Env; Variables: Variables }> = (
   err,

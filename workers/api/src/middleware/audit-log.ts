@@ -1,4 +1,5 @@
 import { createMiddleware } from "hono/factory";
+
 import type { Env, Variables } from "../types/bindings";
 
 const AUDITABLE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+
 import type { Env, Variables } from "../types/bindings";
 
 export const syncRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
