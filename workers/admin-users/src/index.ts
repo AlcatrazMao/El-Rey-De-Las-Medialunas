@@ -134,8 +134,15 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (!checkRateLimit(ip)) return { status: 429, error: 'Demasiados intentos' };
   if (!at || at !== (env.AUTH_SECRET || '').trim()) return { status: 401, error: 'No autorizado' };
   
-  const token = await getAccessToken(env);
-  const sa = JSON.parse((env.FIREBASE_SERVICE_ACCOUNT || '').trim().startsWith('{') ? env.FIREBASE_SERVICE_ACCOUNT.trim() : atob(env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '')));
+  let token: string;
+  let sa: any;
+  try {
+    token = await getAccessToken(env);
+    const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+    sa = JSON.parse(raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, '')));
+  } catch (e: any) {
+    return { status: 500, error: `Auth init failed: ${e.message}` };
+  }
 
   // Sync cache
   if (method === 'POST' && path === '/api/sync') { userCache = []; return { status: 200, data: { message: 'Cache cleared' } }; }
@@ -165,7 +172,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (method === 'GET' && path === '/api/users') {
     try {
       const res = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts?maxResults=1000`,
+        `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:batchGet?maxResults=1000`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       if (res.ok) {
@@ -185,8 +192,11 @@ async function handleRequest(req: Request, env: Env, url: URL) {
         userCache = users;
         return { status: 200, data: users };
       }
-    } catch {}
-    return { status: 200, data: userCache };
+      const errText = await res.text();
+      return { status: res.status, error: `Firebase list: ${errText.substring(0, 200)}` };
+    } catch (e: any) {
+      return { status: 500, error: `List exception: ${e.message}` };
+    }
   }
 
   // ── Create user (OAuth2, no API key) ──
