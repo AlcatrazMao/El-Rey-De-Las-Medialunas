@@ -272,6 +272,19 @@ export default function App() {
     return () => { cancelled = true; };
   }, [firebaseUser]);
 
+  // Store Firebase token for D1 API calls — must be before any early returns
+  useEffect(() => {
+    if (!firebaseUser) return;
+    firebaseUser.getIdToken().then(t => {
+      localStorage.setItem('firebase_token', t);
+      window.dispatchEvent(new Event('firebase-token-ready'));
+    });
+    const interval = setInterval(() => {
+      firebaseUser.getIdToken(true).then(t => localStorage.setItem('firebase_token', t));
+    }, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [firebaseUser]);
+
   // Loading: Firebase auth or Firestore check not done
   if (authLoading && !accessError && !fsCheckDone) {
     return <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950"><div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto" /></div>;
@@ -285,28 +298,6 @@ export default function App() {
   // Not logged in
   if (!firebaseUser || !fsCheckDone) {
     return <LoginPage onLogin={(user) => { setFirebaseUser(user); setAccessError(''); setAuthLoading(true); setFsCheckDone(false); }} />;
-  }
-
-  // Store Firebase token for D1 API calls
-  useEffect(() => {
-    if (!firebaseUser) return;
-    firebaseUser.getIdToken().then(t => {
-      localStorage.setItem('firebase_token', t);
-      window.dispatchEvent(new Event('firebase-token-ready'));
-    });
-    // Refresh token every 30 min
-    const interval = setInterval(() => {
-      firebaseUser.getIdToken(true).then(t => localStorage.setItem('firebase_token', t));
-    }, 30 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [firebaseUser]);
-
-  if (authLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] dark:bg-zinc-950"><div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mx-auto" /></div>;
-  }
-
-  if (accessError || !firebaseUser) {
-    return <LoginPage onLogin={(user) => { setFirebaseUser(user); setAccessError(''); }} accessError={accessError} />;
   }
 
   return (
