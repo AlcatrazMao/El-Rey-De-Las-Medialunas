@@ -169,3 +169,66 @@ export async function syncCashSessionCloseToD1(
     }),
   });
 }
+
+// ── Supply Requests ───────────────────────────────────────────────────
+
+export async function syncSupplyRequestToD1(req: {
+  id: string;
+  type: 'ingredient' | 'product';
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  unit: string;
+  reason: string;
+  requestedBy: string;
+}): Promise<void> {
+  await apiFetch("/api/v1/supply-requests", {
+    method: "POST",
+    body: JSON.stringify({
+      id: req.id,
+      type: req.type,
+      item_id: req.itemId,
+      item_name: req.itemName,
+      quantity: req.quantity,
+      unit: req.unit,
+      reason: req.reason,
+      requested_by: req.requestedBy,
+      branch_id: "00000000000000000000000000000001",
+    }),
+  });
+}
+
+export async function updateSupplyRequestStatusInD1(
+  id: string,
+  status: 'approved' | 'rejected',
+  adminMemo?: string
+): Promise<void> {
+  await apiFetch(`/api/v1/supply-requests/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ status, admin_memo: adminMemo ?? null }),
+  });
+}
+
+// ── Expenses ──────────────────────────────────────────────────────────
+
+export async function syncExpenseToD1(expense: {
+  id: string;
+  concept: string;
+  category: string;
+  amount: number;
+  paymentMethod: string;
+  invoiceUrl?: string;
+}): Promise<void> {
+  await apiFetch("/api/v1/expenses", {
+    method: "POST",
+    body: JSON.stringify({
+      id: expense.id,
+      concept: expense.concept,
+      category: expense.category,
+      amount: expense.amount,
+      payment_method: expense.paymentMethod,
+      invoice_url: expense.invoiceUrl ?? null,
+      branch_id: "00000000000000000000000000000001",
+    }),
+  });
+}

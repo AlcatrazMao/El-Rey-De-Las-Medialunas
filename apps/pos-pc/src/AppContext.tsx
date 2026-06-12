@@ -14,7 +14,7 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS
 } from './initialData';
-import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, syncCashSessionCloseToD1, fetchCustomersFromD1 } from './services/d1-sync';
+import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, syncCashSessionCloseToD1, fetchCustomersFromD1, syncExpenseToD1, syncSupplyRequestToD1, updateSupplyRequestStatusInD1 } from './services/d1-sync';
 import type { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 
 interface AppContextType {
@@ -812,6 +812,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       date: new Date().toISOString()
     };
     setExpenses(prev => [expenseInstance, ...prev]);
+    syncExpenseToD1(expenseInstance).catch((err: unknown) => {
+      console.warn('[D1 sync] expense failed:', err instanceof Error ? err.message : err);
+    });
     addSystemNotification(
       '📉 Gasto Registrado',
       `Se registró un egreso por $${expenseInstance.amount.toFixed(2)} bajo el concepto: ${expenseInstance.concept}`,
@@ -1117,6 +1120,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     };
     
     setSupplyRequests(prev => [request, ...prev]);
+    syncSupplyRequestToD1({
+      id: request.id,
+      type: request.type,
+      itemId: request.itemId,
+      itemName: request.itemName,
+      quantity: request.quantity,
+      unit: request.unit,
+      reason: request.reason,
+      requestedBy: request.requestedBy,
+    }).catch((err: unknown) => {
+      console.warn('[D1 sync] supply request failed:', err instanceof Error ? err.message : err);
+    });
     addSystemNotification(
       '🌾 Solicitud de Abastecimiento',
       `Nueva solicitud para ${quantity} ${unit} de "${itemName}": ${reason}`,
@@ -1131,6 +1146,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     const approved = { ...req, status: 'approved' as const, adminMemo };
 
     setSupplyRequests(prev => prev.map(r => r.id === requestId ? approved : r));
+    updateSupplyRequestStatusInD1(requestId, 'approved', adminMemo).catch((err: unknown) => {
+      console.warn('[D1 sync] supply approve failed:', err instanceof Error ? err.message : err);
+    });
 
     if (approved.type === 'ingredient') {
       setIngredients(prev => prev.map(ing =>
@@ -1180,6 +1198,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         return r;
       })
     );
+    updateSupplyRequestStatusInD1(requestId, 'rejected', adminMemo).catch((err: unknown) => {
+      console.warn('[D1 sync] supply reject failed:', err instanceof Error ? err.message : err);
+    });
   };
 
   const openCashSession = (initialAmount: number, note?: string) => {

@@ -18,6 +18,8 @@ import { purchaseRoutes } from "./routes/purchases";
 import { reportRoutes } from "./routes/reports";
 import { syncRoutes } from "./routes/sync";
 import { auditRoutes } from "./routes/audit";
+import { supplyRequestRoutes } from "./routes/supply-requests";
+import { expenseRoutes } from "./routes/expenses";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -39,6 +41,8 @@ app.route("/api/v1/purchases", purchaseRoutes);
 app.route("/api/v1/reports", reportRoutes);
 app.route("/api/v1/sync", syncRoutes);
 app.route("/api/v1/audit", auditRoutes);
+app.route("/api/v1/supply-requests", supplyRequestRoutes);
+app.route("/api/v1/expenses", expenseRoutes);
 
 app.get("/api/v1/health", (c) => {
   return c.json({
