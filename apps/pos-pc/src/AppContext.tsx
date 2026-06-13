@@ -347,7 +347,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     setCustomers(prev => [newCustomer, ...prev]);
     addSystemNotification('👤 Cliente Creado', `${newCustomer.name} fue registrado.`, 'success');
     syncCustomerToD1(newCustomer).catch((err: unknown) => {
-      console.warn('[D1 sync] customer failed:', err instanceof Error ? err.message : err);
+      if (import.meta.env.DEV) console.warn('[D1 sync] customer failed:', err instanceof Error ? err.message : err);
     });
   };
 
@@ -397,7 +397,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
           const exists = updated.some(r => r.batchId === b.id && r.status === 'pending');
           if (!exists) {
             const prodObj = products.find(p => p.id === b.productId);
-            const reqId = `req_auto_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+            const reqId = `req_auto_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
             updated.unshift({
               id: reqId,
               batchId: b.id,
@@ -621,7 +621,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
     if (simulateFail) {
       // Create a failed invoice record
-      const invoiceNum = `FC-X-${Date.now().toString().slice(-4)}-${Math.floor(100000 + Math.random() * 900000)}`;
+      const invoiceNum = `FC-X-${Date.now().toString().slice(-4)}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       const failedSalePayload: Sale = {
         id: `sale_fail_${Date.now()}`,
         invoiceNumber: invoiceNum,
@@ -796,7 +796,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
     // Sync to D1 in background (non-blocking)
     syncSaleToD1(newSaleInstance).catch((err: unknown) => {
-      console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);
+      if (import.meta.env.DEV) console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);
     });
 
     // Alert about low stock elements
@@ -816,7 +816,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     };
     setExpenses(prev => [expenseInstance, ...prev]);
     syncExpenseToD1(expenseInstance).catch((err: unknown) => {
-      console.warn('[D1 sync] expense failed:', err instanceof Error ? err.message : err);
+      if (import.meta.env.DEV) console.warn('[D1 sync] expense failed:', err instanceof Error ? err.message : err);
     });
     addSystemNotification(
       '📉 Gasto Registrado',
@@ -856,7 +856,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
   const addProduct = (newProd: Omit<Product, 'id' | 'code'>) => {
     const prodId = `prod_${newProd.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}`;
-    const code = `77912345${Math.floor(10000 + Math.random() * 90000)}`;
+    const code = `77912345${Date.now().toString(36).slice(-5).toUpperCase()}`;
     const productInstance: Product = {
       elaborationDate: new Date().toISOString().split('T')[0],
       durabilityDays: 2,
@@ -980,7 +980,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   };
 
   const addBatch = (newBatch: Omit<ProductBatch, 'id' | 'status'>) => {
-    const generatedId = `batch_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const generatedId = `batch_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
     const batchInstance: ProductBatch = {
       ...newBatch,
       id: generatedId,
@@ -1011,7 +1011,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     if (!batch) return;
     
     const prod = products.find(p => p.id === batch.productId);
-    const reqId = `req_${Date.now()}_${Math.floor(Math.random() * 105)}`;
+    const reqId = `req_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
     
     const request: BatchWithdrawalRequest = {
       id: reqId,
@@ -1110,7 +1110,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       unit = 'unidades';
     }
     
-    const reqId = `sup_req_${Date.now()}_${Math.floor(Math.random() * 100)}`;
+    const reqId = `sup_req_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
     const request: SupplyRequest = {
       id: reqId,
       type,
@@ -1135,7 +1135,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       reason: request.reason,
       requestedBy: request.requestedBy,
     }).catch((err: unknown) => {
-      console.warn('[D1 sync] supply request failed:', err instanceof Error ? err.message : err);
+      if (import.meta.env.DEV) console.warn('[D1 sync] supply request failed:', err instanceof Error ? err.message : err);
     });
     addSystemNotification(
       '🌾 Solicitud de Abastecimiento',
@@ -1152,7 +1152,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
     setSupplyRequests(prev => prev.map(r => r.id === requestId ? approved : r));
     updateSupplyRequestStatusInD1(requestId, 'approved', adminMemo).catch((err: unknown) => {
-      console.warn('[D1 sync] supply approve failed:', err instanceof Error ? err.message : err);
+      if (import.meta.env.DEV) console.warn('[D1 sync] supply approve failed:', err instanceof Error ? err.message : err);
     });
 
     if (approved.type === 'ingredient') {
@@ -1166,9 +1166,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       const freshElab = new Date();
       setBatches(prev => [
         {
-          id: `batch_supply_${Date.now()}_${Math.floor(Math.random() * 100)}`,
+          id: `batch_supply_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`,
           productId: approved.itemId,
-          batchNumber: `L-${approved.itemName.slice(0, 3).toUpperCase()}-R-${Math.floor(100 + Math.random() * 900)}`,
+          batchNumber: `L-${approved.itemName.slice(0, 3).toUpperCase()}-R-${Date.now().toString(36).slice(-3).toUpperCase()}`,
           quantity: approved.quantity,
           stock: approved.quantity,
           elaborationDate: freshElab.toISOString().split('T')[0],
@@ -1204,7 +1204,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       })
     );
     updateSupplyRequestStatusInD1(requestId, 'rejected', adminMemo).catch((err: unknown) => {
-      console.warn('[D1 sync] supply reject failed:', err instanceof Error ? err.message : err);
+      if (import.meta.env.DEV) console.warn('[D1 sync] supply reject failed:', err instanceof Error ? err.message : err);
     });
   };
 

@@ -1375,7 +1375,7 @@ export const InventoryView: React.FC = () => {
       <button
         id="btn-inventory-floating-lupa-search"
         onClick={() => {
-          localStorage.setItem('pan_erp_open_search_list', 'true');
+          try { localStorage.setItem('pan_erp_open_search_list', 'true'); } catch { /* storage full */ }
           setActiveTab('pos');
         }}
         className="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-40 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group animate-bounce"
@@ -1409,7 +1409,7 @@ const ProductBatchesModal: React.FC<ProductBatchesModalProps> = ({ product, onCl
     withdrawalRequests = []
   } = useApp();
 
-  const [newBatchNumber, setNewBatchNumber] = useState(`L-${product.name.slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`);
+  const [newBatchNumber, setNewBatchNumber] = useState(`L-${product.name.slice(0, 3).toUpperCase()}-${(Date.now().toString(36) + Math.random().toString(36).slice(2)).slice(0, 6).toUpperCase()}`);
   const [newQuantity, setNewQuantity] = useState(50);
   const [newElabDate, setNewElabDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [newExpDate, setNewExpDate] = useState(() => {
@@ -1450,7 +1450,7 @@ const ProductBatchesModal: React.FC<ProductBatchesModalProps> = ({ product, onCl
     });
 
     // Reset Form
-    setNewBatchNumber(`L-${product.name.slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`);
+    setNewBatchNumber(`L-${product.name.slice(0, 3).toUpperCase()}-${(Date.now().toString(36) + Math.random().toString(36).slice(2)).slice(0, 6).toUpperCase()}`);
     setNewQuantity(50);
     addSystemNotification('📦 Lote Creado', `Se registró lote "${newBatchNumber}" con ${newQuantity} u.`, 'success');
   };

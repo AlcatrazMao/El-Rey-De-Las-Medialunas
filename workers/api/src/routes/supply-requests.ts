@@ -70,11 +70,14 @@ supplyRequestRoutes.post("/", async (c) => {
     branch_id?: string;
   }>();
 
-  if (!body.type || !body.item_id || !body.item_name || body.quantity == null || !body.unit || !body.requested_by) {
+  if (!body.type || !body.item_id || !body.item_name || !body.unit || !body.requested_by) {
     return c.json(
       { success: false, error: "type, item_id, item_name, quantity, unit, and requested_by are required" },
       400
     );
+  }
+  if (body.quantity === undefined || body.quantity === null || body.quantity < 0) {
+    return c.json({ success: false, error: 'quantity es requerido y debe ser >= 0' }, 400);
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;

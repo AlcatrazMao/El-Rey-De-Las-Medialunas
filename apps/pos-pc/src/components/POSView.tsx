@@ -409,15 +409,17 @@ export const POSView: React.FC = () => {
   };
 
   useEffect(() => {
-    const shouldOpen = localStorage.getItem('pan_erp_open_search_list');
-    if (shouldOpen === 'true') {
-      localStorage.removeItem('pan_erp_open_search_list');
-      setModalMode('visual');
-      setModalSelectedCategory('todos');
-      setSearchQuery('');
-      setShowSelectionModal(true);
-      playBeep(705, 0.05);
-    }
+    try {
+      const shouldOpen = localStorage.getItem('pan_erp_open_search_list');
+      if (shouldOpen === 'true') {
+        localStorage.removeItem('pan_erp_open_search_list');
+        setModalMode('visual');
+        setModalSelectedCategory('todos');
+        setSearchQuery('');
+        setShowSelectionModal(true);
+        playBeep(705, 0.05);
+      }
+    } catch { /* storage unavailable */ }
   }, []);
 
   // Add item to POS cart

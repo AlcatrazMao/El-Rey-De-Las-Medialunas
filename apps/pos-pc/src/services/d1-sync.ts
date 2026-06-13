@@ -19,13 +19,13 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<any> {
     },
   });
   if (!res.ok) {
-    console.warn(`D1 ${options.method || 'GET'} ${path} failed:`, res.status);
+    if (import.meta.env.DEV) console.warn(`D1 ${options.method || 'GET'} ${path} failed:`, res.status);
     return null;
   }
   try {
     return await res.json();
   } catch {
-    console.warn(`D1 ${path} returned non-JSON`);
+    if (import.meta.env.DEV) console.warn(`D1 ${path} returned non-JSON`);
     return null;
   }
 }
