@@ -74,8 +74,8 @@ authRoutes.post("/login", async (c) => {
         user: { id: user.id, email: user.email, name: user.name, role: user.role },
       },
     });
-  } catch (err: any) {
-    return c.json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } }, 500);
+  } catch (err: unknown) {
+    return c.json({ success: false, error: { code: "INTERNAL_ERROR", message: err instanceof Error ? err.message : String(err) } }, 500);
   }
 });
 

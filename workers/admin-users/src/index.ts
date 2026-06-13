@@ -26,8 +26,8 @@ export default {
         });
       }
       return new Response('Not found', { status: 404 });
-    } catch (err: any) {
-      return new Response(JSON.stringify({ status: 500, error: err.message }), {
+    } catch (err: unknown) {
+      return new Response(JSON.stringify({ status: 500, error: err instanceof Error ? err.message : String(err) }), {
         status: 500,
         headers: { 'Content-Type': 'application/json', ...cors },
       });
@@ -41,6 +41,55 @@ interface Env {
   FIREBASE_SERVICE_ACCOUNT: string;
   FIREBASE_API_KEY: string;
   AUTH_SECRET: string;
+}
+
+interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id: string;
+}
+
+interface FirebaseUserRecord {
+  localId: string;
+  email?: string;
+  displayName?: string;
+  disabled?: boolean;
+  createdAt?: string;
+  customAttributes?: string;
+}
+
+interface FirebaseBatchGetResponse {
+  users?: FirebaseUserRecord[];
+}
+
+interface FirestoreRoleDocument {
+  fields?: {
+    role?: { stringValue: string };
+  };
+}
+
+interface CreateUserBody {
+  email: string;
+  password: string;
+  displayName?: string;
+  disabled?: boolean;
+  role?: string;
+}
+
+interface UpdateUserBody {
+  email?: string;
+  password?: string;
+  displayName?: string;
+  disabled?: boolean;
+  role?: string;
+}
+
+interface FirebaseUpdatePayload {
+  localId: string;
+  email?: string;
+  password?: string;
+  displayName?: string;
+  disableUser?: boolean;
 }
 
 // ── Rate limiter ─────────────────────────────────────────────────────
@@ -73,7 +122,7 @@ async function getAccessToken(env: Env): Promise<string> {
     iat: now,
   };
 
-  const toB64 = (obj: any) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const toB64 = (obj: object): string => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const jwt = `${toB64(joseHeader)}.${toB64(claim)}`;
 
   // Extract and clean private key
@@ -136,13 +185,13 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (!secret || !at || at !== secret) return { status: 401, error: 'No autorizado' };
   
   let token: string;
-  let sa: any;
+  let sa: ServiceAccount;
   try {
     token = await getAccessToken(env);
     const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
-    sa = JSON.parse(raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, '')));
-  } catch (e: any) {
-    return { status: 500, error: `Auth init failed: ${e.message}` };
+    sa = JSON.parse(raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, ''))) as ServiceAccount;
+  } catch (e: unknown) {
+    return { status: 500, error: `Auth init failed: ${e instanceof Error ? e.message : String(e)}` };
   }
 
   // Sync cache
@@ -161,7 +210,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       if (fsRes.ok) {
-        const fsData: any = await fsRes.json();
+        const fsData = await fsRes.json() as FirestoreRoleDocument;
         const role = fsData.fields?.role?.stringValue || null;
         return { status: 200, data: { role } };
       }
@@ -177,8 +226,8 @@ async function handleRequest(req: Request, env: Env, url: URL) {
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       if (res.ok) {
-        const fbData: any = await res.json();
-        const users = (fbData.users || []).map((u: any) => {
+        const fbData = await res.json() as FirebaseBatchGetResponse;
+        const users = (fbData.users || []).map((u: FirebaseUserRecord) => {
           let role = 'cajero';
           try { role = JSON.parse(u.customAttributes || '{}').role || 'cajero'; } catch {}
           return {
@@ -197,7 +246,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
         if (env.DB) {
           (async () => {
             try {
-              const stmts = users.map((u: any) =>
+              const stmts = users.map((u) =>
                 env.DB!.prepare(
                   `INSERT INTO users (id, firebase_uid, email, name, role)
                    VALUES (?, ?, ?, ?, ?)
@@ -216,14 +265,14 @@ async function handleRequest(req: Request, env: Env, url: URL) {
       }
       const errText = await res.text();
       return { status: res.status, error: `Firebase list: ${errText.substring(0, 200)}` };
-    } catch (e: any) {
-      return { status: 500, error: `List exception: ${e.message}` };
+    } catch (e: unknown) {
+      return { status: 500, error: `List exception: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
 
   // ── Create user (OAuth2, no API key) ──
   if (method === 'POST' && path === '/api/users') {
-    const body: any = await req.json();
+    const body = await req.json() as CreateUserBody;
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts`,
       { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -277,9 +326,9 @@ async function handleRequest(req: Request, env: Env, url: URL) {
 
   // ── Update user ──
   if (method === 'PATCH' && path.startsWith('/api/users/')) {
-    const uid = path.split('/api/users/')[1];
-    const body: any = await req.json();
-    const updates: any = { localId: uid };
+    const uid = path.split('/api/users/')[1] ?? '';
+    const body = await req.json() as UpdateUserBody;
+    const updates: FirebaseUpdatePayload = { localId: uid };
     if (body.email) updates.email = body.email;
     if (body.password) updates.password = body.password;
     if (body.displayName !== undefined) updates.displayName = body.displayName;
