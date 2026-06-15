@@ -9,6 +9,7 @@ import * as React from 'react'
 import { useState, useEffect } from 'react';
 
 import { AppProvider, useApp } from './AppContext';
+import { useSyncEngine } from './hooks/useSyncEngine';
 import { AccountingView } from './components/AccountingView';
 import { AdminUsersView } from './components/AdminUsersView';
 import { CajeroMermaView } from './components/CajeroMermaView';
@@ -276,6 +277,9 @@ export default function App() {
     check();
     return () => { cancelled = true; };
   }, [firebaseUser]);
+
+  // Offline-first sync engine — starts when user is authenticated
+  useSyncEngine(fsCheckDone && !!firebaseUser);
 
   // Store Firebase token for D1 API calls — must be before any early returns
   useEffect(() => {

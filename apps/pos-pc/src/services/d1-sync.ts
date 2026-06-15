@@ -1,6 +1,23 @@
 import type { Sale } from "../types";
 import { getSettings } from "../hooks/useSettings";
 import { getApi } from "./api";
+import { dbAdapter } from "./db-adapter";
+
+function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError && /fetch|network|failed/i.test((err as TypeError).message);
+}
+
+async function enqueue(entity_type: string, data: Record<string, unknown>): Promise<void> {
+  const client_id = String(data.id ?? crypto.randomUUID());
+  await dbAdapter.syncQueue.add({
+    client_id,
+    entity_type,
+    operation: "create",
+    version: 1,
+    client_timestamp: new Date().toISOString(),
+    data,
+  });
+}
 
 // ── Sales ─────────────────────────────────────────────────────────────
 
@@ -9,9 +26,11 @@ export async function syncSaleToD1(sale: Sale): Promise<void> {
   const subtotal = sale.total;
   const taxTotal = sale.tax;
   const total = parseFloat((subtotal + taxTotal).toFixed(2));
+  const branchId = getSettings().business.branchId;
 
-  await getApi().sales.create({
-    branch_id: getSettings().business.branchId,
+  const payload = {
+    id: sale.id,
+    branch_id: branchId,
     customer_id: sale.customerId ?? null,
     subtotal,
     tax_total: taxTotal,
@@ -27,7 +46,17 @@ export async function syncSaleToD1(sale: Sale): Promise<void> {
     })),
     payments: [{ payment_method: sale.paymentMethod, amount: total, reference: null }],
     notes: sale.customerName ? `Cliente: ${sale.customerName}` : null,
-  });
+  };
+
+  try {
+    await getApi().sales.create(payload);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue("sale", payload as Record<string, unknown>);
+    } else {
+      throw err;
+    }
+  }
 }
 
 export async function fetchSalesFromD1(from?: string, to?: string): Promise<Sale[]> {
@@ -189,7 +218,7 @@ export async function syncExpenseToD1(expense: {
   paymentMethod: string;
   invoiceUrl?: string;
 }): Promise<void> {
-  await getApi().expenses.create({
+  const payload = {
     id: expense.id,
     concept: expense.concept,
     category: expense.category,
@@ -197,5 +226,14 @@ export async function syncExpenseToD1(expense: {
     payment_method: expense.paymentMethod,
     invoice_url: expense.invoiceUrl ?? null,
     branch_id: getSettings().business.branchId,
-  });
+  };
+  try {
+    await getApi().expenses.create(payload);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue("expense", payload);
+    } else {
+      throw err;
+    }
+  }
 }
