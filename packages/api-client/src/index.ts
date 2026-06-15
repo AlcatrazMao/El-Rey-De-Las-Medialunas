@@ -34,17 +34,29 @@ import type { ReportFilters, DashboardFilters } from "./endpoints/reports";
 import type { SupplierFilters } from "./endpoints/suppliers";
 import { SupplierEndpoints } from "./endpoints/suppliers";
 import { SyncEndpoints } from "./endpoints/sync";
+import { ExpenseEndpoints } from "./endpoints/expenses";
+import type { ExpenseFilters, CreateExpenseRequest, Expense } from "./endpoints/expenses";
+import { SupplyRequestEndpoints } from "./endpoints/supply-requests";
+import type {
+  SupplyRequestFilters,
+  CreateSupplyRequestRequest,
+  UpdateSupplyRequestRequest,
+  SupplyRequest,
+} from "./endpoints/supply-requests";
 import type { ApiClientOptions, RequestOptions, AuthResponse } from "./types";
 import { ApiError } from "./types";
 
 export { ApiClient, ApiError, AuthEndpoints, BranchEndpoints, CategoryEndpoints, ProductEndpoints,
   InventoryEndpoints, SaleEndpoints, CustomerEndpoints, CashEndpoints, ProductionEndpoints,
-  SupplierEndpoints, PurchaseEndpoints, ReportEndpoints, SyncEndpoints, AuditEndpoints };
+  SupplierEndpoints, PurchaseEndpoints, ReportEndpoints, SyncEndpoints, AuditEndpoints,
+  ExpenseEndpoints, SupplyRequestEndpoints };
 export type { ApiClientOptions, RequestOptions, AuthResponse, ProductFilters, InventoryFilters,
   BatchFilters, MovementFilters, TransferFilters, CreateMovementRequest, CreateCountRequest,
   SaleFilters, CustomerFilters, CustomerSaleFilters, CashSessionFilters, RecipeFilters,
   ProductionBatchFilters, ExecuteBatchRequest, SupplierFilters, PurchaseOrderFilters,
-  CreatePurchaseOrderRequest, ReceiveOrderRequest, ReportFilters, DashboardFilters, AuditFilters };
+  CreatePurchaseOrderRequest, ReceiveOrderRequest, ReportFilters, DashboardFilters, AuditFilters,
+  ExpenseFilters, CreateExpenseRequest, Expense,
+  SupplyRequestFilters, CreateSupplyRequestRequest, UpdateSupplyRequestRequest, SupplyRequest };
 
 export function createApiClient(options: ApiClientOptions) {
   const client = new ApiClient(options);
@@ -64,5 +76,7 @@ export function createApiClient(options: ApiClientOptions) {
     reports: new ReportEndpoints(client),
     sync: new SyncEndpoints(client),
     audit: new AuditEndpoints(client),
+    expenses: new ExpenseEndpoints(client),
+    supplyRequests: new SupplyRequestEndpoints(client),
   };
 }

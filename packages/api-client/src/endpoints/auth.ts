@@ -42,4 +42,8 @@ export class AuthEndpoints {
     const response = await this.client.get<{ success: boolean; data: User }>("/api/v1/auth/me");
     return response.data;
   }
+
+  async updatePreferences(customPanels: string[]): Promise<void> {
+    await this.client.put<{ success: boolean }>("/api/v1/auth/preferences", { custom_panels: customPanels });
+  }
 }

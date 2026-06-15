@@ -149,14 +149,16 @@ export type CustomerResponse = ApiResponse<Customer>;
 export type CustomersResponse = PaginatedResponse<Customer>;
 
 export interface OpenCashSessionRequest {
+  id?: string;
   branch_id: string;
   opening_amount: number;
-  notes?: string;
+  notes?: string | null;
 }
 
 export interface CloseCashSessionRequest {
   closing_amount: number;
-  notes?: string;
+  expected_amount?: number;
+  notes?: string | null;
 }
 
 export interface CashMovementRequest {

@@ -23,7 +23,7 @@ export class CashEndpoints {
 
   async openSession(data: OpenCashSessionRequest): Promise<CashSession> {
     const response = await this.client.post<CashSessionResponse>(
-      "/api/v1/cash/sessions",
+      "/api/v1/cash/sessions/open",
       data,
     );
     return response.data!;

@@ -1248,7 +1248,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       branch_id: getSettings().business.branchId,
       opening_amount: initialAmount,
       status: 'open',
-      opened_at: newSession.openedAt,
       notes: note ?? '',
     }).catch(() => {});
   };
