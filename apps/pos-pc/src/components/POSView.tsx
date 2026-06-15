@@ -57,6 +57,13 @@ export const POSView: React.FC = () => {
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', email: '' });
 
+  // Barcode scanner (HID keyboard emulator detection)
+  const barcodeBufferRef = useRef<string>('');
+  const lastKeyTimeRef = useRef<number>(0);
+  const barcodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stable ref so the keydown listener always gets the latest addToCart without re-subscribing
+  const addToCartRef = useRef<((product: Product) => void) | null>(null);
+
   // Simulation states
   const [isScanning, setIsScanning] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -72,6 +79,49 @@ export const POSView: React.FC = () => {
     return id;
   };
   useEffect(() => () => { pendingTimeoutsRef.current.forEach(clearTimeout); }, []);
+
+  // Real barcode scanner: HID scanners emulate keyboard, spitting digits at ~5ms/char then Enter
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
+      const now = Date.now();
+      const gap = now - lastKeyTimeRef.current;
+      lastKeyTimeRef.current = now;
+
+      if (e.key === 'Enter') {
+        const code = barcodeBufferRef.current.trim();
+        barcodeBufferRef.current = '';
+        if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
+        if (code.length >= 3) {
+          const found = products.find(p => p.code === code || p.code.endsWith(code));
+          if (found) {
+            addToCartRef.current?.(found);
+            addSystemNotification('📷 Código escaneado', `Lector leyó: ${code} → ${found.name}`, 'success');
+          } else {
+            addSystemNotification('⚠️ Código no encontrado', `Barcode "${code}" no coincide con ningún producto`, 'warning');
+          }
+        }
+        return;
+      }
+
+      // If too long since last key, reset buffer (human typing vs scanner burst)
+      if (gap > 100) barcodeBufferRef.current = '';
+
+      if (e.key.length === 1) barcodeBufferRef.current += e.key;
+
+      // Safety reset: clear buffer if no Enter arrives within 500ms
+      if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
+      barcodeTimerRef.current = setTimeout(() => { barcodeBufferRef.current = ''; }, 500);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
+    };
+  }, [products, addSystemNotification]);
 
   if (!currentCashSession) {
     return (
@@ -452,6 +502,8 @@ export const POSView: React.FC = () => {
       return [...prev, { product, quantity: 1 }];
     });
   };
+  // Keep ref current so the barcode listener always calls the latest closure
+  addToCartRef.current = addToCart;
 
   // Remove or subtract item
   const decreaseQuantity = (productId: string) => {
@@ -473,18 +525,17 @@ export const POSView: React.FC = () => {
     setCart(prev => prev.filter(item => item.product.id !== productId));
   };
 
-  // Simulates barcode laser scan
+  // Demo: simula un scan con producto al azar (solo para pruebas sin hardware)
   const startBarcodeScanSimulation = () => {
     if (isScanning) return;
     setIsScanning(true);
     playBeep(350, 0.1);
-    
+
     safeTimeout(() => {
-      // Pick a random product from Catalog
       const randomProduct = products[Math.floor(Math.random() * products.length)];
       if (randomProduct) {
         addToCart(randomProduct);
-        addSystemNotification('📷 Barcode Escaneado', `Escáner láser leyó código: ${randomProduct.code} (${randomProduct.name})`, 'success');
+        addSystemNotification('🧪 Test scan (demo)', `Código simulado: ${randomProduct.code} → ${randomProduct.name}`, 'info');
         playBeep(1200, 0.08);
       }
       setIsScanning(false);
@@ -623,20 +674,27 @@ export const POSView: React.FC = () => {
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
             </div>
 
-            <button
-              id="btn-scan-trigger"
-              onClick={startBarcodeScanSimulation}
-              disabled={isScanning}
-              className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer ${
-                isScanning
-                  ? 'bg-amber-100 text-amber-700 animate-pulse border-amber-300'
-                  : 'bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 text-white hover:opacity-90 border-transparent shadow-xs'
-              }`}
-              title="Permite simular el escaneo con lector de barra físico en un click"
-            >
-              <ScanBarcode className="h-4 w-4" />
-              {isScanning ? 'Escaneando...' : 'Escanear (Sim)'}
-            </button>
+            {/* Scanner HID siempre activo — indicador de estado */}
+            <div className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold" title="Lector USB activo — apuntá y escaneá">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Scanner
+              </span>
+              <button
+                id="btn-scan-trigger"
+                onClick={startBarcodeScanSimulation}
+                disabled={isScanning}
+                className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                  isScanning
+                    ? 'bg-amber-100 text-amber-700 animate-pulse border-amber-300'
+                    : 'bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 text-white hover:opacity-90 border-transparent shadow-xs'
+                }`}
+                title="Simula un scan con producto aleatorio (para probar sin hardware)"
+              >
+                <ScanBarcode className="h-4 w-4" />
+                {isScanning ? 'Escaneando...' : 'Test Scan'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1188,9 +1246,10 @@ export const POSView: React.FC = () => {
                     ? 'bg-amber-100 text-amber-700 animate-pulse border-amber-300'
                     : 'bg-zinc-950 dark:bg-zinc-100 dark:text-zinc-900 text-white hover:opacity-90 border-transparent shadow-xs'
                 }`}
+                title="Simula un scan con producto aleatorio (para probar sin hardware)"
               >
                 <ScanBarcode className="h-4 w-4" />
-                <span>{isScanning ? 'Escaneando...' : 'Escanear (Sim)'}</span>
+                <span>{isScanning ? 'Escaneando...' : 'Test Scan'}</span>
               </button>
             </div>
 
