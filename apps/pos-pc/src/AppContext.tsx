@@ -728,9 +728,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     const ivaRate = getSettings().fiscal.ivaRate;
     const calculatedTax = parseFloat((subtotalTotal * ivaRate).toFixed(2));
     
-    // Auto increment sequential invoice
+    // Auto increment sequential invoice — seeded from localStorage on mount, never derived from sales.length
     const dateToday = new Date();
-    invoiceSeqRef.current = Math.max(invoiceSeqRef.current, sales.filter(s => s.paymentStatus === 'completed').length + 346) + 1;
+    invoiceSeqRef.current += 1;
     try { localStorage.setItem('pan_erp_invoice_seq', String(invoiceSeqRef.current)); } catch { /* storage full */ }
     const sequenceStr = String(invoiceSeqRef.current).padStart(7, '0');
     const invoiceNumber = `FC-A-001-${sequenceStr}`;

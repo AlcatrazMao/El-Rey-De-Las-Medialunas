@@ -102,6 +102,8 @@ salesRoutes.post("/", async (c) => {
       quantity: number;
       unit_price: number;
       discount?: number;
+      tax_rate?: number;
+      tax_amount?: number;
       notes?: string;
     }[];
     payments: {
@@ -171,29 +173,34 @@ salesRoutes.post("/", async (c) => {
     )
     .run();
 
-  for (const item of items) {
+  const itemStatements = items.flatMap(item => {
     const itemId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
     const discount = item.discount ?? 0;
     const itemTotal = item.unit_price * item.quantity - discount;
 
-    await db
-      .prepare(
+    return [
+      db.prepare(
         `INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_price, discount, tax_rate, tax_amount, total, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`
-      )
-      .bind(
-        itemId,
-        saleId,
-        item.product_id,
-        item.quantity,
-        item.unit_price,
-        discount,
-        itemTotal,
-        item.notes ?? null,
-        now
-      )
-      .run();
-  }
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        itemId, saleId, item.product_id, item.quantity,
+        item.unit_price, discount,
+        item.tax_rate ?? 0, item.tax_amount ?? 0,
+        itemTotal, item.notes ?? null, now
+      ),
+      db.prepare(
+        `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+         VALUES (?, ?, ?, 'sale_out', ?, 'Venta automática', ?, ?)`
+      ).bind(movementId, item.product_id, branchId, item.quantity, userId, now),
+      db.prepare(
+        `UPDATE inventory SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
+         WHERE product_id = ? AND branch_id = ?`
+      ).bind(item.quantity, now, item.product_id, branchId),
+    ];
+  });
+
+  if (itemStatements.length > 0) await db.batch(itemStatements);
 
   for (const payment of payments) {
     const paymentId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -214,7 +221,7 @@ salesRoutes.post("/", async (c) => {
       .run();
   }
 
-  return c.json({ success: true, data: { id: saleId } }, 201);
+  return c.json({ success: true, data: { id: saleId, sale_number: saleNumber, branch_id: branchId, created_at: now } }, 201);
 });
 
 // POST /:id/void
@@ -246,13 +253,32 @@ salesRoutes.post("/:id/void", async (c) => {
 
   const voidedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
 
-  await db
-    .prepare(
+  const saleItems = await db
+    .prepare("SELECT product_id, quantity FROM sale_items WHERE sale_id = ?")
+    .bind(id)
+    .all<{ product_id: string; quantity: number }>();
+
+  const voidStatements = [
+    db.prepare(
       `UPDATE sales SET status = 'voided', voided_at = ?, voided_by = ?, void_reason = ?, sync_status = 'pending'
        WHERE id = ?`
-    )
-    .bind(voidedAt, userId, (body as { void_reason?: string }).void_reason ?? null, id)
-    .run();
+    ).bind(voidedAt, userId, (body as { void_reason?: string }).void_reason ?? null, id),
+    ...(saleItems.results ?? []).flatMap(item => {
+      const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+      return [
+        db.prepare(
+          `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+           VALUES (?, ?, (SELECT branch_id FROM sales WHERE id = ?), 'return_in', ?, 'Anulación de venta', ?, ?)`
+        ).bind(movementId, item.product_id, id, item.quantity, userId, voidedAt),
+        db.prepare(
+          `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+           WHERE product_id = ? AND branch_id = (SELECT branch_id FROM sales WHERE id = ?)`
+        ).bind(item.quantity, voidedAt, item.product_id, id),
+      ];
+    }),
+  ];
+
+  await db.batch(voidStatements);
 
   return c.json({ success: true, data: { id, voided_at: voidedAt } });
 });

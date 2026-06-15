@@ -5,17 +5,27 @@ import { getApi } from "./api";
 // ── Sales ─────────────────────────────────────────────────────────────
 
 export async function syncSaleToD1(sale: Sale): Promise<void> {
+  const ivaRate = getSettings().fiscal.ivaRate;
+  const subtotal = sale.total;
+  const taxTotal = sale.tax;
+  const total = parseFloat((subtotal + taxTotal).toFixed(2));
+
   await getApi().sales.create({
     branch_id: getSettings().business.branchId,
     customer_id: sale.customerId ?? null,
+    subtotal,
+    tax_total: taxTotal,
+    total,
     items: sale.items.map(item => ({
       product_id: item.productId,
       quantity: item.quantity,
       unit_price: item.price,
       discount: 0,
+      tax_rate: ivaRate,
+      tax_amount: parseFloat((item.subtotal * ivaRate).toFixed(2)),
       notes: null,
     })),
-    payments: [{ payment_method: sale.paymentMethod, amount: sale.total, reference: null }],
+    payments: [{ payment_method: sale.paymentMethod, amount: total, reference: null }],
     notes: sale.customerName ? `Cliente: ${sale.customerName}` : null,
   });
 }

@@ -39,7 +39,7 @@ authRoutes.post("/login", async (c) => {
     }
 
     // 2. Check KV cache first
-    let user: { id: string; email: string; name: string; role: string } | null = null;
+    let user: { id: string; email: string; name: string; role: string; custom_panels?: string | null } | null = null;
     try {
       const cached = await c.env.CACHE.get(`user:${uid}`, "json");
       if (cached) user = cached as any;

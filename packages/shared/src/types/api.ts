@@ -120,6 +120,8 @@ export interface CreateSaleItemRequest {
   quantity: number;
   unit_price: number;
   discount?: number;
+  tax_rate?: number;
+  tax_amount?: number;
   notes?: string;
 }
 
@@ -135,6 +137,10 @@ export interface CreateSaleRequest {
   items: CreateSaleItemRequest[];
   payments: CreateSalePaymentRequest[];
   notes?: string;
+  subtotal?: number;
+  tax_total?: number;
+  discount_total?: number;
+  total?: number;
 }
 
 export type SaleResponse = ApiResponse<Sale>;
