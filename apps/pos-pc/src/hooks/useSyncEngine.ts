@@ -29,7 +29,7 @@ export function useSyncEngine(isAuthenticated: boolean) {
         },
       },
       branchId,
-      healthCheckUrl: `${API_URL}/health`,
+      healthCheckUrl: `${API_URL}/api/v1/health`,
       options: {
         autoSync: true,
         syncInterval: 30_000,

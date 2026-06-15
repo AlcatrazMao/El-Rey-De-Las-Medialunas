@@ -1,4 +1,4 @@
-import type { Sale } from "../types";
+import type { Sale, Product, CategoryType } from "../types";
 import { getSettings } from "../hooks/useSettings";
 import { getApi } from "./api";
 import { dbAdapter } from "./db-adapter";
@@ -77,15 +77,6 @@ export async function syncVoidSaleToD1(saleId: string, voidReason?: string): Pro
   await getApi().sales.voidSale(saleId, voidReason ?? "");
 }
 
-// ── Products ──────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- D1 product shape may not match local type exactly
-export async function fetchProductsFromD1(branchId?: string): Promise<any[]> {
-  const response = await getApi().products.getAll(
-    branchId ? { branch_id: branchId, limit: 200 } : { limit: 200 },
-  );
-  return response.data ?? [];
-}
 
 // ── Inventory ─────────────────────────────────────────────────────────
 
@@ -145,12 +136,21 @@ export async function syncCashSessionToD1(session: {
   notes?: string;
 }): Promise<void> {
   if (session.status !== "open") return;
-  await getApi().cash.openSession({
+  const payload = {
     id: session.id,
     branch_id: session.branch_id,
     opening_amount: session.opening_amount,
     notes: session.notes ?? null,
-  });
+  };
+  try {
+    await getApi().cash.openSession(payload);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue("cash_session", payload as Record<string, unknown>);
+    } else {
+      throw err;
+    }
+  }
 }
 
 export async function syncCashSessionCloseToD1(
@@ -178,7 +178,7 @@ export async function syncSupplyRequestToD1(req: {
   reason: string;
   requestedBy: string;
 }): Promise<void> {
-  await getApi().supplyRequests.create({
+  const payload = {
     id: req.id,
     type: req.type,
     item_id: req.itemId,
@@ -188,7 +188,16 @@ export async function syncSupplyRequestToD1(req: {
     reason: req.reason,
     requested_by: req.requestedBy,
     branch_id: getSettings().business.branchId,
-  });
+  };
+  try {
+    await getApi().supplyRequests.create(payload);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue("supply_request", payload);
+    } else {
+      throw err;
+    }
+  }
 }
 
 export async function updateSupplyRequestStatusInD1(
@@ -236,4 +245,78 @@ export async function syncExpenseToD1(expense: {
       throw err;
     }
   }
+}
+
+// ── Products (pull from D1 → merge into local state) ─────────────────
+
+const VALID_CATEGORIES = new Set<CategoryType>(['panes', 'facturas', 'pasteleria', 'bebidas', 'salados']);
+
+function normalizeCategoryName(name: string | undefined | null): CategoryType {
+  const lower = (name ?? "").toLowerCase();
+  if (VALID_CATEGORIES.has(lower as CategoryType)) return lower as CategoryType;
+  if (lower.includes("pan")) return "panes";
+  if (lower.includes("factor") || lower.includes("medialuna")) return "facturas";
+  if (lower.includes("pastel") || lower.includes("torta")) return "pasteleria";
+  if (lower.includes("bebida") || lower.includes("cafe")) return "bebidas";
+  if (lower.includes("salad") || lower.includes("sandw")) return "salados";
+  return "panes";
+}
+
+export async function fetchProductsFromD1(
+  existing: Product[],
+  branchId?: string,
+): Promise<Product[]> {
+  const [productsRes, categoriesRes] = await Promise.all([
+    getApi().products.getAll(branchId ? { branch_id: branchId, limit: 500 } : { limit: 500 }),
+    getApi().categories.getAll(branchId, undefined, true),
+  ]);
+
+  const d1Products = (productsRes.data ?? []) as unknown as Record<string, unknown>[];
+  const d1Categories = (Array.isArray(categoriesRes) ? categoriesRes : []) as unknown as Record<string, unknown>[];
+
+  const categoryNameById = new Map<string, string>(
+    d1Categories.map(c => [String(c.id ?? ""), String(c.name ?? "")])
+  );
+
+  const existingById = new Map<string, Product>(existing.map(p => [p.id, p]));
+  const merged: Product[] = [...existing];
+  const seenIds = new Set<string>(existing.map(p => p.id));
+
+  for (const d1 of d1Products) {
+    const id = String(d1.id ?? "");
+    if (!id) continue;
+
+    const categoryName = categoryNameById.get(String(d1.category_id ?? ""));
+    const category = normalizeCategoryName(categoryName);
+
+    if (existingById.has(id)) {
+      const local = existingById.get(id)!;
+      const idx = merged.findIndex(p => p.id === id);
+      merged[idx] = {
+        ...local,
+        name: String(d1.name ?? local.name),
+        price: Number(d1.price ?? local.price),
+        cost: Number(d1.cost ?? local.cost),
+        minStock: Number(d1.min_stock ?? local.minStock),
+        code: String(d1.code ?? local.code),
+        category,
+      };
+    } else if (!seenIds.has(id)) {
+      seenIds.add(id);
+      merged.push({
+        id,
+        name: String(d1.name ?? ""),
+        category,
+        price: Number(d1.price ?? 0),
+        cost: Number(d1.cost ?? 0),
+        stock: 0,
+        minStock: Number(d1.min_stock ?? 5),
+        image: "🥐",
+        code: String(d1.code ?? ""),
+        ingredients: [],
+      });
+    }
+  }
+
+  return merged;
 }

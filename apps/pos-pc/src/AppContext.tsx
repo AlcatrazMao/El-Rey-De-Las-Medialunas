@@ -15,7 +15,7 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS
 } from './initialData';
-import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, syncCashSessionCloseToD1, fetchCustomersFromD1, syncExpenseToD1, syncSupplyRequestToD1, updateSupplyRequestStatusInD1, syncUserPreferencesToD1 } from './services/d1-sync';
+import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, syncCashSessionCloseToD1, fetchCustomersFromD1, fetchProductsFromD1, syncExpenseToD1, syncSupplyRequestToD1, updateSupplyRequestStatusInD1, syncUserPreferencesToD1 } from './services/d1-sync';
 import type { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 
 interface AppContextType {
@@ -478,6 +478,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   // Load D1 data on startup (retry when token is ready)
   useEffect(() => {
     const loadFromD1 = () => {
+      const branchId = getSettings().business.branchId;
+
       fetchCustomersFromD1().then(d1Customers => {
         if (d1Customers.length > 0) {
           setCustomers(prev => {
@@ -486,6 +488,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
           });
         }
       }).catch(() => {});
+
+      setProducts(prev => {
+        fetchProductsFromD1(prev, branchId).then(setProducts).catch(() => {});
+        return prev;
+      });
     };
     // Try immediately (token might already be cached)
     loadFromD1();
