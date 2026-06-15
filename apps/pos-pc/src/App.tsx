@@ -30,6 +30,53 @@ import { auth } from './config/firebase';
 
 interface SavedSession { email: string; name: string; role: string; }
 
+function NetworkStatusBar({
+  isOnline,
+  isSyncing,
+  lastSync,
+  onSyncNow,
+}: {
+  isOnline: boolean;
+  isSyncing: boolean;
+  lastSync: Date | null;
+  onSyncNow: () => void;
+}) {
+  if (isOnline && !isSyncing) return null;
+
+  return (
+    <div
+      className={`fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium shadow-lg transition-all ${
+        isOnline
+          ? "bg-emerald-600/90 text-white"
+          : "bg-amber-600/90 text-white"
+      }`}
+    >
+      {isSyncing ? (
+        <>
+          <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
+          Sincronizando…
+        </>
+      ) : !isOnline ? (
+        <>
+          <span className="h-2 w-2 rounded-full bg-white" />
+          Sin conexión
+          {lastSync && (
+            <span className="opacity-70">
+              · últ. sync {lastSync.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          <button
+            onClick={onSyncNow}
+            className="ml-1 underline underline-offset-2 hover:no-underline"
+          >
+            Reintentar
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function ERPLayout() {
   const { activeTab, setActiveTab, activeUser, logout } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -279,7 +326,7 @@ export default function App() {
   }, [firebaseUser]);
 
   // Offline-first sync engine — starts when user is authenticated
-  useSyncEngine(fsCheckDone && !!firebaseUser);
+  const { isOnline, isSyncing, lastSync, triggerSync } = useSyncEngine(fsCheckDone && !!firebaseUser);
 
   // Store Firebase token for D1 API calls — must be before any early returns
   useEffect(() => {
@@ -311,6 +358,7 @@ export default function App() {
 
   return (
     <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole} serverPanels={serverPanels}>
+      <NetworkStatusBar isOnline={isOnline} isSyncing={isSyncing} lastSync={lastSync} onSyncNow={triggerSync} />
       <ERPLayout />
     </AppProvider>
   );

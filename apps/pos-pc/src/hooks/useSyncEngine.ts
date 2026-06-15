@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { SyncEngine } from "@medialunas/sync-engine";
+import { NetworkMonitor } from "@medialunas/sync-engine";
 import { getApi } from "../services/api";
 import { dbAdapter } from "../services/db-adapter";
 import { getSettings } from "./useSettings";
@@ -10,6 +11,20 @@ const API_URL =
 
 export function useSyncEngine(isAuthenticated: boolean) {
   const engineRef = useRef<SyncEngine | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+
+  const triggerSync = useCallback(async () => {
+    if (!engineRef.current) return;
+    setIsSyncing(true);
+    try {
+      await engineRef.current.sync();
+      setLastSync(new Date());
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -19,6 +34,12 @@ export function useSyncEngine(isAuthenticated: boolean) {
     }
 
     const branchId = getSettings().business.branchId;
+    const healthCheckUrl = `${API_URL}/api/v1/health`;
+
+    // Track online status via NetworkMonitor (separate from the engine's internal one)
+    const monitor = new NetworkMonitor(healthCheckUrl);
+    setIsOnline(monitor.isOnline);
+    const unsub = monitor.onStatusChange((online) => setIsOnline(online));
 
     const engine = new SyncEngine({
       db: dbAdapter,
@@ -29,7 +50,7 @@ export function useSyncEngine(isAuthenticated: boolean) {
         },
       },
       branchId,
-      healthCheckUrl: `${API_URL}/api/v1/health`,
+      healthCheckUrl,
       options: {
         autoSync: true,
         syncInterval: 30_000,
@@ -42,13 +63,16 @@ export function useSyncEngine(isAuthenticated: boolean) {
     engineRef.current = engine;
 
     // Initial sync to warm up the local cache
-    void engine.sync();
+    void triggerSync();
 
     return () => {
+      unsub();
+      monitor.destroy();
       engine.destroy();
       engineRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  return engineRef;
+  return { engineRef, isOnline, isSyncing, lastSync, triggerSync };
 }

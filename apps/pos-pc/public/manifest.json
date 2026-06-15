@@ -1,10 +1,19 @@
 {
   "name": "El Rey De Las Medialunas - POS",
   "short_name": "ERDLM POS",
+  "description": "Sistema de punto de venta para panaderías",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#8B4513",
   "background_color": "#FFF8DC",
-  "icons": []
+  "categories": ["business", "food"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

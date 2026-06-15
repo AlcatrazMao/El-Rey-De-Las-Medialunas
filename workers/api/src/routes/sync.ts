@@ -225,6 +225,19 @@ async function applyOperation(
       break;
     }
 
+    case "close_session": {
+      const closingAmount = Number(d.closing_amount ?? 0);
+      const expectedAmount = Number(d.expected_amount ?? closingAmount);
+      const difference = closingAmount - expectedAmount;
+      await db.prepare(
+        `UPDATE cash_sessions
+         SET status = 'closed', closing_amount = ?, expected_amount = ?, difference = ?,
+             notes = COALESCE(?, notes), closed_at = ?
+         WHERE id = ? AND status != 'closed'`
+      ).bind(closingAmount, expectedAmount, difference, d.notes ?? null, now, id).run();
+      break;
+    }
+
     default:
       throw new Error(`Unknown entity_type: ${op.entity_type}`);
   }

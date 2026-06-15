@@ -74,7 +74,15 @@ export async function fetchSalesFromD1(from?: string, to?: string): Promise<Sale
 }
 
 export async function syncVoidSaleToD1(saleId: string, voidReason?: string): Promise<void> {
-  await getApi().sales.voidSale(saleId, voidReason ?? "");
+  try {
+    await getApi().sales.voidSale(saleId, voidReason ?? "");
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue("void_sale", { id: saleId, void_reason: voidReason ?? "" });
+    } else {
+      throw err;
+    }
+  }
 }
 
 
@@ -159,11 +167,24 @@ export async function syncCashSessionCloseToD1(
   expectedAmount: number,
   notes?: string,
 ): Promise<void> {
-  await getApi().cash.closeSession(sessionId, {
-    closing_amount: closingAmount,
-    expected_amount: expectedAmount,
-    notes: notes ?? null,
-  });
+  try {
+    await getApi().cash.closeSession(sessionId, {
+      closing_amount: closingAmount,
+      expected_amount: expectedAmount,
+      notes: notes ?? null,
+    });
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue("close_session", {
+        id: sessionId,
+        closing_amount: closingAmount,
+        expected_amount: expectedAmount,
+        notes: notes ?? null,
+      });
+    } else {
+      throw err;
+    }
+  }
 }
 
 // ── Supply Requests ───────────────────────────────────────────────────
