@@ -2,9 +2,14 @@ import { Globe, ShieldCheck, KeyRound, Check, HelpCircle, EyeOff } from 'lucide-
 import * as React from 'react';
 
 import { useApp } from '../AppContext';
+import { getSettings } from '../hooks/useSettings';
 
 export const IntegrationsView: React.FC = () => {
-  const { gateways, toggleGateway } = useApp();
+  const { gateways, toggleGateway, setActiveTab } = useApp();
+
+  const savedCredentials = getSettings().gatewayCredentials;
+  const hasCredentials = (gatewayId: string) =>
+    savedCredentials.some(gc => gc.gatewayId === gatewayId && gc.publicKey.trim() !== '');
 
   return (
     <div className="space-y-6 transition-all duration-300">
@@ -75,13 +80,25 @@ export const IntegrationsView: React.FC = () => {
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-gray-500 font-semibold">Estado en Mostrador:</span>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                      isActive 
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400' 
+                      isActive
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400'
                         : 'bg-gray-105 text-gray-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}>
                       {isActive ? '● CONECTADO' : '○ APAGADO'}
                     </span>
                   </div>
+
+                  {isActive && !hasCredentials(gate.id) && (
+                    <div className="flex items-start gap-2 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-xl px-3 py-2">
+                      <span className="text-amber-500 text-[11px] mt-0.5">⚠️</span>
+                      <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold leading-relaxed">
+                        Pasarela activa sin credenciales. Configurá las claves en{' '}
+                        <span className="font-extrabold underline cursor-pointer" onClick={() => setActiveTab('settings')}>
+                          Configuración → Pagos
+                        </span>
+                      </p>
+                    </div>
+                  )}
 
                   {/* Secret credential guidance lines */}
                   <div className="border-t pt-4 border-gray-100 dark:border-zinc-800 space-y-2">
@@ -107,14 +124,20 @@ export const IntegrationsView: React.FC = () => {
               <div className="p-4 bg-gray-50 dark:bg-zinc-950 border-t border-gray-100 dark:border-zinc-800 select-none">
                 <button
                   id={`btn-toggle-gate-${gate.id}`}
-                  onClick={() => toggleGateway(gate.id)}
+                  onClick={() => {
+                    if (!isActive && !hasCredentials(gate.id)) {
+                      setActiveTab('settings');
+                      return;
+                    }
+                    toggleGateway(gate.id);
+                  }}
                   className={`w-full py-2 rounded-xl text-xs font-bold transition-all border shrink-0 cursor-pointer ${
                     isActive
                       ? 'bg-red-50 hover:bg-red-500 hover:text-white border-red-200 dark:border-red-950/20 text-red-650'
                       : 'bg-amber-500 hover:bg-amber-600 border-transparent text-white'
                   }`}
                 >
-                  {isActive ? 'Suspender Pasarela en POS' : 'Habilitar Cobros con esta Vía'}
+                  {isActive ? 'Suspender Pasarela en POS' : hasCredentials(gate.id) ? 'Habilitar Cobros con esta Vía' : 'Configurar credenciales →'}
                 </button>
               </div>
 

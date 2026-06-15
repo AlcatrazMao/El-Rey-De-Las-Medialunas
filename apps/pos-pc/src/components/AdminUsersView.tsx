@@ -1,4 +1,4 @@
-import { Users, Key } from 'lucide-react';
+import { Users } from 'lucide-react';
 import * as React from 'react'
 import { useRef, useState, useEffect } from 'react';
 
@@ -6,74 +6,75 @@ const ADMIN_URL = 'https://admin-users-production.elprincipitodeargentina.worker
 
 export const AdminUsersView: React.FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const sendAuthTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [secret, setSecret] = useState(() => sessionStorage.getItem('admin_secret') || '');
-  const [showConfig, setShowConfig] = useState(!sessionStorage.getItem('admin_secret'));
-  const [inputValue, setInputValue] = useState('');
+  const [iframeReady, setIframeReady] = useState(false);
+  const [iframeError, setIframeError] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
 
-  useEffect(() => () => { if (sendAuthTimerRef.current) clearTimeout(sendAuthTimerRef.current); }, []);
+  // Listen for messages from the iframe
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'ADMIN_READY') {
+        const token = localStorage.getItem('firebase_token');
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: 'AUTH_TOKEN', token },
+          ADMIN_URL
+        );
+        setIframeReady(true);
+      }
+      if (event.data?.type === 'AUTH_ERROR') {
+        setIframeError(true);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
-  // Sends the auth key to the iframe via postMessage
-  const postAuthToIframe = (key: string) => {
-    if (!iframeRef.current?.contentWindow) return;
-    iframeRef.current.contentWindow.postMessage({ type: 'auth', secret: key }, ADMIN_URL);
+  // Timeout: if iframe doesn't signal ready in 10 seconds, show error
+  useEffect(() => {
+    if (iframeReady || iframeError) return;
+    const t = setTimeout(() => setIframeError(true), 10000);
+    return () => clearTimeout(t);
+  }, [iframeReady, iframeError]);
+
+  const handleRetry = () => {
+    setIframeError(false);
+    setIframeReady(false);
+    setIframeKey(k => k + 1);
   };
-
-  // Called from the key form: saves the key and reveals the iframe.
-  // handleLoad will fire postAuthToIframe once the iframe is ready.
-  const sendAuth = () => {
-    const key = secret || inputValue;
-    if (!key) return;
-    if (!secret) {
-      sessionStorage.setItem('admin_secret', key);
-      setSecret(key);
-      setShowConfig(false);
-      return; // iframe not mounted yet — handleLoad will send auth
-    }
-    postAuthToIframe(key);
-  };
-
-  // Once iframe loads, read key directly from sessionStorage (state may not be updated yet)
-  const handleLoad = () => {
-    const key = sessionStorage.getItem('admin_secret') || secret;
-    if (key) {
-      sendAuthTimerRef.current = setTimeout(() => postAuthToIframe(key), 500);
-    }
-  };
-
-  if (showConfig) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16">
-        <Key className="w-12 h-12 text-amber-500 mb-4" />
-        <h3 className="text-lg font-bold text-gray-800 dark:text-zinc-100 mb-2">Clave de Administración</h3>
-        <p className="text-sm text-gray-500 mb-4">Ingresá la clave del panel de usuarios</p>
-        <div className="flex gap-2">
-          <input type="password" value={inputValue} onChange={e => setInputValue(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && sendAuth()}
-            placeholder="Clave de admin"
-            className="px-4 py-2 border rounded-xl text-sm w-56" />
-          <button onClick={sendAuth} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-bold">Conectar</button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 mb-4">
         <Users className="w-6 h-6 text-amber-500" />
         <h2 className="text-lg font-bold text-gray-800 dark:text-zinc-100">Administrar Usuarios</h2>
-        <button onClick={() => { sessionStorage.removeItem('admin_secret'); setSecret(''); setShowConfig(true); }}
-          className="ml-auto text-xs text-gray-400 hover:text-red-500">Cambiar clave</button>
       </div>
-      <iframe
-        ref={iframeRef}
-        src={ADMIN_URL}
-        onLoad={handleLoad}
-        className="flex-1 w-full rounded-xl border border-gray-200 dark:border-zinc-800"
-        style={{ minHeight: '70vh' }}
-        title="Admin Users"
-      />
+      <div className="relative flex-1" style={{ minHeight: '70vh' }}>
+        <iframe
+          key={iframeKey}
+          ref={iframeRef}
+          src={ADMIN_URL}
+          className="w-full h-full rounded-2xl border border-gray-200 dark:border-zinc-800"
+          title="Admin Users"
+        />
+        {!iframeReady && !iframeError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-zinc-900 rounded-2xl gap-3">
+            <div className="w-8 h-8 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+            <p className="text-xs font-bold text-gray-500 dark:text-zinc-400">Conectando con panel de administración...</p>
+          </div>
+        )}
+        {iframeError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-zinc-900 rounded-2xl gap-3">
+            <p className="text-xs font-bold text-red-500">No se pudo conectar con el panel de administración</p>
+            <p className="text-[10px] text-gray-400">Verificá que el servicio esté activo o revisá tu conexión</p>
+            <button
+              onClick={handleRetry}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl cursor-pointer"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

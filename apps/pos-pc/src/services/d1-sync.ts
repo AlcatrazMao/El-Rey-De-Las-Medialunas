@@ -1,4 +1,5 @@
 import type { Sale } from "../types";
+import { getSettings } from "../hooks/useSettings";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://el-rey-api-production.elprincipitodeargentina.workers.dev";
 
@@ -37,7 +38,7 @@ export async function syncSaleToD1(sale: Sale): Promise<void> {
     method: "POST",
     body: JSON.stringify({
       client_id: sale.customerId || null,
-      branch_id: "00000000000000000000000000000001",
+      branch_id: getSettings().business.branchId,
       customer_id: sale.customerId || null,
       items: sale.items.map(item => ({
         product_id: item.productId,
@@ -87,7 +88,7 @@ export async function syncStockMovementToD1(movement: {
     method: "POST",
     body: JSON.stringify({
       product_id: movement.product_id,
-      branch_id: movement.branch_id || "00000000000000000000000000000001",
+      branch_id: movement.branch_id || getSettings().business.branchId,
       movement_type: movement.movement_type,
       quantity: movement.quantity,
       reason: movement.reason,
@@ -193,7 +194,7 @@ export async function syncSupplyRequestToD1(req: {
       unit: req.unit,
       reason: req.reason,
       requested_by: req.requestedBy,
-      branch_id: "00000000000000000000000000000001",
+      branch_id: getSettings().business.branchId,
     }),
   });
 }
@@ -206,6 +207,24 @@ export async function updateSupplyRequestStatusInD1(
   await apiFetch(`/api/v1/supply-requests/${id}`, {
     method: "PUT",
     body: JSON.stringify({ status, admin_memo: adminMemo ?? null }),
+  });
+}
+
+// ── User Preferences ──────────────────────────────────────────────────
+
+export async function syncUserPreferencesToD1(customPanels: string[]): Promise<void> {
+  await apiFetch("/api/v1/auth/preferences", {
+    method: "PUT",
+    body: JSON.stringify({ custom_panels: customPanels }),
+  });
+}
+
+// ── Sales Void ────────────────────────────────────────────────────────
+
+export async function syncVoidSaleToD1(saleId: string, voidReason?: string): Promise<void> {
+  await apiFetch(`/api/v1/sales/${saleId}/void`, {
+    method: "POST",
+    body: JSON.stringify({ void_reason: voidReason ?? null }),
   });
 }
 
@@ -228,7 +247,7 @@ export async function syncExpenseToD1(expense: {
       amount: expense.amount,
       payment_method: expense.paymentMethod,
       invoice_url: expense.invoiceUrl ?? null,
-      branch_id: "00000000000000000000000000000001",
+      branch_id: getSettings().business.branchId,
     }),
   });
 }

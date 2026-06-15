@@ -56,13 +56,11 @@ export const AccountingView: React.FC = () => {
   const successfulSales = sales.filter(s => s.paymentStatus === 'completed');
   const totalRevenue = successfulSales.reduce((acc, s) => acc + s.total, 0);
   
-  // Calculate COGS dynamically from sold item costs in catalog! This is extremely advanced
   const totalCOGS = successfulSales.reduce((acc, s) => {
     let saleCOGS = 0;
     s.items.forEach(item => {
-      // Find matching cost in products
-      const originalProd = products.find(p => p.id === item.productId);
-      const costPerUnit = originalProd ? originalProd.cost : 0;
+      // item.cost is the snapshot at sale time; fallback to current catalog if older data lacks it
+      const costPerUnit = item.cost ?? products.find(p => p.id === item.productId)?.cost ?? 0;
       saleCOGS += costPerUnit * item.quantity;
     });
     return acc + saleCOGS;

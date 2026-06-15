@@ -108,7 +108,7 @@ expenseRoutes.post("/", async (c) => {
   const id = body.id ?? crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);
 
-  await db
+  const result = await db
     .prepare(
       `INSERT OR IGNORE INTO expenses
          (id, branch_id, user_id, concept, category, amount, payment_method, invoice_url, created_at)
@@ -126,6 +126,11 @@ expenseRoutes.post("/", async (c) => {
       createdAt
     )
     .run();
+
+  if (!result.meta?.changes) {
+    // ID duplicado — el gasto ya existe, retornar el existente
+    return c.json({ success: true, data: { id, already_existed: true } }, 200);
+  }
 
   return c.json({ success: true, data: { id } }, 201);
 });

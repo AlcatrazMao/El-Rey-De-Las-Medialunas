@@ -11,32 +11,35 @@ import * as React from 'react'
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
+import { useSettings } from '../hooks/useSettings';
 
 export const CashSessionView: React.FC = () => {
-  const { 
-    currentCashSession, 
-    cashSessionsHistory, 
-    openCashSession, 
+  const {
+    currentCashSession,
+    cashSessionsHistory,
+    openCashSession,
     closeCashSession,
-    activeUser 
+    activeUser
   } = useApp();
 
-  // Apertura states
-  const [openingAmount, setOpeningAmount] = useState<number>(15000);
-  const [openingNote, setOpeningNote] = useState<string>('Saldo base inicial de cambio en caja chica.');
+  const { settings } = useSettings();
 
-  // Cierre states
+  // Apertura states — initialized from persisted settings
+  const [openingAmount, setOpeningAmount] = useState<number>(settings.cash.defaultOpeningAmount);
+  const [openingNote, setOpeningNote] = useState<string>(settings.cash.defaultOpeningNote);
+
+  // Cierre states — closing note also pulled from settings
   const [closingAmount, setClosingAmount] = useState<number>(0);
-  const [closingNote, setClosingNote] = useState<string>('Cierre de caja de turno regular sin inconvenientes.');
+  const [closingNote, setClosingNote] = useState<string>(settings.cash.defaultClosingNote);
   const [showConfirmClose, setShowConfirmClose] = useState(false);
 
   const handleOpen = (e: React.FormEvent) => {
     e.preventDefault();
     if (openingAmount < 0) return;
     openCashSession(openingAmount, openingNote);
-    // Reset values
-    setOpeningAmount(15000);
-    setOpeningNote('Saldo base inicial de cambio en caja chica.');
+    // Reset to defaults from settings so next open picks up any updated config
+    setOpeningAmount(settings.cash.defaultOpeningAmount);
+    setOpeningNote(settings.cash.defaultOpeningNote);
   };
 
   const handleClose = (e: React.FormEvent) => {
@@ -45,7 +48,7 @@ export const CashSessionView: React.FC = () => {
     closeCashSession(closingAmount, closingNote);
     setShowConfirmClose(false);
     setClosingAmount(0);
-    setClosingNote('Cierre de caja de turno regular sin inconvenientes.');
+    setClosingNote(settings.cash.defaultClosingNote);
   };
 
   return (

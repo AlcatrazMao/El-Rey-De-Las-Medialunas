@@ -32,7 +32,8 @@ export const POSView: React.FC = () => {
     selectedSellerId,
     setSelectedSellerId,
     users,
-    customers
+    customers,
+    addCustomer
   } = useApp();
 
   const [selectedCategory, setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
@@ -43,6 +44,7 @@ export const POSView: React.FC = () => {
   const [customerDoc, setCustomerDoc] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   
   // Selection Modal states
   const [showSelectionModal, setShowSelectionModal] = useState(false);
@@ -50,6 +52,10 @@ export const POSView: React.FC = () => {
   const [modalMode, setModalMode] = useState<'list' | 'visual'>('list');
   const [modalSortKey, setModalSortKey] = useState<'monto' | 'orden' | 'fecha_elaboracion' | null>(null);
   const [modalSortOrder, setModalSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // New customer mini-modal states
+  const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', email: '' });
 
   // Simulation states
   const [isScanning, setIsScanning] = useState(false);
@@ -490,6 +496,27 @@ export const POSView: React.FC = () => {
   const cartTax = cartSubtotal * 0.21; // IVA 21% included
   const cartTotal = cartSubtotal;
 
+  // Create new customer from mini-modal
+  const handleCreateCustomer = () => {
+    if (!newCustomerForm.name.trim()) return;
+    addCustomer({
+      name: newCustomerForm.name.trim(),
+      email: newCustomerForm.email.trim(),
+      phone: newCustomerForm.phone.trim(),
+      address: '',
+      tax_id: '',
+      type: 'consumidor_final',
+      condicion_fiscal: 'consumidor_final',
+      price_list_number: 1,
+      credit_limit: 0,
+      status: 'active',
+      notes: '',
+    });
+    setCustomerName(newCustomerForm.name.trim());
+    setNewCustomerForm({ name: '', phone: '', email: '' });
+    setShowNewCustomerModal(false);
+  };
+
   // Process transaction
   const handlePayment = async () => {
     if (cart.length === 0) {
@@ -520,7 +547,7 @@ export const POSView: React.FC = () => {
           paymentMethod,
           customerDoc,
           customerName,
-          undefined, // customerId (TODO: add customer selector)
+          selectedCustomerId || undefined,
           selectedSellerId || undefined,
           simulateFailedPayment
         );
@@ -537,6 +564,7 @@ export const POSView: React.FC = () => {
           setCart([]);
           setCustomerDoc('');
           setCustomerName('');
+          setSelectedCustomerId(null);
         } else if (result.invoice) {
           // Failure simulation record was created but transaction rejected
           setLatestInvoice(result.invoice);
@@ -749,7 +777,7 @@ export const POSView: React.FC = () => {
                 <span className="text-sm font-bold text-gray-800 dark:text-zinc-100">{customerName}</span>
                 {customerDoc && <span className="text-xs text-gray-500 ml-2">({customerDoc})</span>}
               </div>
-              <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); }}
+              <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }}
                 className="text-xs text-red-500 hover:underline">Cambiar</button>
             </div>
           ) : (
@@ -765,15 +793,13 @@ export const POSView: React.FC = () => {
                     👤 Consumidor Final (Anónimo)
                   </button>
                   {customers.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.tax_id.includes(customerSearch) || c.email.includes(customerSearch)).slice(0, 5).map(c => (
-                    <button key={c.id} onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                    <button key={c.id} onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800">
                       <div className="font-bold">{c.name}</div>
                       {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
                     </button>
                   ))}
-                  <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); 
-                    // eslint-disable-next-line no-alert -- demo placeholder
-                    alert('Cliente creado (demo)'); }}
+                  <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
                     className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800">
                     + Crear nuevo cliente
                   </button>
@@ -782,6 +808,46 @@ export const POSView: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Customer credit & fiscal info panel */}
+        {selectedCustomerId && (() => {
+          const sc = customers.find(c => c.id === selectedCustomerId);
+          if (!sc) return null;
+          const debtRatio = sc.credit_limit > 0 ? sc.current_debt / sc.credit_limit : 0;
+          const overLimit = sc.credit_limit > 0 && sc.current_debt >= sc.credit_limit;
+          const nearLimit = !overLimit && debtRatio >= 0.8;
+          return (
+            <div className={`mb-3 p-3 rounded-xl border text-[10px] space-y-1 ${
+              overLimit ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/40' :
+              nearLimit ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40' :
+              'bg-gray-50 dark:bg-zinc-850 border-gray-200 dark:border-zinc-700'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-gray-700 dark:text-zinc-200">{sc.name}</span>
+                <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
+                  sc.type === 'mayorista' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300' :
+                  sc.type === 'empresa' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' :
+                  sc.type === 'frecuente' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' :
+                  'bg-gray-100 text-gray-500 dark:bg-zinc-800 dark:text-zinc-400'
+                }`}>{sc.type.replace('_', ' ')}</span>
+              </div>
+              {sc.credit_limit > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className={overLimit ? 'text-red-600 dark:text-red-400 font-bold' : nearLimit ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-gray-500'}>
+                    {overLimit ? '⛔ Límite excedido' : nearLimit ? '⚠️ Cerca del límite' : '✓ Crédito disponible'}
+                  </span>
+                  <span className={`font-extrabold ${overLimit ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-zinc-200'}`}>
+                    Deuda: ${sc.current_debt.toFixed(0)} / ${sc.credit_limit.toFixed(0)}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-gray-400">
+                <span>Cond. fiscal: <span className="font-bold text-gray-600 dark:text-zinc-300">{sc.condicion_fiscal.replace(/_/g, ' ')}</span></span>
+                {sc.phone && <span>📞 {sc.phone}</span>}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Cart Item rows list */}
         <div className="flex-1 overflow-y-auto max-h-[35vh] pr-1 divide-y divide-gray-100 dark:divide-zinc-800 space-y-2 mb-4">
@@ -1276,6 +1342,71 @@ export const POSView: React.FC = () => {
       >
         <Search className="h-6 w-6 group-hover:rotate-12 transition-transform duration-300" />
       </button>
+
+      {/* MODAL: Nuevo Cliente */}
+      {showNewCustomerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-extrabold text-sm text-gray-850 dark:text-zinc-50">Nuevo Cliente</h3>
+              <button onClick={() => setShowNewCustomerModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-zinc-200">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Nombre *</label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={newCustomerForm.name}
+                  onChange={e => setNewCustomerForm(f => ({ ...f, name: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && handleCreateCustomer()}
+                  placeholder="Nombre completo"
+                  className="w-full mt-1 text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Teléfono</label>
+                <input
+                  type="tel"
+                  value={newCustomerForm.phone}
+                  onChange={e => setNewCustomerForm(f => ({ ...f, phone: e.target.value }))}
+                  placeholder="Ej: 1100000000"
+                  className="w-full mt-1 text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Email</label>
+                <input
+                  type="email"
+                  value={newCustomerForm.email}
+                  onChange={e => setNewCustomerForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="cliente@ejemplo.com"
+                  className="w-full mt-1 text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => setShowNewCustomerModal(false)}
+                className="flex-1 py-2.5 text-xs font-bold text-gray-600 dark:text-zinc-400 border border-gray-200 dark:border-zinc-700 rounded-xl hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateCustomer}
+                disabled={!newCustomerForm.name.trim()}
+                className="flex-1 py-2.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer"
+              >
+                Crear cliente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

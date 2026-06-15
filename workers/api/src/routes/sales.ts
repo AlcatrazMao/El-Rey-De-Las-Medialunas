@@ -5,7 +5,7 @@ import { resolveUser } from "../lib/resolve-user";
 
 export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
+const DEFAULT_BRANCH = "00000000000000000000000000000001"; // fallback — configure via branch_id query param
 
 // GET /
 salesRoutes.get("/", async (c) => {
@@ -133,6 +133,9 @@ salesRoutes.post("/", async (c) => {
   const saleNumber = saleNumberRow?.next_number ?? 1;
 
   const items = body.items ?? [];
+  if (items.length === 0) {
+    return c.json({ success: false, error: "A sale must have at least one item" }, 400);
+  }
   const payments = body.payments ?? [];
 
   let subtotal = body.subtotal;

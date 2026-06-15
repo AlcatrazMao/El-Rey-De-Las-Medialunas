@@ -3,7 +3,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
-  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote
+  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect } from 'react';
@@ -22,6 +22,7 @@ import { MainHeadLayout } from './components/MainHeadLayout';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { POSView } from './components/POSView';
 import { SalesHistoryView } from './components/SalesHistoryView';
+import { SettingsView } from './components/SettingsView';
 import { StickyNotesView } from './components/StickyNotesView';
 import { auth } from './config/firebase';
 
@@ -77,6 +78,7 @@ function ERPLayout() {
       case 'customers': return <CustomersView />;
       case 'admin_users': return <AdminUsersView />;
       case 'notes': return <StickyNotesView />;
+      case 'settings': return <SettingsView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <Dashboard />;
@@ -112,7 +114,8 @@ function ERPLayout() {
           { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },
           { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> },
-          { id: 'admin_users', label: 'Usuarios', icon: <Users className="h-4 w-4" /> }
+          { id: 'admin_users', label: 'Usuarios', icon: <Users className="h-4 w-4" /> },
+          { id: 'settings', label: 'Configuración', icon: <Settings className="h-4 w-4" /> }
         ];
     }
   };
@@ -222,6 +225,7 @@ export default function App() {
   const [accessError, setAccessError] = useState('');
   const [firestoreRole, setFirestoreRole] = useState<string | null>(null);
   const [fsCheckDone, setFsCheckDone] = useState(false);
+  const [serverPanels, setServerPanels] = useState<string[] | null>(null);
 
   // Step 1: Firebase Auth
   useEffect(() => {
@@ -252,6 +256,7 @@ export default function App() {
         if (data.success && data.data?.user) {
           if (!cancelled) {
             setFirestoreRole(data.data.user.role || null);
+            setServerPanels(data.data.user.custom_panels ?? null);
             setFsCheckDone(true);
             setAuthLoading(false);
           }
@@ -301,7 +306,7 @@ export default function App() {
   }
 
   return (
-    <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole}>
+    <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole} serverPanels={serverPanels}>
       <ERPLayout />
     </AppProvider>
   );

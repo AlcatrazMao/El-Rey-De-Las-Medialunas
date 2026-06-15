@@ -1,0 +1,121 @@
+import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check } from 'lucide-react';
+import * as React from 'react';
+import { useState, useEffect } from 'react';
+
+import { useSettings } from '../hooks/useSettings';
+import type { BusinessSettings, FiscalSettings, CashSettings, InventorySettings, GatewayCredential } from '../hooks/useSettings';
+import { BusinessSettings as BusinessSettingsPanel } from '../settings/BusinessSettings';
+import { CashSettings as CashSettingsPanel } from '../settings/CashSettings';
+import { FiscalSettings as FiscalSettingsPanel } from '../settings/FiscalSettings';
+import { InventorySettings as InventorySettingsPanel } from '../settings/InventorySettings';
+import { PaymentSettings as PaymentSettingsPanel } from '../settings/PaymentSettings';
+import { PrinterSettings as PrinterSettingsPanel } from '../settings/PrinterSettings';
+
+type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'printer';
+
+interface TabItem {
+  id: TabId;
+  label: string;
+  icon: React.ReactNode;
+}
+
+const TABS: TabItem[] = [
+  { id: 'business', label: 'Negocio', icon: <Building2 className="h-4 w-4" /> },
+  { id: 'fiscal', label: 'Fiscal', icon: <Receipt className="h-4 w-4" /> },
+  { id: 'cash', label: 'Caja', icon: <Wallet className="h-4 w-4" /> },
+  { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
+  { id: 'payment', label: 'Pagos', icon: <CreditCard className="h-4 w-4" /> },
+  { id: 'printer', label: 'Impresora', icon: <Printer className="h-4 w-4" /> },
+];
+
+export const SettingsView: React.FC = () => {
+  const { settings, updateSection, setGatewayCredentials } = useSettings();
+  const [activeTab, setActiveTab] = useState<TabId>('business');
+  const [savedToast, setSavedToast] = useState(false);
+
+  const showSavedToast = () => setSavedToast(true);
+
+  useEffect(() => {
+    if (!savedToast) return;
+    const t = setTimeout(() => setSavedToast(false), 2500);
+    return () => clearTimeout(t);
+  }, [savedToast]);
+
+  const handleUpdateBusiness = (_section: 'business', values: Partial<BusinessSettings>) =>
+    updateSection('business', values);
+  const handleUpdateFiscal = (_section: 'fiscal', values: Partial<FiscalSettings>) =>
+    updateSection('fiscal', values);
+  const handleUpdateCash = (_section: 'cash', values: Partial<CashSettings>) =>
+    updateSection('cash', values);
+  const handleUpdateInventory = (_section: 'inventory', values: Partial<InventorySettings>) =>
+    updateSection('inventory', values);
+  const handleUpdatePayment = (credentials: GatewayCredential[]) =>
+    setGatewayCredentials(credentials);
+
+  const renderPanel = () => {
+    switch (activeTab) {
+      case 'business':
+        return <BusinessSettingsPanel settings={settings} onUpdate={handleUpdateBusiness} onSaved={showSavedToast} />;
+      case 'fiscal':
+        return <FiscalSettingsPanel settings={settings} onUpdate={handleUpdateFiscal} onSaved={showSavedToast} />;
+      case 'cash':
+        return <CashSettingsPanel settings={settings} onUpdate={handleUpdateCash} onSaved={showSavedToast} />;
+      case 'inventory':
+        return <InventorySettingsPanel settings={settings} onUpdate={handleUpdateInventory} onSaved={showSavedToast} />;
+      case 'payment':
+        return <PaymentSettingsPanel settings={settings} onUpdate={handleUpdatePayment} onSaved={showSavedToast} />;
+      case 'printer':
+        return <PrinterSettingsPanel />;
+    }
+  };
+
+  return (
+    <div className="space-y-6 transition-all duration-300">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4 border-gray-100 dark:border-zinc-800">
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-850 dark:text-zinc-50 flex items-center gap-2">
+            <Settings className="h-5 w-5 text-amber-500" /> Configuración del Sistema
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">
+            Personalizá el comportamiento del ERP: datos fiscales, caja, inventario y pasarelas de pago.
+          </p>
+        </div>
+
+        {savedToast && (
+          <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold px-4 py-2.5 rounded-xl self-start sm:self-auto animate-fade-in">
+            <Check className="h-3.5 w-3.5" />
+            Configuración guardada
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-5">
+        <aside className="lg:w-48 shrink-0">
+          <nav className="flex lg:flex-col gap-1 flex-wrap">
+            {TABS.map(tab => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer text-left w-full ${
+                    isActive
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'
+                  }`}
+                >
+                  <span className={isActive ? 'text-white' : 'text-amber-500'}>{tab.icon}</span>
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <div className="flex-1 bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl p-5 md:p-6 shadow-xs min-h-[360px]">
+          {renderPanel()}
+        </div>
+      </div>
+    </div>
+  );
+};

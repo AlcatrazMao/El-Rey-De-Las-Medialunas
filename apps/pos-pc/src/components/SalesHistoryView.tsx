@@ -13,6 +13,7 @@ import { useState } from 'react';
 
 import { useApp } from '../AppContext';
 import type { Sale } from '../types';
+import { syncVoidSaleToD1 } from '../services/d1-sync';
 import { exportSalesToCSV, printTicketOrInvoice } from '../utils/exportUtils';
 
 export const SalesHistoryView: React.FC = () => {
@@ -79,6 +80,8 @@ export const SalesHistoryView: React.FC = () => {
     setSales(prev =>
       prev.map(s => (s.id === sale.id ? { ...s, paymentStatus: 'voided' as const, invoiceNumber: `VOID-${s.invoiceNumber.slice(5)}` } : s))
     );
+
+    syncVoidSaleToD1(sale.id, 'Anulación manual desde historial de ventas').catch(() => {});
 
     addSystemNotification(
       '💸 Factura Anulada',
@@ -354,7 +357,7 @@ export const SalesHistoryView: React.FC = () => {
               <div className="space-y-1 font-sans font-medium text-gray-600 dark:text-zinc-400">
                 <div className="flex justify-between">
                   <span>Neto Neto:</span>
-                  <span>${(selectedSale.total * 0.79).toFixed(2)}</span>
+                  <span>${(selectedSale.total - selectedSale.tax).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>IVA Tasa Gral (21%):</span>

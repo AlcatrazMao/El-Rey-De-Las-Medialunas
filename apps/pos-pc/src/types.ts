@@ -35,6 +35,7 @@ export interface SaleItem {
   quantity: number;
   price: number;
   subtotal: number;
+  cost?: number; // snapshot del costo al momento de la venta — evita COGS=0 si se borra el producto
 }
 
 export interface Sale {

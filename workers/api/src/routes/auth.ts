@@ -48,8 +48,8 @@ authRoutes.post("/login", async (c) => {
     // 3. Fallback to D1
     if (!user) {
       user = await c.env.DB.prepare(
-        "SELECT id, firebase_uid, email, name, role FROM users WHERE firebase_uid = ? AND deleted_at IS NULL LIMIT 1"
-      ).bind(uid).first<{ id: string; firebase_uid: string; email: string; name: string; role: string }>();
+        "SELECT id, firebase_uid, email, name, role, custom_panels FROM users WHERE firebase_uid = ? AND deleted_at IS NULL LIMIT 1"
+      ).bind(uid).first<{ id: string; firebase_uid: string; email: string; name: string; role: string; custom_panels: string | null }>();
 
       if (!user) {
         return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
@@ -68,10 +68,15 @@ authRoutes.post("/login", async (c) => {
       ).bind(crypto.randomUUID(), uid, uid, ip).run();
     } catch { /* cache write failed */ }
 
+    let customPanels: string[] | null = null;
+    try {
+      if (user.custom_panels) customPanels = JSON.parse(user.custom_panels);
+    } catch { /* ignore malformed JSON */ }
+
     return c.json({
       success: true,
       data: {
-        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        user: { id: user.id, email: user.email, name: user.name, role: user.role, custom_panels: customPanels },
       },
     });
   } catch (err: unknown) {
@@ -82,3 +87,26 @@ authRoutes.post("/login", async (c) => {
 authRoutes.post("/refresh", async (c) => c.json({ success: true, data: { message: "Refresh" } }));
 authRoutes.post("/logout", async (c) => c.json({ success: true, data: { message: "Logout" } }));
 authRoutes.get("/me", async (c) => c.json({ success: true, data: { message: "Me" } }));
+
+// PUT /api/v1/auth/preferences — persist user dashboard preferences cross-device
+authRoutes.put("/preferences", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ success: false, error: { code: "UNAUTHORIZED", message: "No autenticado" } }, 401);
+
+  let body: { custom_panels?: string[] };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Body inválido" } }, 400);
+  }
+
+  if (!Array.isArray(body.custom_panels)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "custom_panels debe ser un array" } }, 400);
+  }
+
+  await c.env.DB.prepare(
+    "UPDATE users SET custom_panels = ?, updated_at = datetime('now') WHERE id = ?"
+  ).bind(JSON.stringify(body.custom_panels), userId).run();
+
+  return c.json({ success: true, data: { custom_panels: body.custom_panels } });
+});

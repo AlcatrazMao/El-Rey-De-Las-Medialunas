@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect, useRef } from 'react';
 
 import { auth } from './config/firebase';
 import { addAutoNote } from './hooks/useStickyNotes';
+import { getSettings } from './hooks/useSettings';
 import {
   INITIAL_INGREDIENTS,
   INITIAL_PRODUCTS,
@@ -14,7 +15,7 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS
 } from './initialData';
-import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, syncCashSessionCloseToD1, fetchCustomersFromD1, syncExpenseToD1, syncSupplyRequestToD1, updateSupplyRequestStatusInD1 } from './services/d1-sync';
+import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, syncCashSessionCloseToD1, fetchCustomersFromD1, syncExpenseToD1, syncSupplyRequestToD1, updateSupplyRequestStatusInD1, syncUserPreferencesToD1 } from './services/d1-sync';
 import type { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
 
 interface AppContextType {
@@ -99,7 +100,7 @@ const safeParse = <T,>(key: string, fallback: T): T => {
   }
 };
 
-export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: FirebaseUser; firestoreRole?: string | null }> = ({ children, firebaseUser, firestoreRole }) => {
+export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: FirebaseUser; firestoreRole?: string | null; serverPanels?: string[] | null }> = ({ children, firebaseUser, firestoreRole, serverPanels }) => {
   // Initialize state from local storage or defaults
   const [ingredients, setIngredients] = useState<Ingredient[]>(() => 
     safeParse('pan_erp_ingredients', INITIAL_INGREDIENTS)
@@ -316,17 +317,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   });
 
   // User role from Firestore — NO email fallback
+  const defaultPanels = (firestoreRole === 'admin' || firestoreRole === 'owner')
+    ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
+    : firestoreRole === 'cajero'
+    ? ['widget_facturacion', 'widget_alertas']
+    : ['widget_inventario', 'widget_alertas'];
+
+  const persistedPanels = (() => {
+    try {
+      const raw = localStorage.getItem(`pan_erp_widgets_${firebaseUser.uid}`);
+      if (raw) return JSON.parse(raw) as string[];
+    } catch { /* ignore */ }
+    return null;
+  })();
+
   const firebaseMappedUser: User = {
     id: firebaseUser.uid,
     name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
     email: firebaseUser.email || '',
     role: (firestoreRole || 'panadero') as UserRole,
     avatar: firebaseUser.photoURL || '',
-    customPanels: (firestoreRole === 'admin' || firestoreRole === 'owner')
-      ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
-      : firestoreRole === 'cajero'
-      ? ['widget_facturacion', 'widget_alertas']
-      : ['widget_inventario', 'widget_alertas'],
+    // Priority: D1 (server) > localStorage > role defaults
+    customPanels: serverPanels ?? persistedPanels ?? defaultPanels,
   };
 
   const [users, setUsers] = useState<User[]>([firebaseMappedUser]);
@@ -637,7 +649,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
           };
         }),
         total: cartItems.reduce((acc, c) => acc + ((products.find(p => p.id === c.productId)?.price || 0) * c.quantity), 0),
-        tax: cartItems.reduce((acc, c) => acc + ((products.find(p => p.id === c.productId)?.price || 0) * c.quantity), 0) * 0.21,
+        tax: cartItems.reduce((acc, c) => acc + ((products.find(p => p.id === c.productId)?.price || 0) * c.quantity), 0) * getSettings().fiscal.ivaRate,
         paymentMethod,
         paymentStatus: 'failed',
         operatorRole: activeUser.role,
@@ -706,13 +718,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         name: product.name,
         quantity: item.quantity,
         price: product.price,
-        subtotal: product.price * item.quantity
+        subtotal: product.price * item.quantity,
+        cost: product.cost,
       });
     }
 
     // Generate Invoice details
     const subtotalTotal = saleLineItems.reduce((acc, curr) => acc + curr.subtotal, 0);
-    const calculatedTax = parseFloat((subtotalTotal * 0.21).toFixed(2)); // standard 21% IVA
+    const ivaRate = getSettings().fiscal.ivaRate;
+    const calculatedTax = parseFloat((subtotalTotal * ivaRate).toFixed(2));
     
     // Auto increment sequential invoice
     const dateToday = new Date();
@@ -905,6 +919,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         return u;
       })
     );
+    try {
+      const key = `pan_erp_widgets_${activeUser.id}`;
+      localStorage.setItem(key, JSON.stringify(updatedWidgets));
+    } catch { /* storage unavailable */ }
+    syncUserPreferencesToD1(updatedWidgets).catch(() => {});
     addSystemNotification('📋 Tablero Personalizado', `Se guardó tu distribución preferida de analíticas para ${activeUser.name}.`, 'info');
   };
 
@@ -1226,7 +1245,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     );
     syncCashSessionToD1({
       id: newSession.id,
-      branch_id: '00000000000000000000000000000001',
+      branch_id: getSettings().business.branchId,
       opening_amount: initialAmount,
       status: 'open',
       opened_at: newSession.openedAt,
