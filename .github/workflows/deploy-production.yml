@@ -70,8 +70,10 @@ jobs:
           fi
 
           echo "=== Creating Queues (idempotent) ==="
-          (cd workers/api && npx wrangler queues create inventory-processing) 2>&1 || true
-          (cd workers/api && npx wrangler queues create report-generation) 2>&1 || true
+          set +e
+          (cd workers/api && npx wrangler queues create inventory-processing) 2>&1
+          (cd workers/api && npx wrangler queues create report-generation) 2>&1
+          set -e
 
           echo "=== Deploying Workers ==="
           for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker; do
