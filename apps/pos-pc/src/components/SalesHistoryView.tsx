@@ -12,8 +12,8 @@ import * as React from 'react'
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
-import type { Sale } from '../types';
 import { syncVoidSaleToD1 } from '../services/d1-sync';
+import type { Sale } from '../types';
 import { exportSalesToCSV, printTicketOrInvoice } from '../utils/exportUtils';
 
 export const SalesHistoryView: React.FC = () => {

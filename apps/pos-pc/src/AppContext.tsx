@@ -4,8 +4,8 @@ import * as React from 'react'
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 
 import { auth } from './config/firebase';
-import { addAutoNote } from './hooks/useStickyNotes';
 import { getSettings } from './hooks/useSettings';
+import { addAutoNote } from './hooks/useStickyNotes';
 import {
   INITIAL_INGREDIENTS,
   INITIAL_PRODUCTS,

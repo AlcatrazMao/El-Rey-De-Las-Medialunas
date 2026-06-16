@@ -1,6 +1,5 @@
 import { db } from "@medialunas/db-client";
-import type { DbClientInterface } from "@medialunas/sync-engine";
-import type { SyncChange } from "@medialunas/sync-engine";
+import type { DbClientInterface, SyncChange } from "@medialunas/sync-engine";
 
 function snakeToCamelKey(key: string): string {
   return key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());

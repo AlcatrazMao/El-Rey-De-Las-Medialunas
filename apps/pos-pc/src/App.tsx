@@ -9,7 +9,6 @@ import * as React from 'react'
 import { useState, useEffect } from 'react';
 
 import { AppProvider, useApp } from './AppContext';
-import { useSyncEngine } from './hooks/useSyncEngine';
 import { AccountingView } from './components/AccountingView';
 import { AdminUsersView } from './components/AdminUsersView';
 import { CajeroMermaView } from './components/CajeroMermaView';
@@ -26,6 +25,7 @@ import { SalesHistoryView } from './components/SalesHistoryView';
 import { SettingsView } from './components/SettingsView';
 import { StickyNotesView } from './components/StickyNotesView';
 import { auth } from './config/firebase';
+import { useSyncEngine } from './hooks/useSyncEngine';
 
 
 interface SavedSession { email: string; name: string; role: string; }

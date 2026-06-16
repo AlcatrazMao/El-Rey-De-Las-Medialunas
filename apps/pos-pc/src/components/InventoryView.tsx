@@ -13,11 +13,12 @@ import {
 } from 'lucide-react';
 import * as React from 'react'
 import { useState } from 'react';
-import { ImagePicker } from './ImagePicker';
 
 import { useApp } from '../AppContext';
 import type { Ingredient, Product, CategoryType} from '../types';
 import { exportIngredientsToCSV } from '../utils/exportUtils';
+
+import { ImagePicker } from './ImagePicker';
 
 export const InventoryView: React.FC = () => {
   const {

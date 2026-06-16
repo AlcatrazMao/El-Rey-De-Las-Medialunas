@@ -1,7 +1,7 @@
-import { useState, useRef } from "react";
 import data from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
 import { Upload, Smile, X } from "lucide-react";
+import { useState, useRef } from "react";
 
 const API_URL =
   (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||

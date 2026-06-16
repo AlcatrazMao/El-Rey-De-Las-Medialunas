@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { SyncEngine } from "@medialunas/sync-engine";
-import { NetworkMonitor } from "@medialunas/sync-engine";
+import { NetworkMonitor, SyncEngine } from "@medialunas/sync-engine";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+
 import { getApi } from "../services/api";
 import { dbAdapter } from "../services/db-adapter";
+
 import { getSettings } from "./useSettings";
 
 const API_URL =
@@ -36,7 +38,6 @@ export function useSyncEngine(isAuthenticated: boolean) {
     const branchId = getSettings().business.branchId;
     const healthCheckUrl = `${API_URL}/api/v1/health`;
 
-    // Track online status via NetworkMonitor (separate from the engine's internal one)
     const monitor = new NetworkMonitor(healthCheckUrl);
     setIsOnline(monitor.isOnline);
     const unsub = monitor.onStatusChange((online) => setIsOnline(online));
@@ -62,7 +63,6 @@ export function useSyncEngine(isAuthenticated: boolean) {
     engine.startAutoSync();
     engineRef.current = engine;
 
-    // Initial sync to warm up the local cache
     void triggerSync();
 
     return () => {
@@ -71,8 +71,7 @@ export function useSyncEngine(isAuthenticated: boolean) {
       engine.destroy();
       engineRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
+  }, [isAuthenticated, triggerSync]);
 
   return { engineRef, isOnline, isSyncing, lastSync, triggerSync };
 }

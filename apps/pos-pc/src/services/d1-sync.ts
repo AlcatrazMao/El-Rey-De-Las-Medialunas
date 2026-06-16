@@ -1,5 +1,6 @@
-import type { Sale, Product, CategoryType } from "../types";
 import { getSettings } from "../hooks/useSettings";
+import type { Sale, Product, CategoryType } from "../types";
+
 import { getApi } from "./api";
 import { dbAdapter } from "./db-adapter";
 
