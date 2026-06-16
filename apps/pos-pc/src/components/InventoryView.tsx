@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import * as React from 'react'
 import { useState } from 'react';
+import { ImagePicker } from './ImagePicker';
 
 import { useApp } from '../AppContext';
 import type { Ingredient, Product, CategoryType} from '../types';
@@ -1225,26 +1226,8 @@ export const InventoryView: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Ícono Emojí</label>
-                <select
-                  id="modal-prod-emoji"
-                  value={prodImage}
-                  onChange={(e) => setProdImage(e.target.value)}
-                  className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
-                >
-                  <option value="🥖">🥖 pan flauta / baguette</option>
-                  <option value="🥐">🥐 croissant / medialuna</option>
-                  <option value="🍞">🍞 pancito</option>
-                  <option value="🥯">🥯 bagel / dona</option>
-                  <option value="🧁">🧁 muffin / magdalena</option>
-                  <option value="🍰">🍰 tarta / torta dulce</option>
-                  <option value="🍩">🍩 dona decorada</option>
-                  <option value="🥪">🥪 sandwich salado</option>
-                  <option value="☕">☕ café caliente</option>
-                  <option value="🍊">🍊 exprimido natural</option>
-                  <option value="🥨">🥨 vigilantes / cuernitos</option>
-                  <option value="🍫">🍫 budín chocolate</option>
-                </select>
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Ícono / Imagen</label>
+                <ImagePicker value={prodImage} onChange={setProdImage} />
               </div>
             </div>
 

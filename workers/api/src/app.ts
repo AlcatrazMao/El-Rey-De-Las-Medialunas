@@ -6,6 +6,7 @@ import { errorHandler } from "./middleware/error-handler";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { validate } from "./middleware/validate";
 import { auditRoutes } from "./routes/audit";
+import { uploadRoutes } from "./routes/uploads";
 import { authRoutes } from "./routes/auth";
 import { branchRoutes } from "./routes/branches";
 import { cashRoutes } from "./routes/cash";
@@ -46,6 +47,7 @@ app.route("/api/v1/sync", syncRoutes);
 app.route("/api/v1/audit", auditRoutes);
 app.route("/api/v1/supply-requests", supplyRequestRoutes);
 app.route("/api/v1/expenses", expenseRoutes);
+app.route("/api/v1/upload", uploadRoutes);
 
 app.get("/api/v1/health", (c) => {
   return c.json({
