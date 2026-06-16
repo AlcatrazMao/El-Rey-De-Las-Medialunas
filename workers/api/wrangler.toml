@@ -33,10 +33,6 @@ queue = "inventory-processing"
 binding = "REPORTS_QUEUE"
 queue = "report-generation"
 
-[[r2_buckets]]
-binding = "BUCKET_R2"
-bucket_name = "imagenes-cf-r2"
-
 [vars]
 APP_NAME = "El Rey De Las Medialunas"
 APP_ENV = "development"
@@ -72,10 +68,6 @@ queue = "inventory-processing"
 [[env.production.queues.producers]]
 binding = "REPORTS_QUEUE"
 queue = "report-generation"
-
-[[env.production.r2_buckets]]
-binding = "BUCKET_R2"
-bucket_name = "imagenes-cf-r2"
 
 [env.production.vars]
 APP_NAME = "El Rey De Las Medialunas"

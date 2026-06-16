@@ -43,6 +43,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           BUCKET_R2_URL: ${{ secrets.BUCKET_R2 }}
+          R2_CF_TOKEN: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
         run: |
           D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid":"\K[0-9a-f-]+(?=","name":"el-rey-db")' | head -1 || echo "")
           [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"name":"el-rey-db","uuid":"\K[0-9a-f-]+' | head -1 || echo "")
@@ -74,6 +76,10 @@ jobs:
           (cd workers/api && npx wrangler queues create inventory-processing) 2>&1
           (cd workers/api && npx wrangler queues create report-generation) 2>&1
           set -e
+
+          echo "=== Setting Worker Secrets (api) ==="
+          echo "$R2_CF_TOKEN" | (cd workers/api && npx wrangler secret put R2_CF_TOKEN --env production)
+          echo "$R2_ACCOUNT_ID" | (cd workers/api && npx wrangler secret put R2_ACCOUNT_ID --env production)
 
           echo "=== Deploying Workers ==="
           for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker; do
