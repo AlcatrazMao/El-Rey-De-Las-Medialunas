@@ -26,6 +26,7 @@ import { SettingsView } from './components/SettingsView';
 import { StickyNotesView } from './components/StickyNotesView';
 import { auth } from './config/firebase';
 import { useSyncEngine } from './hooks/useSyncEngine';
+import { useVersionCheck } from './hooks/useVersionCheck';
 
 
 interface SavedSession { email: string; name: string; role: string; }
@@ -73,6 +74,22 @@ function NetworkStatusBar({
           </button>
         </>
       ) : null}
+    </div>
+  );
+}
+
+function UpdateBanner() {
+  const updateAvailable = useVersionCheck();
+  if (!updateAvailable) return null;
+  return (
+    <div className="fixed inset-x-0 top-0 z-[60] flex items-center justify-center gap-3 bg-amber-500 px-4 py-2 text-xs font-bold text-white shadow-md">
+      <span>Hay una versión nueva disponible.</span>
+      <button
+        onClick={() => window.location.reload()}
+        className="underline underline-offset-2 hover:no-underline"
+      >
+        Actualizar ahora
+      </button>
     </div>
   );
 }
@@ -358,6 +375,7 @@ export default function App() {
 
   return (
     <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole} serverPanels={serverPanels}>
+      <UpdateBanner />
       <NetworkStatusBar isOnline={isOnline} isSyncing={isSyncing} lastSync={lastSync} onSyncNow={triggerSync} />
       <ERPLayout />
     </AppProvider>
