@@ -34,13 +34,13 @@ binding = "REPORTS_QUEUE"
 queue = "report-generation"
 
 [[r2_buckets]]
-binding = "PRODUCT_IMAGES"
-bucket_name = "BUCKET_NAME_PLACEHOLDER"
+binding = "BUCKET_R2"
+bucket_name = "BUCKET_R2"
 
 [vars]
 APP_NAME = "El Rey De Las Medialunas"
 APP_ENV = "development"
-PRODUCT_IMAGES_URL = "https://PLACEHOLDER.r2.dev"
+PRODUCT_IMAGES_URL = "https://imagenes-cf-r2.isosistemas2.workers.dev"
 
 [env.staging.vars]
 APP_ENV = "staging"
@@ -80,4 +80,4 @@ bucket_name = "BUCKET_NAME_PLACEHOLDER"
 [env.production.vars]
 APP_NAME = "El Rey De Las Medialunas"
 APP_ENV = "production"
-PRODUCT_IMAGES_URL = "https://PLACEHOLDER.r2.dev"
+PRODUCT_IMAGES_URL = "https://imagenes-cf-r2.isosistemas2.workers.dev"

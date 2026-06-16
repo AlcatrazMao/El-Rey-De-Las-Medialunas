@@ -59,11 +59,12 @@ uploadRoutes.post("/product-image", async (c) => {
 
   const arrayBuffer = await file.arrayBuffer();
 
-  await c.env.PRODUCT_IMAGES.put(key, arrayBuffer, {
+  await c.env.BUCKET_R2.put(key, arrayBuffer, {
     httpMetadata: { contentType },
   });
 
-  const url = `${c.env.PRODUCT_IMAGES_URL}/${key}`;
+  const base = c.env.PRODUCT_IMAGES_URL.replace(/\/$/, "");
+  const url = `${base}/${key}`;
 
   return c.json({ success: true, data: { url } }, 201);
 });

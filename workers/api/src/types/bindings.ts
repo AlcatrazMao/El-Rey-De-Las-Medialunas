@@ -7,7 +7,7 @@ export interface Env {
   RATE_LIMIT: KVNamespace;
   INVENTORY_QUEUE: Queue<unknown>;
   REPORTS_QUEUE: Queue<unknown>;
-  PRODUCT_IMAGES: R2Bucket;
+  BUCKET_R2: R2Bucket;
   PRODUCT_IMAGES_URL: string;
   FIREBASE_SERVICE_ACCOUNT?: string;
   FIREBASE_API_KEY?: string;
