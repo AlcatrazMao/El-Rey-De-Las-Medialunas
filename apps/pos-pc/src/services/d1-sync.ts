@@ -117,7 +117,6 @@ export async function fetchInventoryFromD1(branchId?: string): Promise<any[]> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- customer from localStorage may be partially typed
 export async function syncCustomerToD1(customer: any): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- extra fields (tax_id, condicion_fiscal) accepted by worker but not in shared type
   await getApi().customers.create({
     name: customer.name,
     email: customer.email ?? null,
@@ -126,7 +125,7 @@ export async function syncCustomerToD1(customer: any): Promise<void> {
     credit_limit: customer.credit_limit ?? 0,
     current_debt: 0,
     is_active: true,
-  } as any);
+  });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- coerce server shape to local type
