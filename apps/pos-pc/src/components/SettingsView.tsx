@@ -1,17 +1,19 @@
-import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check } from 'lucide-react';
+import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check, Tag, Percent } from 'lucide-react';
 import * as React from 'react';
 import { useState, useEffect } from 'react';
 
 import { useSettings } from '../hooks/useSettings';
-import type { BusinessSettings, FiscalSettings, CashSettings, InventorySettings, GatewayCredential } from '../hooks/useSettings';
+import type { BusinessSettings, FiscalSettings, CashSettings, InventorySettings, GatewayCredential, PriceList, Promotion } from '../hooks/useSettings';
 import { BusinessSettings as BusinessSettingsPanel } from '../settings/BusinessSettings';
 import { CashSettings as CashSettingsPanel } from '../settings/CashSettings';
 import { FiscalSettings as FiscalSettingsPanel } from '../settings/FiscalSettings';
 import { InventorySettings as InventorySettingsPanel } from '../settings/InventorySettings';
 import { PaymentSettings as PaymentSettingsPanel } from '../settings/PaymentSettings';
+import { PriceListSettings as PriceListSettingsPanel } from '../settings/PriceListSettings';
 import { PrinterSettings as PrinterSettingsPanel } from '../settings/PrinterSettings';
+import { PromotionsSettings as PromotionsSettingsPanel } from '../settings/PromotionsSettings';
 
-type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'printer';
+type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'pricelists' | 'promotions' | 'printer';
 
 interface TabItem {
   id: TabId;
@@ -25,11 +27,13 @@ const TABS: TabItem[] = [
   { id: 'cash', label: 'Caja', icon: <Wallet className="h-4 w-4" /> },
   { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
   { id: 'payment', label: 'Pagos', icon: <CreditCard className="h-4 w-4" /> },
+  { id: 'pricelists', label: 'Precios', icon: <Tag className="h-4 w-4" /> },
+  { id: 'promotions', label: 'Promociones', icon: <Percent className="h-4 w-4" /> },
   { id: 'printer', label: 'Impresora', icon: <Printer className="h-4 w-4" /> },
 ];
 
 export const SettingsView: React.FC = () => {
-  const { settings, updateSection, setGatewayCredentials } = useSettings();
+  const { settings, updateSection, setGatewayCredentials, setPriceLists, setPromotions } = useSettings();
   const [activeTab, setActiveTab] = useState<TabId>('business');
   const [savedToast, setSavedToast] = useState(false);
 
@@ -51,6 +55,10 @@ export const SettingsView: React.FC = () => {
     updateSection('inventory', values);
   const handleUpdatePayment = (credentials: GatewayCredential[]) =>
     setGatewayCredentials(credentials);
+  const handleUpdatePriceLists = (priceLists: PriceList[]) =>
+    setPriceLists(priceLists);
+  const handleUpdatePromotions = (promotions: Promotion[]) =>
+    setPromotions(promotions);
 
   const renderPanel = () => {
     switch (activeTab) {
@@ -64,6 +72,10 @@ export const SettingsView: React.FC = () => {
         return <InventorySettingsPanel settings={settings} onUpdate={handleUpdateInventory} onSaved={showSavedToast} />;
       case 'payment':
         return <PaymentSettingsPanel settings={settings} onUpdate={handleUpdatePayment} onSaved={showSavedToast} />;
+      case 'pricelists':
+        return <PriceListSettingsPanel settings={settings} onUpdate={handleUpdatePriceLists} onSaved={showSavedToast} />;
+      case 'promotions':
+        return <PromotionsSettingsPanel settings={settings} onUpdate={handleUpdatePromotions} onSaved={showSavedToast} />;
       case 'printer':
         return <PrinterSettingsPanel />;
     }

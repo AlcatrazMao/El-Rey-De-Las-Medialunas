@@ -31,15 +31,39 @@ export interface GatewayCredential {
   publicKey: string;
 }
 
+export type CustomerTypeKey = 'consumidor_final' | 'frecuente' | 'mayorista' | 'empresa';
+
+export interface PriceList {
+  id: string;
+  name: string;
+  discountPercent: number;
+  customerTypes: CustomerTypeKey[];
+  isDefault: boolean;
+}
+
+export type PromotionType = 'quantity_discount' | 'fixed_discount';
+
+export interface Promotion {
+  id: string;
+  name: string;
+  type: PromotionType;
+  minQuantity: number;
+  discountPercent: number;
+  applicableCategories: string[];
+  active: boolean;
+}
+
 export interface AppSettings {
   business: BusinessSettings;
   fiscal: FiscalSettings;
   cash: CashSettings;
   inventory: InventorySettings;
   gatewayCredentials: GatewayCredential[];
+  priceLists: PriceList[];
+  promotions: Promotion[];
 }
 
-type ObjectSections = Omit<AppSettings, 'gatewayCredentials'>;
+type ObjectSections = Omit<AppSettings, 'gatewayCredentials' | 'priceLists' | 'promotions'>;
 
 const SETTINGS_KEY = 'erp_settings';
 
@@ -67,6 +91,11 @@ const DEFAULT_SETTINGS: AppSettings = {
     globalLowStockThreshold: 0,
   },
   gatewayCredentials: [],
+  priceLists: [
+    { id: 'list_1', name: 'Mostrador', discountPercent: 0, customerTypes: ['consumidor_final', 'frecuente'], isDefault: true },
+    { id: 'list_2', name: 'Mayorista', discountPercent: -15, customerTypes: ['mayorista', 'empresa'], isDefault: false },
+  ],
+  promotions: [],
 };
 
 export function getSettings(): AppSettings {
@@ -80,6 +109,8 @@ export function getSettings(): AppSettings {
       cash: { ...DEFAULT_SETTINGS.cash, ...parsed.cash },
       inventory: { ...DEFAULT_SETTINGS.inventory, ...parsed.inventory },
       gatewayCredentials: parsed.gatewayCredentials ?? DEFAULT_SETTINGS.gatewayCredentials,
+      priceLists: parsed.priceLists ?? DEFAULT_SETTINGS.priceLists,
+      promotions: parsed.promotions ?? DEFAULT_SETTINGS.promotions,
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -117,5 +148,21 @@ export function useSettings() {
     });
   }
 
-  return { settings, updateSection, setGatewayCredentials };
+  function setPriceLists(priceLists: PriceList[]): void {
+    setSettings(prev => {
+      const updated: AppSettings = { ...prev, priceLists };
+      persistSettings(updated);
+      return updated;
+    });
+  }
+
+  function setPromotions(promotions: Promotion[]): void {
+    setSettings(prev => {
+      const updated: AppSettings = { ...prev, promotions };
+      persistSettings(updated);
+      return updated;
+    });
+  }
+
+  return { settings, updateSection, setGatewayCredentials, setPriceLists, setPromotions };
 }
