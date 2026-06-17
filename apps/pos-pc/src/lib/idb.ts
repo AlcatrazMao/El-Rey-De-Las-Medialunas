@@ -115,8 +115,10 @@ export const batchStore = {
   },
 
   async putMany(batches: IDBBatch[]): Promise<void> {
+    if (batches.length === 0) return;
     const db = await openDB();
-    const store = tx(db, STORE_BATCHES, 'readwrite');
+    const txn = db.transaction(STORE_BATCHES, 'readwrite');
+    const store = txn.objectStore(STORE_BATCHES);
     await Promise.all(batches.map(b => request(store.put(b))));
   },
 

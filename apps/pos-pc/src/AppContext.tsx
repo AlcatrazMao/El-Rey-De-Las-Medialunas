@@ -153,13 +153,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     }
 
     for (const item of cartItems) {
-      const product = updatedProducts.find(p => p.id === item.productId)!;
-      product.stock -= item.quantity;
+      const productIdx = updatedProducts.findIndex(p => p.id === item.productId);
+      if (productIdx === -1) continue;
+      updatedProducts[productIdx] = {
+        ...updatedProducts[productIdx],
+        stock: updatedProducts[productIdx].stock - item.quantity,
+      };
+      const product = updatedProducts[productIdx];
       if (product.stock <= product.minStock) lowStockAlerts.push(`Stock bajo de ${product.name}: quedan ${product.stock} unidades.`);
       for (const recipeIng of product.ingredients) {
-        const ing = updatedIngredients.find(i => i.id === recipeIng.ingredientId);
-        if (!ing) continue;
-        ing.stock -= recipeIng.quantity * item.quantity;
+        const ingIdx = updatedIngredients.findIndex(i => i.id === recipeIng.ingredientId);
+        if (ingIdx === -1) continue;
+        updatedIngredients[ingIdx] = {
+          ...updatedIngredients[ingIdx],
+          stock: updatedIngredients[ingIdx].stock - recipeIng.quantity * item.quantity,
+        };
+        const ing = updatedIngredients[ingIdx];
         if (ing.stock <= ing.minStock) lowStockAlerts.push(`Peligro: Materia prima baja en "${ing.name}" (${ing.stock.toFixed(2)}${ing.unit} restante).`);
       }
       saleLineItems.push({ productId: product.id, name: product.name, quantity: item.quantity, price: product.price, subtotal: product.price * item.quantity, cost: product.cost });
@@ -220,7 +229,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         tax_amount: (i.subtotal - i.subtotal / (1 + getSettings().fiscal.ivaRate)),
       })),
       payments: [{ payment_method: paymentMethod === 'efectivo' ? 'cash' : paymentMethod, amount: newSaleInstance.total }],
-      subtotal: newSaleInstance.total,
+      subtotal: parseFloat((newSaleInstance.total / (1 + ivaRate)).toFixed(2)),
       tax_total: newSaleInstance.tax,
       total: newSaleInstance.total,
       customer_id: newSaleInstance.customerId ?? null,
@@ -260,18 +269,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   };
 
   const approveWithdrawalRequest = (requestId: string, adminMemo: string) => {
-    bch.setWithdrawalRequests(prev => prev.map(r => {
-      if (r.id !== requestId || r.status !== 'pending') return r;
-      const req = { ...r, status: 'approved' as const, adminMemo };
-      bch.setBatches(cur => cur.map(b => {
-        if (b.id !== req.batchId) return b;
-        const nextStock = Math.max(0, b.stock - req.quantity);
-        return { ...b, stock: nextStock, status: nextStock === 0 ? ('withdrawn' as const) : b.status };
-      }));
-      inv.setProducts(cur => cur.map(p => (p.id === req.productId ? { ...p, stock: Math.max(0, p.stock - req.quantity) } : p)));
-      notif.addSystemNotification('✅ Solicitud de Baja Aprobada', `Se aprobó retirar del local ${req.quantity} u. de "${req.productName}". Detalle: ${adminMemo}`, 'success');
-      return req;
-    }));
+    const target = bch.withdrawalRequests.find(r => r.id === requestId);
+    if (!target || target.status !== 'pending') return;
+
+    const req = { ...target, status: 'approved' as const, adminMemo };
+
+    const updatedRequests = bch.withdrawalRequests.map(r => (r.id === requestId ? req : r));
+
+    const updatedBatches = bch.batches.map(b => {
+      if (b.id !== req.batchId) return b;
+      const nextStock = Math.max(0, b.stock - req.quantity);
+      return { ...b, stock: nextStock, status: nextStock === 0 ? ('withdrawn' as const) : b.status };
+    });
+
+    const updatedProducts = inv.products.map(p =>
+      p.id === req.productId ? { ...p, stock: Math.max(0, p.stock - req.quantity) } : p
+    );
+
+    bch.setWithdrawalRequests(updatedRequests);
+    bch.setBatches(updatedBatches);
+    inv.setProducts(updatedProducts);
+
+    notif.addSystemNotification('✅ Solicitud de Baja Aprobada', `Se aprobó retirar del local ${req.quantity} u. de "${req.productName}". Detalle: ${adminMemo}`, 'success');
   };
 
   const approveSupplyRequest = (requestId: string, adminMemo: string) => {

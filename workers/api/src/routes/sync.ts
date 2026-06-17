@@ -11,41 +11,61 @@ const DEFAULT_BRANCH = "00000000000000000000000000000001";
 // GET /pull?last_sync_timestamp=&branch_id=&entity_types=
 syncRoutes.get("/pull", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
-  const since = c.req.query("last_sync_timestamp") ?? "1970-01-01 00:00:00";
+  const rawBranchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const rawSince = c.req.query("last_sync_timestamp") ?? "";
+
+  // Bug 1 — CRITICAL: validate inputs before using in queries
+  const BRANCH_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+  const ISO_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+  if (!BRANCH_RE.test(rawBranchId)) {
+    return c.json({ success: false, error: "Invalid branch_id" }, 400);
+  }
+  if (rawSince !== "" && !ISO_RE.test(rawSince)) {
+    return c.json({ success: false, error: "Invalid last_sync_timestamp" }, 400);
+  }
+
+  const branchId = rawBranchId;
+  const since = rawSince !== "" ? rawSince : "1970-01-01 00:00:00";
   const requestedTypes = c.req.query("entity_types")?.split(",").filter(Boolean);
 
   const serverTimestamp = new Date().toISOString().replace("T", " ").slice(0, 19);
 
-  // Define which tables to pull and how to map them
-  const PULLABLE: { type: string; query: string }[] = [
+  // Bug 1 — CRITICAL: use prepared statements with ? placeholders
+  const PULLABLE: { type: string; query: string; bindings: unknown[] }[] = [
     {
       type: "products",
-      query: `SELECT * FROM products WHERE branch_id = '${branchId}' AND updated_at > '${since}'`,
+      query: `SELECT * FROM products WHERE branch_id = ? AND updated_at > ?`,
+      bindings: [branchId, since],
     },
     {
       type: "categories",
-      query: `SELECT * FROM categories WHERE branch_id = '${branchId}' AND updated_at > '${since}'`,
+      query: `SELECT * FROM categories WHERE branch_id = ? AND updated_at > ?`,
+      bindings: [branchId, since],
     },
     {
       type: "inventory",
-      query: `SELECT i.*, p.name as product_name FROM inventory i LEFT JOIN products p ON p.id = i.product_id WHERE i.branch_id = '${branchId}' AND i.updated_at > '${since}'`,
+      query: `SELECT i.*, p.name as product_name FROM inventory i LEFT JOIN products p ON p.id = i.product_id WHERE i.branch_id = ? AND i.updated_at > ?`,
+      bindings: [branchId, since],
     },
     {
       type: "customers",
-      query: `SELECT * FROM customers WHERE updated_at > '${since}'`,
+      query: `SELECT * FROM customers WHERE updated_at > ?`,
+      bindings: [since],
     },
     {
       type: "sales",
-      query: `SELECT * FROM sales WHERE branch_id = '${branchId}' AND created_at > '${since}'`,
+      query: `SELECT * FROM sales WHERE branch_id = ? AND created_at > ?`,
+      bindings: [branchId, since],
     },
     {
       type: "batches",
-      query: `SELECT ib.*, p.name as product_name FROM inventory_batches ib LEFT JOIN products p ON p.id = ib.product_id WHERE ib.branch_id = '${branchId}' AND ib.created_at > '${since}'`,
+      query: `SELECT ib.*, p.name as product_name FROM inventory_batches ib LEFT JOIN products p ON p.id = ib.product_id WHERE ib.branch_id = ? AND ib.created_at > ?`,
+      bindings: [branchId, since],
     },
     {
       type: "offers",
-      query: `SELECT * FROM offers WHERE branch_id = '${branchId}' AND updated_at > '${since}'`,
+      query: `SELECT * FROM offers WHERE branch_id = ? AND updated_at > ?`,
+      bindings: [branchId, since],
     },
   ];
 
@@ -62,15 +82,17 @@ syncRoutes.get("/pull", async (c) => {
     server_timestamp: string;
   }[] = [];
 
-  for (const { type, query } of activePullable) {
-    const results = await db.prepare(query).all<Record<string, unknown>>();
+  for (const { type, query, bindings } of activePullable) {
+    const stmt = db.prepare(query).bind(...bindings);
+    const results = await stmt.all<Record<string, unknown>>();
     for (const row of results.results ?? []) {
       const entityId = String(row.id ?? "");
       const isDeleted = row.deleted_at != null;
+      // Bug 5 — LOW: use "upsert" for live rows, "delete" for soft-deleted
       operations.push({
         id: `${type}_${entityId}_${serverTimestamp}`,
         entity_type: type,
-        operation: isDeleted ? "delete" : "create",
+        operation: isDeleted ? "delete" : "upsert",
         entity_id: entityId,
         data: row,
         server_timestamp: String(row.updated_at ?? serverTimestamp),
@@ -107,17 +129,20 @@ syncRoutes.post("/push", async (c) => {
   const operations = body.operations ?? [];
   let processed = 0;
   let failed = 0;
+  // Bug 4 — MEDIUM: collect error details so the client knows what failed
+  const errors: string[] = [];
 
   for (const op of operations) {
     try {
       await applyOperation(db, op, user.id, branchId);
       processed++;
-    } catch {
+    } catch (e) {
       failed++;
+      errors.push(`${op.client_id}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  return c.json({ success: true, data: { processed, failed } });
+  return c.json({ success: true, data: { processed, failed, errors } });
 });
 
 // ── Operation dispatcher ───────────────────────────────────────────────
@@ -234,28 +259,52 @@ async function applyOperation(
     }
 
     case "batch": {
-      if (op.operation !== "create" && op.operation !== "update") break;
-      await db.prepare(
-        `INSERT OR REPLACE INTO inventory_batches
-          (id, product_id, branch_id, batch_number, entry_date, expiry_date, durability_days,
-           cost_per_unit, initial_quantity, remaining_quantity, inventory_method, status, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        id,
-        String(d.product_id ?? ""),
-        branchId,
-        String(d.batch_number ?? ""),
-        String(d.entry_date ?? now.slice(0, 10)),
-        d.expiry_date == null ? null : String(d.expiry_date),
-        d.durability_days == null ? null : Number(d.durability_days),
-        Number(d.cost_per_unit ?? 0),
-        Number(d.initial_quantity ?? 0),
-        Number(d.remaining_quantity ?? d.initial_quantity ?? 0),
-        String(d.inventory_method ?? "FIFO"),
-        String(d.status ?? "active"),
-        d.notes == null ? null : String(d.notes),
-        String(d.created_at ?? now),
-      ).run();
+      // Bug 2 — HIGH: INSERT OR REPLACE destroys FKs; split by operation instead
+      if (op.operation === "create") {
+        await db.prepare(
+          `INSERT OR IGNORE INTO inventory_batches
+            (id, product_id, branch_id, batch_number, entry_date, expiry_date, durability_days,
+             cost_per_unit, initial_quantity, remaining_quantity, inventory_method, status, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          id,
+          String(d.product_id ?? ""),
+          branchId,
+          String(d.batch_number ?? ""),
+          String(d.entry_date ?? now.slice(0, 10)),
+          d.expiry_date == null ? null : String(d.expiry_date),
+          d.durability_days == null ? null : Number(d.durability_days),
+          Number(d.cost_per_unit ?? 0),
+          Number(d.initial_quantity ?? 0),
+          Number(d.remaining_quantity ?? d.initial_quantity ?? 0),
+          String(d.inventory_method ?? "FIFO"),
+          String(d.status ?? "active"),
+          d.notes == null ? null : String(d.notes),
+          String(d.created_at ?? now),
+        ).run();
+      } else if (op.operation === "update") {
+        await db.prepare(
+          `UPDATE inventory_batches
+           SET product_id = ?, branch_id = ?, batch_number = ?, entry_date = ?, expiry_date = ?,
+               durability_days = ?, cost_per_unit = ?, initial_quantity = ?, remaining_quantity = ?,
+               inventory_method = ?, status = ?, notes = ?
+           WHERE id = ?`
+        ).bind(
+          String(d.product_id ?? ""),
+          branchId,
+          String(d.batch_number ?? ""),
+          String(d.entry_date ?? now.slice(0, 10)),
+          d.expiry_date == null ? null : String(d.expiry_date),
+          d.durability_days == null ? null : Number(d.durability_days),
+          Number(d.cost_per_unit ?? 0),
+          Number(d.initial_quantity ?? 0),
+          Number(d.remaining_quantity ?? d.initial_quantity ?? 0),
+          String(d.inventory_method ?? "FIFO"),
+          String(d.status ?? "active"),
+          d.notes == null ? null : String(d.notes),
+          id,
+        ).run();
+      }
       break;
     }
 
@@ -270,26 +319,47 @@ async function applyOperation(
         : typeof d.product_ids === "string"
           ? d.product_ids
           : "[]";
-      await db.prepare(
-        `INSERT OR IGNORE INTO offers
-          (id, branch_id, user_id, name, discount_percent, batch_ids, product_ids,
-           starts_at, ends_at, status, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        id,
-        branchId,
-        userId,
-        String(d.name ?? ""),
-        Number(d.discount_percent ?? 0),
-        batchIds,
-        productIds,
-        String(d.starts_at ?? now),
-        d.ends_at == null ? null : String(d.ends_at),
-        String(d.status ?? "active"),
-        d.notes == null ? null : String(d.notes),
-        now,
-        now,
-      ).run();
+      // Bug 3 — HIGH: INSERT OR IGNORE silences updates; split by operation
+      if (op.operation === "create") {
+        await db.prepare(
+          `INSERT OR IGNORE INTO offers
+            (id, branch_id, user_id, name, discount_percent, batch_ids, product_ids,
+             starts_at, ends_at, status, notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          id,
+          branchId,
+          userId,
+          String(d.name ?? ""),
+          Number(d.discount_percent ?? 0),
+          batchIds,
+          productIds,
+          String(d.starts_at ?? now),
+          d.ends_at == null ? null : String(d.ends_at),
+          String(d.status ?? "active"),
+          d.notes == null ? null : String(d.notes),
+          now,
+          now,
+        ).run();
+      } else if (op.operation === "update") {
+        await db.prepare(
+          `UPDATE offers
+           SET name = ?, discount_percent = ?, batch_ids = ?, product_ids = ?,
+               starts_at = ?, ends_at = ?, status = ?, notes = ?, updated_at = ?
+           WHERE id = ?`
+        ).bind(
+          String(d.name ?? ""),
+          Number(d.discount_percent ?? 0),
+          batchIds,
+          productIds,
+          String(d.starts_at ?? now),
+          d.ends_at == null ? null : String(d.ends_at),
+          String(d.status ?? "active"),
+          d.notes == null ? null : String(d.notes),
+          now,
+          id,
+        ).run();
+      }
       break;
     }
 

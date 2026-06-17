@@ -90,17 +90,20 @@ export async function syncOnCashClose(triggerSync?: () => Promise<void> | void):
 
 export function useSyncEngine(isAuthenticated: boolean) {
   const engineRef = useRef<SyncEngine | null>(null);
+  const syncingRef = useRef(false);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
 
   const triggerSync = useCallback(async () => {
-    if (!engineRef.current) return;
+    if (!engineRef.current || syncingRef.current) return;
+    syncingRef.current = true;
     setIsSyncing(true);
     try {
       await engineRef.current.sync();
       setLastSync(new Date());
     } finally {
+      syncingRef.current = false;
       setIsSyncing(false);
     }
   }, []);

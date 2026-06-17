@@ -1,8 +1,8 @@
 import { Tag, Clock, AlertTriangle, X, Check, Plus } from 'lucide-react';
 import * as React from 'react';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 
-import { getSettings } from '../hooks/useSettings';
+import { useSettings } from '../hooks/useSettings';
 import { batchStore, offerStore, type IDBBatch, type IDBOffer } from '../lib/idb';
 
 interface BatchInput {
@@ -44,16 +44,12 @@ function formatTimeRemaining(expiryDate: string): string {
   if (Number.isNaN(target)) return '—';
   const diff = target - Date.now();
   if (diff <= 0) return 'Vencido';
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  if (hours >= 48) {
-    const days = Math.floor(hours / 24);
-    return `Vence en ${days}d ${hours % 24}h`;
-  }
+  const hours = diff / (1000 * 60 * 60);
+  if (hours >= 48) return 'Vence en 2+ días';
   if (hours >= 24) return 'Vence mañana';
-  if (hours >= 12) return `Vence en ${hours}h ${minutes}m`;
-  if (hours >= 1) return `Vence en ${hours}h ${minutes}m`;
-  return `Vence en ${minutes}m`;
+  if (hours >= 12) return `Vence en ${Math.floor(hours)}h`;
+  if (hours >= 1) return `Vence en ${Math.floor(hours)}h ${Math.round((hours % 1) * 60)}m`;
+  return 'Vence en menos de 1h';
 }
 
 function urgencyClasses(expiryDate: string): { border: string; badge: string } {
@@ -77,7 +73,7 @@ function statusLabel(status: IDBOffer['status']): string {
 }
 
 export const OffersView: React.FC<Props> = ({ batches }) => {
-  const settings = useMemo(() => getSettings(), []);
+  const { settings } = useSettings();
   const branchId = settings.business.branchId;
   const offerRecommendHours = settings.inventory.offerRecommendHours;
 
@@ -133,7 +129,9 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const res = await fetch(`/api/v2/offers?branch_id=${encodeURIComponent(branchId)}&status=all`);
+      const res = await fetch(`/api/v2/offers?branch_id=${encodeURIComponent(branchId)}&status=all`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('firebase_token') ?? ''}` },
+      });
       if (!res.ok) throw new Error('fetch failed');
       const data = (await res.json()) as { offers?: IDBOffer[] } | IDBOffer[];
       const list = Array.isArray(data) ? data : (data.offers ?? []);
@@ -186,7 +184,10 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
     try {
       const res = await fetch(`/api/v2/offers`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('firebase_token') ?? ''}`,
+        },
         body: JSON.stringify(payload),
       });
       if (res.ok) synced = true;
@@ -224,7 +225,10 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
     try {
       const res = await fetch(`/api/v2/offers/${encodeURIComponent(offer.id)}/status`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('firebase_token') ?? ''}`,
+        },
         body: JSON.stringify({ status: 'cancelled' }),
       });
       ok = res.ok;

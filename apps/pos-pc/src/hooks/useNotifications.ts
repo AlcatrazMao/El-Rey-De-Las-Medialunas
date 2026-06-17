@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { INITIAL_NOTIFICATIONS } from '../initialData';
 import { safeSetItem } from '../utils/safeStorage';
 import type { PushNotification } from '../types';
@@ -93,7 +93,7 @@ export function useNotifications() {
     }
   };
 
-  const addSystemNotification = (title: string, message: string, type: PushNotification['type']) => {
+  const addSystemNotification = useCallback((title: string, message: string, type: PushNotification['type']) => {
     const newNot: PushNotification = {
       id: `not_${Date.now()}`,
       title,
@@ -104,15 +104,15 @@ export function useNotifications() {
     };
     setNotifications(prev => [newNot, ...prev].slice(0, 50));
     playAlertSound(type);
-  };
+  }, []);
 
-  const markNotificationAsRead = (id: string) => {
+  const markNotificationAsRead = useCallback((id: string) => {
     setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
-  };
+  }, []);
 
-  const clearNotifications = () => {
+  const clearNotifications = useCallback(() => {
     setNotifications([]);
-  };
+  }, []);
 
   return { notifications, addSystemNotification, markNotificationAsRead, clearNotifications };
 }

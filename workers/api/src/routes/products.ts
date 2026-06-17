@@ -11,8 +11,8 @@ const DEFAULT_BRANCH = "00000000000000000000000000000001";
 productRoutes.get("/", async (c) => {
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
-  const limit = parseInt(c.req.query("limit") ?? "200", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "200", 10) || 200), 500);
+  const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
   const search = c.req.query("search");
 
   let query =
@@ -53,8 +53,8 @@ productRoutes.get("/", async (c) => {
 productRoutes.get("/search", async (c) => {
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
-  const limit = parseInt(c.req.query("limit") ?? "200", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "200", 10) || 200), 500);
+  const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
   const q = c.req.query("q");
 
   let query =
@@ -279,6 +279,9 @@ productRoutes.get("/:id/prices", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
 
+  const product = await db.prepare('SELECT id FROM products WHERE id = ?').bind(id).first();
+  if (!product) return c.json({ success: false, error: 'Product not found' }, 404);
+
   const results = await db
     .prepare(
       `SELECT pp.*, b.name AS branch_name
@@ -329,6 +332,10 @@ productRoutes.post("/:id/prices", async (c) => {
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+
+  await db.prepare(
+    'UPDATE product_prices SET is_active = 0 WHERE product_id = ? AND price_list_type = ? AND is_active = 1'
+  ).bind(productId, body.price_list_type).run();
 
   await db
     .prepare(
