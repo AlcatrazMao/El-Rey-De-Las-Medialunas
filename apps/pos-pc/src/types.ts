@@ -130,7 +130,7 @@ export interface ProductBatch {
   stock: number; // Current remaining amount
   elaborationDate: string; // YYYY-MM-DD
   expiryDate: string; // YYYY-MM-DD
-  status: 'active' | 'withdrawn' | 'sold_out';
+  status: 'active' | 'withdrawn' | 'sold_out' | 'expired';
   withdrawalMode: 'manual' | 'automatic'; // 'manual' is default (manual predeterminado)
 }
 

@@ -64,6 +64,8 @@ export function useBatches({ notify, products }: UseBatchesParams) {
       if (expiredQty > 0) {
         const expElab = new Date();
         expElab.setDate(expElab.getDate() - (durability + 1));
+        const expExpiryDate = new Date(expElab.getTime() + durability * 86400000).toISOString().split('T')[0];
+        const isExpired = new Date(expExpiryDate).getTime() < Date.now();
         initialBatches.push({
           id: `batch_${prod.id}_expired_${index}`,
           productId: prod.id,
@@ -71,8 +73,8 @@ export function useBatches({ notify, products }: UseBatchesParams) {
           quantity: expiredQty,
           stock: expiredQty,
           elaborationDate: expElab.toISOString().split('T')[0],
-          expiryDate: new Date(expElab.getTime() + durability * 86400000).toISOString().split('T')[0],
-          status: 'active',
+          expiryDate: expExpiryDate,
+          status: isExpired ? 'expired' : 'active',
           withdrawalMode: 'manual',
         });
       }

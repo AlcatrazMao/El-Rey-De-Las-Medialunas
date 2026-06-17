@@ -60,7 +60,7 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
     safeParse<User[]>('pan_erp_users', [firebaseMappedUser])
   );
   const [activeUserId, setActiveUserId] = useState<string>(
-    () => localStorage.getItem('pan_erp_active_user_id') || 'user_admin'
+    () => localStorage.getItem('pan_erp_active_user_id') || firebaseUser.uid
   );
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');

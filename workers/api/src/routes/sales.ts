@@ -361,12 +361,9 @@ salesRoutes.post("/:id/refund", async (c) => {
   const reason = body.reason ?? "Reembolso";
   const branchId = sale.branch_id;
 
-  // TODO: add refunded_at/refunded_by/refund_reason columns in a migration so refunds
-  // can be distinguished from voids in audit queries. Currently reusing voided_at/voided_by/void_reason
-  // because the sales table only has those columns (see migrations/0001_initial_schema.sql).
   const stmts = [
     db.prepare(
-      `UPDATE sales SET status = 'refunded', voided_at = ?, voided_by = ?, void_reason = ?, sync_status = 'pending'
+      `UPDATE sales SET status = 'refunded', refunded_at = ?, refunded_by = ?, refund_reason = ?, sync_status = 'pending'
        WHERE id = ?`
     ).bind(refundedAt, userId, reason, id),
     ...toRefund.flatMap((item) => {
