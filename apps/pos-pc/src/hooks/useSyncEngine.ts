@@ -9,7 +9,7 @@ import { dbAdapter } from "../services/db-adapter";
 import { getSettings } from "./useSettings";
 
 const API_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
+  import.meta.env.VITE_API_URL ||
   "https://el-rey-api-production.elprincipitodeargentina.workers.dev";
 
 function getToken(): string {

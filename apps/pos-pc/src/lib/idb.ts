@@ -63,26 +63,35 @@ export function openDB(): Promise<IDBDatabase> {
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_BATCHES)) {
-        const s = db.createObjectStore(STORE_BATCHES, { keyPath: 'id' });
-        s.createIndex('productId', 'productId', { unique: false });
-        s.createIndex('expiryDate', 'expiryDate', { unique: false });
-        s.createIndex('status', 'status', { unique: false });
-      }
-      if (!db.objectStoreNames.contains(STORE_SALES_QUEUE)) {
-        const s = db.createObjectStore(STORE_SALES_QUEUE, { keyPath: 'id' });
-        s.createIndex('synced', 'synced', { unique: false });
-      }
-      if (!db.objectStoreNames.contains(STORE_OFFERS)) {
-        const s = db.createObjectStore(STORE_OFFERS, { keyPath: 'id' });
-        s.createIndex('status', 'status', { unique: false });
+      try {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_BATCHES)) {
+          const s = db.createObjectStore(STORE_BATCHES, { keyPath: 'id' });
+          s.createIndex('productId', 'productId', { unique: false });
+          s.createIndex('expiryDate', 'expiryDate', { unique: false });
+          s.createIndex('status', 'status', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_SALES_QUEUE)) {
+          const s = db.createObjectStore(STORE_SALES_QUEUE, { keyPath: 'id' });
+          s.createIndex('synced', 'synced', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_OFFERS)) {
+          const s = db.createObjectStore(STORE_OFFERS, { keyPath: 'id' });
+          s.createIndex('status', 'status', { unique: false });
+        }
+      } catch (e) {
+        dbPromise = null;
+        req.transaction?.abort();
       }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => {
       dbPromise = null;
       reject(req.error);
+    };
+    req.onblocked = () => {
+      dbPromise = null;
+      reject(new Error('IDB upgrade blocked by another tab'));
     };
   });
   return dbPromise;

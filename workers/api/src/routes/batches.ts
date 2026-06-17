@@ -7,6 +7,10 @@ export const batchRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
+function isValidDate(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s).getTime());
+}
+
 const VALID_STATUSES = new Set(["active", "withdrawn", "sold_out", "expired"]);
 const VALID_INVENTORY_METHODS = new Set(["FIFO", "LIFO"]);
 
@@ -109,6 +113,12 @@ batchRoutes.post("/", async (c) => {
   if (!body.product_id) return c.json({ success: false, error: "product_id is required" }, 400);
   if (!body.batch_number) return c.json({ success: false, error: "batch_number is required" }, 400);
   if (!body.entry_date) return c.json({ success: false, error: "entry_date is required" }, 400);
+  if (!isValidDate(body.entry_date)) {
+    return c.json({ success: false, error: "entry_date must be a valid date in YYYY-MM-DD format" }, 400);
+  }
+  if (body.expiry_date !== undefined && !isValidDate(body.expiry_date)) {
+    return c.json({ success: false, error: "expiry_date must be a valid date in YYYY-MM-DD format" }, 400);
+  }
   if (typeof body.cost_per_unit !== "number" || body.cost_per_unit < 0) {
     return c.json({ success: false, error: "cost_per_unit must be a non-negative number" }, 400);
   }
@@ -205,6 +215,9 @@ batchRoutes.put("/:id", async (c) => {
   }
 
   if (body.expiry_date !== undefined) {
+    if (!isValidDate(body.expiry_date)) {
+      return c.json({ success: false, error: "expiry_date must be a valid date in YYYY-MM-DD format" }, 400);
+    }
     setClauses.push("expiry_date = ?");
     values.push(body.expiry_date);
   }

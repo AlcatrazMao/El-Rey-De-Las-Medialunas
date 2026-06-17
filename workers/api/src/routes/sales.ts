@@ -138,6 +138,11 @@ salesRoutes.post("/", async (c) => {
   if (items.length === 0) {
     return c.json({ success: false, error: "A sale must have at least one item" }, 400);
   }
+  for (const item of items) {
+    if (!item.product_id) return c.json({ success: false, error: 'item.product_id is required' }, 400);
+    if (Number(item.quantity) <= 0) return c.json({ success: false, error: 'item.quantity must be > 0' }, 400);
+    if (Number(item.unit_price) < 0) return c.json({ success: false, error: 'item.unit_price must be >= 0' }, 400);
+  }
   const payments = body.payments ?? [];
 
   let subtotal = body.subtotal;
@@ -200,26 +205,16 @@ salesRoutes.post("/", async (c) => {
     ];
   });
 
-  if (itemStatements.length > 0) await db.batch(itemStatements);
-
-  for (const payment of payments) {
+  const paymentStatements = payments.map(payment => {
     const paymentId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    return db.prepare(
+      `INSERT INTO sale_payments (id, sale_id, payment_method, amount, reference, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(paymentId, saleId, payment.payment_method, payment.amount, payment.reference ?? null, now);
+  });
 
-    await db
-      .prepare(
-        `INSERT INTO sale_payments (id, sale_id, payment_method, amount, reference, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        paymentId,
-        saleId,
-        payment.payment_method,
-        payment.amount,
-        payment.reference ?? null,
-        now
-      )
-      .run();
-  }
+  const allStatements = [...itemStatements, ...paymentStatements];
+  if (allStatements.length > 0) await db.batch(allStatements);
 
   return c.json({ success: true, data: { id: saleId, sale_number: saleNumber, branch_id: branchId, created_at: now } }, 201);
 });
@@ -366,6 +361,9 @@ salesRoutes.post("/:id/refund", async (c) => {
   const reason = body.reason ?? "Reembolso";
   const branchId = sale.branch_id;
 
+  // TODO: add refunded_at/refunded_by/refund_reason columns in a migration so refunds
+  // can be distinguished from voids in audit queries. Currently reusing voided_at/voided_by/void_reason
+  // because the sales table only has those columns (see migrations/0001_initial_schema.sql).
   const stmts = [
     db.prepare(
       `UPDATE sales SET status = 'refunded', voided_at = ?, voided_by = ?, void_reason = ?, sync_status = 'pending'
@@ -407,6 +405,9 @@ salesRoutes.get("/:id/receipt", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
   const format = c.req.query("format") ?? "json";
+  if (format !== "json" && format !== "html") {
+    return c.json({ success: false, error: 'format must be "json" or "html"' }, 400);
+  }
 
   const sale = await db
     .prepare(

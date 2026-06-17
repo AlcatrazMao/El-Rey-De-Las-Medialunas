@@ -125,49 +125,61 @@ export function useBatches({ notify, products }: UseBatchesParams) {
   }, [withdrawalRequests]);
 
   useEffect(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todayTime = new Date(todayStr + 'T00:00:00').getTime();
+    const checkExpiry = () => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todayTime = new Date(todayStr + 'T00:00:00').getTime();
 
-    const expiredAutoBatches = batches.filter(
-      (b) =>
-        b.withdrawalMode === 'automatic' &&
-        b.status === 'active' &&
-        b.stock > 0 &&
-        new Date(b.expiryDate + 'T00:00:00').getTime() < todayTime,
-    );
+      setWithdrawalRequests((prevRequests) => {
+        setBatches((prevBatches) => {
+          const expiredAutoBatches = prevBatches.filter(
+            (b) =>
+              b.withdrawalMode === 'automatic' &&
+              b.status === 'active' &&
+              b.stock > 0 &&
+              new Date(b.expiryDate + 'T00:00:00').getTime() < todayTime,
+          );
 
-    if (expiredAutoBatches.length > 0) {
-      let addedAny = false;
-      setWithdrawalRequests((prev) => {
-        const updated = [...prev];
-        expiredAutoBatches.forEach((b) => {
-          const exists = updated.some((r) => r.batchId === b.id && r.status === 'pending');
-          if (!exists) {
-            const prodObj = products.find((p) => p.id === b.productId);
-            updated.unshift({
-              id: `req_auto_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`,
-              batchId: b.id,
-              productId: b.productId,
-              productName: prodObj ? prodObj.name : 'Bakery Item',
-              batchNumber: b.batchNumber,
-              quantity: b.stock,
-              reason: 'Baja automática generada por fecha límite de caducidad.',
-              requestedBy: 'Chequeo Automatizado ERP',
-              status: 'pending',
-              date: new Date().toISOString(),
+          if (expiredAutoBatches.length === 0) return prevBatches;
+
+          setWithdrawalRequests((prev) => {
+            const updated = [...prev];
+            let addedAny = false;
+            expiredAutoBatches.forEach((b) => {
+              const exists = updated.some((r) => r.batchId === b.id && r.status === 'pending');
+              if (!exists) {
+                updated.unshift({
+                  id: `req_auto_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`,
+                  batchId: b.id,
+                  productId: b.productId,
+                  productName: 'Bakery Item',
+                  batchNumber: b.batchNumber,
+                  quantity: b.stock,
+                  reason: 'Baja automática generada por fecha límite de caducidad.',
+                  requestedBy: 'Chequeo Automatizado ERP',
+                  status: 'pending',
+                  date: new Date().toISOString(),
+                });
+                addedAny = true;
+                notify(
+                  '⏳ Lote Expirado (Automático)',
+                  `El lote ${b.batchNumber} ha expirado. Solicitud enviada a administración.`,
+                  'warning',
+                );
+              }
             });
-            addedAny = true;
-            notify(
-              '⏳ Lote Expirado (Automático)',
-              `El lote ${b.batchNumber} de "${prodObj?.name || 'Pan'}" ha expirado. Solicitud enviada a administración.`,
-              'warning',
-            );
-          }
+            return addedAny ? updated : prev;
+          });
+
+          return prevBatches;
         });
-        return addedAny ? updated : prev;
+        return prevRequests;
       });
-    }
-  }, [batches, products]);
+    };
+
+    checkExpiry(); // check al montar
+    const interval = setInterval(checkExpiry, 3_600_000); // cada hora
+    return () => clearInterval(interval);
+  }, []); // sin deps — accede a batches y withdrawalRequests via setters funcionales
 
   const requestBatchWithdrawal = (
     batchId: string,

@@ -99,6 +99,9 @@ offerRoutes.post("/", async (c) => {
   if (!Array.isArray(body.product_ids)) {
     return c.json({ success: false, error: "product_ids must be an array" }, 400);
   }
+  if (body.batch_ids.length === 0 && body.product_ids.length === 0) {
+    return c.json({ success: false, error: 'At least one batch_id or product_id is required' }, 400);
+  }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();

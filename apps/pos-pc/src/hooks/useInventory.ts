@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
 import { safeSetItem } from '../utils/safeStorage';
 import { fetchProductsFromD1 } from '../services/d1-sync';
@@ -111,9 +111,12 @@ export function useInventory(notify: NotifyFn) {
     );
   };
 
-  const refreshProductsFromD1 = (branchId: string) => {
-    fetchProductsFromD1(products, branchId).then(setProducts).catch(() => {});
-  };
+  const refreshProductsFromD1 = useCallback((branchId: string) => {
+    setProducts(current => {
+      fetchProductsFromD1(current, branchId).then(setProducts).catch(() => {});
+      return current;
+    });
+  }, []);
 
   return {
     ingredients,

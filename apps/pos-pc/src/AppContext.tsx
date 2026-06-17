@@ -121,9 +121,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
     if (simulateFail) {
       const totalFail = cartItems.reduce((acc, c) => acc + ((inv.products.find(p => p.id === c.productId)?.price || 0) * c.quantity), 0);
+      const failNow = Date.now();
       const failedSalePayload: Sale = {
-        id: `sale_fail_${Date.now()}`,
-        invoiceNumber: `FC-X-${Date.now().toString().slice(-4)}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+        id: `sale_fail_${failNow}`,
+        invoiceNumber: `FC-X-${failNow.toString().slice(-4)}-${failNow.toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
         date: new Date().toISOString(),
         items: cartItems.map(cart => {
           const prod = inv.products.find(p => p.id === cart.productId);
@@ -189,7 +190,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     const operatorRole = seller ? seller.role : usr.activeUser.role;
 
     const newSaleInstance: Sale = {
-      id: `sale_${Date.now()}`, invoiceNumber, date: dateToday.toISOString(),
+      id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, invoiceNumber, date: dateToday.toISOString(),
       items: saleLineItems, total: parseFloat(subtotalTotal.toFixed(2)), tax: calculatedTax,
       paymentMethod, paymentStatus: 'completed', operatorRole, operatorName,
       customerName: customName || 'Consumidor Final', customerDoc: customDoc,
