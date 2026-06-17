@@ -40,7 +40,7 @@ interface AppContextType {
   setSelectedSellerId: (id: string) => void;
   logout: () => void;
   setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
-  addCustomer: (c: Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'timeline' | 'total_purchases' | 'last_purchase_date' | 'current_debt'>) => void;
+  addCustomer: (c: Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'timeline' | 'total_purchases' | 'last_purchase_date' | 'current_debt'>) => string;
   updateCustomer: (id: string, data: Partial<Customer>) => void;
   
   setActiveUserRole: (role: UserRole) => void;
@@ -362,6 +362,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     syncCustomerToD1(newCustomer).catch((err: unknown) => {
       if (import.meta.env.DEV) console.warn('[D1 sync] customer failed:', err instanceof Error ? err.message : err);
     });
+    return newCustomer.id;
   };
 
   const updateCustomer = (id: string, data: Partial<Customer>) => {
@@ -657,7 +658,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
           };
         }),
         total: cartItems.reduce((acc, c) => acc + ((products.find(p => p.id === c.productId)?.price || 0) * c.quantity), 0),
-        tax: cartItems.reduce((acc, c) => acc + ((products.find(p => p.id === c.productId)?.price || 0) * c.quantity), 0) * getSettings().fiscal.ivaRate,
+        tax: (() => { const t = cartItems.reduce((acc, c) => acc + ((products.find(p => p.id === c.productId)?.price || 0) * c.quantity), 0); const r = getSettings().fiscal.ivaRate; return parseFloat((t - t / (1 + r)).toFixed(2)); })(),
         paymentMethod,
         paymentStatus: 'failed',
         operatorRole: activeUser.role,
@@ -734,7 +735,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     // Generate Invoice details
     const subtotalTotal = saleLineItems.reduce((acc, curr) => acc + curr.subtotal, 0);
     const ivaRate = getSettings().fiscal.ivaRate;
-    const calculatedTax = parseFloat((subtotalTotal * ivaRate).toFixed(2));
+    const calculatedTax = parseFloat((subtotalTotal - subtotalTotal / (1 + ivaRate)).toFixed(2));
     
     // Auto increment sequential invoice — seeded from localStorage on mount, never derived from sales.length
     const dateToday = new Date();

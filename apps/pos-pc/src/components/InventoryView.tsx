@@ -28,6 +28,8 @@ export const InventoryView: React.FC = () => {
     updateIngredientStock,
     addProduct,
     updateProductStock,
+    addBatch,
+    requestBatchWithdrawal,
     addSystemNotification,
     setActiveTab,
     batches = [],
@@ -52,18 +54,21 @@ export const InventoryView: React.FC = () => {
   const [priorityAlertDays, setPriorityAlertDays] = useState<number>(() => {
     try { const saved = localStorage.getItem('pan_erp_alert_days'); return saved ? Number(saved) : 2; } catch { return 2; }
   });
+  const [localAlertDays, setLocalAlertDays] = useState<number>(priorityAlertDays);
   const [priorityCategory, setPriorityCategory] = useState<string>(() => {
     try { return localStorage.getItem('pan_erp_prio_cat') || 'pasteleria'; } catch { return 'pasteleria'; }
   });
 
-  const handleSavePriorityConfig = (criteria: 'categoria' | 'precio' | 'unidades', days: number, cat: string) => {
+  const handleSavePriorityConfig = (criteria: 'categoria' | 'precio' | 'unidades', days: number, cat: string, notify = true) => {
+    const safeDays = Math.max(1, isNaN(days) ? 2 : days);
     setPriorityCriteria(criteria);
-    setPriorityAlertDays(days);
+    setPriorityAlertDays(safeDays);
+    setLocalAlertDays(safeDays);
     setPriorityCategory(cat);
     localStorage.setItem('pan_erp_criteria', criteria);
-    localStorage.setItem('pan_erp_alert_days', days.toString());
+    localStorage.setItem('pan_erp_alert_days', safeDays.toString());
     localStorage.setItem('pan_erp_prio_cat', cat);
-    addSystemNotification('⚙️ Prioridades Guardadas', `Se priorizaron alertas de caducidad por: ${criteria.toUpperCase()}`, 'success');
+    if (notify) addSystemNotification('⚙️ Prioridades Guardadas', `Se priorizaron alertas de caducidad por: ${criteria.toUpperCase()}`, 'success');
   };
 
   const getProductExpiryDays = (prod: Product) => {
@@ -115,6 +120,15 @@ export const InventoryView: React.FC = () => {
   const [insumoMinStock, setInsumoMinStock] = useState(5);
   const [insumoCost, setInsumoCost] = useState(1.5);
 
+  const closeInsumoModal = () => {
+    setInsumoName('');
+    setInsumoUnit('kg');
+    setInsumoStock(10);
+    setInsumoMinStock(5);
+    setInsumoCost(1.5);
+    setShowInsumoModal(false);
+  };
+
   // Product creation form modal & dynamic recipe builder
   const [showProductModal, setShowProductModal] = useState(false);
   const [prodName, setProdName] = useState('');
@@ -125,6 +139,18 @@ export const InventoryView: React.FC = () => {
   const [prodMinStock, setProdMinStock] = useState(10);
   const [prodImage, setProdImage] = useState('🥖');
   const [selectedRecipeIngredients, setSelectedRecipeIngredients] = useState<{ ingredientId: string; quantity: number }[]>([]);
+
+  const closeProductModal = () => {
+    setProdName('');
+    setProdCategory('panes');
+    setProdPrice(1.5);
+    setProdCost(0.5);
+    setProdStock(50);
+    setProdMinStock(10);
+    setProdImage('🥖');
+    setSelectedRecipeIngredients([]);
+    setShowProductModal(false);
+  };
 
   // Handle ingredient addition
   const handleCreateInsumoSubmit = (e: React.FormEvent) => {
@@ -523,22 +549,30 @@ export const InventoryView: React.FC = () => {
 
                   {/* Increment finished baked good stock counts directly */}
                   <div className="mt-4 pt-3 border-t border-gray-150 dark:border-zinc-800 flex items-center gap-2 select-none">
-                    <button
-                      id={`btn-prod-replenish-10-${prod.id}`}
-                      onClick={() => updateProductStock(prod.id, prod.stock + 10)}
-                      className="flex-1 py-1 px-1 text-center bg-gray-50 hover:bg-gray-105 dark:bg-zinc-850 dark:hover:bg-zinc-800 rounded text-[10px] font-bold text-gray-700 dark:text-zinc-300 border border-gray-200 dark:border-zinc-750 cursor-pointer animate-btn"
-                      title="Horneada rápida: suma 10 unidades al stock disponible"
-                    >
-                      Sumar +10 {prod.image}
-                    </button>
-                    <button
-                      id={`btn-prod-replenish-50-${prod.id}`}
-                      onClick={() => updateProductStock(prod.id, prod.stock + 50)}
-                      className="flex-1 py-1 px-1 text-center bg-gray-50 hover:bg-gray-105 dark:bg-zinc-850 dark:hover:bg-zinc-800 rounded text-[10px] font-bold text-gray-700 dark:text-zinc-300 border border-gray-200 dark:border-zinc-750 cursor-pointer animate-btn"
-                      title="Horneada completa: suma 50 unidades al stock disponible"
-                    >
-                      Sumar +50 {prod.image}
-                    </button>
+                    {([10, 50] as const).map(qty => (
+                      <button
+                        key={qty}
+                        id={`btn-prod-replenish-${qty}-${prod.id}`}
+                        onClick={() => {
+                          const today = new Date().toISOString().split('T')[0];
+                          const exp = new Date();
+                          exp.setDate(exp.getDate() + (prod.durabilityDays || 3));
+                          addBatch({
+                            productId: prod.id,
+                            batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
+                            quantity: qty,
+                            stock: qty,
+                            elaborationDate: today,
+                            expiryDate: exp.toISOString().split('T')[0],
+                            withdrawalMode: 'automatic',
+                          });
+                        }}
+                        className="flex-1 py-1 px-1 text-center bg-gray-50 hover:bg-gray-105 dark:bg-zinc-850 dark:hover:bg-zinc-800 rounded text-[10px] font-bold text-gray-700 dark:text-zinc-300 border border-gray-200 dark:border-zinc-750 cursor-pointer animate-btn"
+                        title={`Horneada: suma ${qty} unidades con nuevo lote FEFO`}
+                      >
+                        Sumar +{qty} {prod.image}
+                      </button>
+                    ))}
                   </div>
                 </div>
               );
@@ -654,18 +688,20 @@ export const InventoryView: React.FC = () => {
                                       >
                                         Oferta -50%
                                       </button>
-                                      
+
                                       <button
                                         onClick={() => {
-                                          updateProductStock(prod.id, 0);
-                                          addSystemNotification(
-                                            '🗑️ Merma Descontada',
-                                            `Se registraron ${prod.stock} u. de merma desperdiciada para "${prod.name}".`,
-                                            'warning'
-                                          );
+                                          const productBatches = batches.filter(b => b.productId === prod.id && b.status === 'active' && b.stock > 0);
+                                          if (productBatches.length > 0) {
+                                            const oldest = [...productBatches].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0];
+                                            requestBatchWithdrawal(oldest.id, oldest.stock, 'Merma por vencimiento de caducidad — solicitud generada automáticamente.');
+                                          } else {
+                                            updateProductStock(prod.id, 0);
+                                            addSystemNotification('🗑️ Merma Descontada', `Se registraron ${prod.stock} u. de merma desperdiciada para "${prod.name}".`, 'warning');
+                                          }
                                         }}
                                         className="px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-700 dark:text-zinc-200 rounded text-[9px] font-extrabold cursor-pointer transition-transform duration-100 transform active:scale-95"
-                                        title="Dar de baja unidades restantes por merma de caducidad"
+                                        title="Dar de baja unidades restantes por merma de caducidad (requiere aprobación de admin)"
                                       >
                                         Desechar
                                       </button>
@@ -673,12 +709,18 @@ export const InventoryView: React.FC = () => {
                                   ) : (
                                     <button
                                       onClick={() => {
-                                        updateProductStock(prod.id, 50);
-                                        addSystemNotification(
-                                          '⚡ Lote Renovado',
-                                          `Nuevo lote horneado: 50 u. frescas para ${prod.name}.`,
-                                          'success'
-                                        );
+                                        const today = new Date().toISOString().split('T')[0];
+                                        const exp = new Date();
+                                        exp.setDate(exp.getDate() + (prod.durabilityDays || 3));
+                                        addBatch({
+                                          productId: prod.id,
+                                          batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
+                                          quantity: 50,
+                                          stock: 50,
+                                          elaborationDate: today,
+                                          expiryDate: exp.toISOString().split('T')[0],
+                                          withdrawalMode: 'automatic',
+                                        });
                                       }}
                                       className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-[9px] font-extrabold cursor-pointer transition-transform duration-100 transform active:scale-95"
                                     >
@@ -753,8 +795,12 @@ export const InventoryView: React.FC = () => {
                         type="number"
                         min="1"
                         max="7"
-                        value={priorityAlertDays}
-                        onChange={(e) => handleSavePriorityConfig(priorityCriteria, Number(e.target.value), priorityCategory)}
+                        value={localAlertDays}
+                        onChange={(e) => setLocalAlertDays(Number(e.target.value))}
+                        onBlur={(e) => {
+                          const days = Math.max(1, parseInt(e.target.value, 10) || priorityAlertDays);
+                          handleSavePriorityConfig(priorityCriteria, days, priorityCategory);
+                        }}
                         className="w-16 text-center font-extrabold bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-xl p-2 focus:outline-none text-gray-850 dark:text-zinc-100"
                       />
                       <span className="text-[11px] text-gray-400 font-medium leading-tight">días de anticipación preventiva</span>
@@ -1071,7 +1117,7 @@ export const InventoryView: React.FC = () => {
               <button
                 type="button"
                 id="btn-insumo-modal-close"
-                onClick={() => setShowInsumoModal(false)}
+                onClick={closeInsumoModal}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-zinc-200 cursor-pointer"
               >
                 <X className="h-4.5 w-4.5" />
@@ -1157,7 +1203,7 @@ export const InventoryView: React.FC = () => {
               <button
                 type="button"
                 id="btn-insumo-modal-cancel"
-                onClick={() => setShowInsumoModal(false)}
+                onClick={closeInsumoModal}
                 className="flex-1 py-3 text-xs font-bold ring-1 ring-gray-200 dark:ring-zinc-850 text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-xl cursor-pointer"
               >
                 Cancelar
@@ -1188,7 +1234,7 @@ export const InventoryView: React.FC = () => {
               <button
                 type="button"
                 id="btn-prod-modal-close"
-                onClick={() => setShowProductModal(false)}
+                onClick={closeProductModal}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-zinc-200 cursor-pointer"
               >
                 <X className="h-4.5 w-4.5" />
@@ -1309,7 +1355,7 @@ export const InventoryView: React.FC = () => {
                           id={`modal-recipe-check-${ing.id}`}
                           type="checkbox"
                           checked={isChecked}
-                          onChange={() => toggleRecipeIngredientItem(ing.id, 0.05)}
+                          onChange={() => toggleRecipeIngredientItem(ing.id, 1)}
                           className="rounded text-amber-500 border-gray-300 focus:ring-amber-500 h-3.5 w-3.5"
                         />
                         <span className="font-semibold text-gray-800 dark:text-zinc-200">{ing.name} ({ing.unit})</span>
@@ -1339,7 +1385,7 @@ export const InventoryView: React.FC = () => {
               <button
                 type="button"
                 id="btn-prod-modal-cancel"
-                onClick={() => setShowProductModal(false)}
+                onClick={closeProductModal}
                 className="flex-1 py-3 text-xs font-bold ring-1 ring-gray-200 dark:ring-zinc-850 text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-xl cursor-pointer"
               >
                 Cancelar
@@ -1412,7 +1458,9 @@ const ProductBatchesModal: React.FC<ProductBatchesModalProps> = ({ product, onCl
   // Recalculate expiry day on elab change
   const handleElabChange = (val: string) => {
     setNewElabDate(val);
+    if (!val) return;
     const d = new Date(val + 'T00:00:00');
+    if (isNaN(d.getTime())) return;
     d.setDate(d.getDate() + (product.durabilityDays || 3));
     setNewExpDate(d.toISOString().split('T')[0]);
   };

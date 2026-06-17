@@ -17,6 +17,7 @@ import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
+import { getSettings } from '../hooks/useSettings';
 import type { CategoryType, Product, Sale } from '../types';
 import { printTicketOrInvoice } from '../utils/exportUtils';
 
@@ -547,15 +548,16 @@ export const POSView: React.FC = () => {
     }, 1200);
   };
 
-  // Calculate prices
+  // Calculate prices — precios con IVA incluido, se extrae: tax = total - total/(1+rate)
   const cartSubtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const cartTax = cartSubtotal * 0.21; // IVA 21% included
+  const cartIvaRate = getSettings().fiscal.ivaRate;
+  const cartTax = parseFloat((cartSubtotal - cartSubtotal / (1 + cartIvaRate)).toFixed(2));
   const cartTotal = cartSubtotal;
 
   // Create new customer from mini-modal
   const handleCreateCustomer = () => {
     if (!newCustomerForm.name.trim()) return;
-    addCustomer({
+    const newId = addCustomer({
       name: newCustomerForm.name.trim(),
       email: newCustomerForm.email.trim(),
       phone: newCustomerForm.phone.trim(),
@@ -569,6 +571,7 @@ export const POSView: React.FC = () => {
       notes: '',
     });
     setCustomerName(newCustomerForm.name.trim());
+    setSelectedCustomerId(newId);
     setNewCustomerForm({ name: '', phone: '', email: '' });
     setShowNewCustomerModal(false);
   };
@@ -579,6 +582,9 @@ export const POSView: React.FC = () => {
       addSystemNotification('⚠️ Carrito Vacío', 'Agrega algún producto para iniciar el cobro.', 'info');
       return;
     }
+
+    // Snapshot cart before delays — prevents race condition if user modifies cart during processing
+    const cartSnapshot = cart.map(item => ({ productId: item.product.id, quantity: item.quantity }));
 
     setIsProcessingPayment(true);
     setProcessingStatusText('Conectando con pasarela...');
@@ -597,9 +603,9 @@ export const POSView: React.FC = () => {
       playBeep(650, 0.1);
 
       safeTimeout(() => {
-        // Execute sale operations
+        // Execute sale operations using the snapshot taken at payment start
         const result = addSale(
-          cart.map(item => ({ productId: item.product.id, quantity: item.quantity })),
+          cartSnapshot,
           paymentMethod,
           customerDoc,
           customerName,
@@ -616,16 +622,21 @@ export const POSView: React.FC = () => {
           setShowInvoiceModal(true);
           // Print ticket automatically on sound success
           printTicketOrInvoice(result.invoice, 'receipt');
-          // Clear Cart
+          // Clear Cart and customer state
           setCart([]);
           setCustomerDoc('');
           setCustomerName('');
           setSelectedCustomerId(null);
+          setCustomerSearch('');
         } else if (result.invoice) {
           // Failure simulation record was created but transaction rejected
           setLatestInvoice(result.invoice);
           setShowInvoiceModal(true);
-          setCart([]); // optionally clean cart on failure to represent reset or let it stay
+          setCart([]);
+          setCustomerDoc('');
+          setCustomerName('');
+          setSelectedCustomerId(null);
+          setCustomerSearch('');
         } else {
           // Business validations failed (e.g. stock issue)
           // eslint-disable-next-line no-alert -- fallback for critical validation errors
