@@ -13,9 +13,10 @@ type NotifyFn = (
 interface UseCashSessionParams {
   notify: NotifyFn;
   getActiveUser: () => { name: string };
+  onCashClose?: () => void;
 }
 
-export function useCashSession({ notify, getActiveUser }: UseCashSessionParams) {
+export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSessionParams) {
   const [currentCashSession, setCurrentCashSession] = useState<CashSession | null>(() => {
     try {
       const saved = localStorage.getItem('pan_erp_current_cash_session');
@@ -97,6 +98,7 @@ export function useCashSession({ notify, getActiveUser }: UseCashSessionParams) 
       Math.abs(discrepancy) < 0.01 ? 'success' : 'warning',
     );
     syncCashSessionCloseToD1(sessionId, realAmount, expected, note).catch(() => {});
+    onCashClose?.();
   };
 
   return {

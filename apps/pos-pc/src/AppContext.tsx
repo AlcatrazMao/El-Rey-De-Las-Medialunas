@@ -1,6 +1,6 @@
 import type { User as FirebaseUser } from 'firebase/auth';
 import * as React from 'react';
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useEffect } from 'react';
 
 import { getSettings } from './hooks/useSettings';
 import { addAutoNote } from './hooks/useStickyNotes';
@@ -10,7 +10,9 @@ import { useCustomers } from './hooks/useCustomers';
 import { useExpenses } from './hooks/useExpenses';
 import { useInventory } from './hooks/useInventory';
 import { useNotifications } from './hooks/useNotifications';
+import { useSales } from './hooks/useSales';
 import { useSupplyRequests } from './hooks/useSupplyRequests';
+import { enqueueSale as syncEnqueueSale, syncOnCashClose as syncOnCashCloseFn } from './hooks/useSyncEngine';
 import { useUsers } from './hooks/useUsers';
 import {
   INITIAL_INGREDIENTS,
@@ -22,7 +24,6 @@ import {
   PAYMENT_GATEWAYS,
 } from './initialData';
 import { syncSaleToD1, updateSupplyRequestStatusInD1 } from './services/d1-sync';
-import { safeSetItem } from './utils/safeStorage';
 import type {
   Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway,
   UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer,
@@ -74,20 +75,6 @@ export const useApp = () => {
   return context;
 };
 
-const safeParse = <T,>(key: string, fallback: T): T => {
-  try {
-    const saved = localStorage.getItem(key);
-    if (!saved) return fallback;
-    const parsed = JSON.parse(saved);
-    if (parsed === null || parsed === undefined) return fallback;
-    return parsed as T;
-  } catch (e) {
-    console.error(`Error parsing localStorage key "${key}":`, e);
-    localStorage.removeItem(key);
-    return fallback;
-  }
-};
-
 export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: FirebaseUser; firestoreRole?: string | null; serverPanels?: string[] | null }> = ({ children, firebaseUser, firestoreRole, serverPanels }) => {
   const notif = useNotifications();
   const inv = useInventory(notif.addSystemNotification);
@@ -95,14 +82,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   const exp = useExpenses(notif.addSystemNotification);
   const usr = useUsers({ firebaseUser, firestoreRole, serverPanels, notify: notif.addSystemNotification });
   const bch = useBatches({ notify: notif.addSystemNotification, products: inv.products });
-  const cash = useCashSession({ notify: notif.addSystemNotification, getActiveUser: () => usr.activeUser });
+  const cash = useCashSession({
+    notify: notif.addSystemNotification,
+    getActiveUser: () => usr.activeUser,
+    onCashClose: () => { void syncOnCashCloseFn(); },
+  });
   const sup = useSupplyRequests({ notify: notif.addSystemNotification, getActiveUser: () => usr.activeUser, ingredients: inv.ingredients, products: inv.products });
-
-  const [sales, setSales] = useState<Sale[]>(() => safeParse('pan_erp_sales', INITIAL_SALES));
-
-  useEffect(() => {
-    safeSetItem('pan_erp_sales', JSON.stringify(sales));
-  }, [sales]);
+  const sal = useSales();
 
   useEffect(() => {
     const loadFromD1 = () => {
@@ -149,7 +135,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         operatorRole: usr.activeUser.role, operatorName: usr.activeUser.name,
         customerName: customName || 'Cliente de Caja', customerDoc: customDoc,
       };
-      setSales(prev => [failedSalePayload, ...prev]);
+      sal.setSales(prev => [failedSalePayload, ...prev]);
       notif.addSystemNotification('❌ Transacción Fallida', `Pago con ${paymentMethod.replace('_', ' ').toUpperCase()} rechazado por el banco. Importe: $${failedSalePayload.total.toFixed(2)}`, 'error');
       return { success: false, invoice: failedSalePayload, error: 'Transacción denegada por la pasarela de pagos.' };
     }
@@ -222,7 +208,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
     inv.setProducts(updatedProducts);
     inv.setIngredients(updatedIngredients);
-    setSales(prev => [newSaleInstance, ...prev]);
+    sal.setSales(prev => [newSaleInstance, ...prev]);
+
+    syncEnqueueSale({
+      id: newSaleInstance.id,
+      items: newSaleInstance.items.map(i => ({
+        product_id: i.productId,
+        quantity: i.quantity,
+        unit_price: i.price,
+        tax_rate: getSettings().fiscal.ivaRate * 100,
+        tax_amount: (i.subtotal - i.subtotal / (1 + getSettings().fiscal.ivaRate)),
+      })),
+      payments: [{ payment_method: paymentMethod === 'efectivo' ? 'cash' : paymentMethod, amount: newSaleInstance.total }],
+      subtotal: newSaleInstance.total,
+      tax_total: newSaleInstance.tax,
+      total: newSaleInstance.total,
+      customer_id: newSaleInstance.customerId ?? null,
+      notes: null,
+      client_timestamp: newSaleInstance.date,
+    }).catch(() => {});
 
     if (paymentMethod === 'efectivo' && cash.currentCashSession) {
       cash.setCurrentCashSession(prev => {
@@ -299,7 +303,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   const resetAllData = () => {
     ['pan_erp_ingredients', 'pan_erp_products', 'pan_erp_sales', 'pan_erp_expenses', 'pan_erp_users', 'pan_erp_notifications', 'pan_erp_gateways', 'pan_erp_active_user_id', 'pan_erp_batches', 'pan_erp_withdrawal_requests', 'pan_erp_supply_requests', 'pan_erp_current_cash_session', 'pan_erp_cash_sessions_history', 'pan_erp_invoice_seq'].forEach(k => localStorage.removeItem(k));
     inv.setIngredients(INITIAL_INGREDIENTS); inv.setProducts(INITIAL_PRODUCTS); inv.setGateways(PAYMENT_GATEWAYS);
-    setSales(INITIAL_SALES); exp.setExpenses(INITIAL_EXPENSES); usr.setUsers(USERS);
+    sal.setSales(INITIAL_SALES); exp.setExpenses(INITIAL_EXPENSES); usr.setUsers(USERS);
     usr.setActiveTab('dashboard'); usr.invoiceSeqRef.current = 0;
     bch.setBatches([]); bch.setWithdrawalRequests([]);
     cash.setCurrentCashSession(null); cash.setCashSessionsHistory([]);
@@ -319,12 +323,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   };
 
   const value: AppContextType = {
-    ingredients: inv.ingredients, products: inv.products, sales, expenses: exp.expenses,
+    ingredients: inv.ingredients, products: inv.products, sales: sal.sales, expenses: exp.expenses,
     users: usr.users, notifications: notif.notifications, gateways: inv.gateways,
     activeUser: usr.activeUser, activeTab: usr.activeTab, batches: bch.batches,
     withdrawalRequests: bch.withdrawalRequests, supplyRequests: sup.supplyRequests,
     currentCashSession: cash.currentCashSession, cashSessionsHistory: cash.cashSessionsHistory,
-    customers: cust.customers, setSales,
+    customers: cust.customers, setSales: sal.setSales,
     selectedSellerId: usr.selectedSellerId, setSelectedSellerId: usr.setSelectedSellerId,
     logout: usr.logout, setCustomers: cust.setCustomers,
     addCustomer: cust.addCustomer, updateCustomer: cust.updateCustomer,
