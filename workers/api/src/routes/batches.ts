@@ -61,7 +61,7 @@ batchRoutes.get("/", async (c) => {
       return c.json({ success: false, error: "expiring_within_hours must be a non-negative number" }, 400);
     }
     const limitDate = new Date(Date.now() + hours * 3_600_000).toISOString().slice(0, 10);
-    query += " AND ib.expiry_date IS NOT NULL AND ib.expiry_date <= ?";
+    query += " AND ib.expiry_date IS NOT NULL AND ib.expiry_date >= date('now') AND ib.expiry_date <= ?";
     bindings.push(limitDate);
   }
 

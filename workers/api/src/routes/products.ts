@@ -134,6 +134,12 @@ productRoutes.post("/", async (c) => {
     is_producible?: boolean;
   }>();
 
+  if (!body.code?.trim()) return c.json({ success: false, error: "code is required" }, 400);
+  if (!body.name?.trim()) return c.json({ success: false, error: "name is required" }, 400);
+  if (typeof body.price !== "number" || body.price < 0) {
+    return c.json({ success: false, error: "price must be a non-negative number" }, 400);
+  }
+
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 

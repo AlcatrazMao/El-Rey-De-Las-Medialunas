@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { INITIAL_PRODUCTS } from '../initialData';
 import { safeSetItem } from '../utils/safeStorage';
 import type { ProductBatch, BatchWithdrawalRequest, Product } from '../types';
@@ -89,34 +89,13 @@ export function useBatches({ notify, products }: UseBatchesParams) {
     } catch (e) {
       localStorage.removeItem('pan_erp_withdrawal_requests');
     }
-    return [
-      {
-        id: 'req_1',
-        batchId: 'batch_prod_pan_flauta_expired_0',
-        productId: 'prod_pan_flauta',
-        productName: 'Pan Flauta (Baguette)',
-        batchNumber: 'L-PAN-E-10',
-        quantity: 12,
-        reason: 'Lote caducó hace 2 días, retirar rancio de góndola',
-        requestedBy: 'Damián (Panadero)',
-        status: 'pending',
-        date: new Date(Date.now() - 3600000).toISOString(),
-      },
-      {
-        id: 'req_2',
-        batchId: 'batch_prod_facturas_surtidas_expired_2',
-        productId: 'prod_facturas_surtidas',
-        productName: 'Facturas Surtidas',
-        batchNumber: 'L-FAC-E-12',
-        quantity: 5,
-        reason: 'Medialunas secas no aptas para venta',
-        requestedBy: 'Sofía (Cajero/a)',
-        status: 'approved',
-        date: new Date(Date.now() - 14400000).toISOString(),
-        adminMemo: 'Confirmado retiro, de baja mermas.',
-      },
-    ];
+    return [];
   });
+
+  // Bug 2 fix: keep a ref to products so checkExpiry can read the latest value
+  // without capturing it in the effect's closure.
+  const productsRef = useRef(products);
+  useEffect(() => { productsRef.current = products; }, [products]);
 
   useEffect(() => {
     safeSetItem('pan_erp_batches', JSON.stringify(batches));
@@ -131,29 +110,37 @@ export function useBatches({ notify, products }: UseBatchesParams) {
       const todayStr = new Date().toISOString().split('T')[0];
       const todayTime = new Date(todayStr + 'T00:00:00').getTime();
 
-      setWithdrawalRequests((prevRequests) => {
-        setBatches((prevBatches) => {
-          const expiredAutoBatches = prevBatches.filter(
-            (b) =>
-              b.withdrawalMode === 'automatic' &&
-              b.status === 'active' &&
-              b.stock > 0 &&
-              new Date(b.expiryDate + 'T00:00:00').getTime() < todayTime,
-          );
+      // Bug 1 fix: flat setters — no nested setState calls.
+      // Step 1: compute which batches expired and build the new requests array,
+      // then apply both setters sequentially (never nested).
+      setBatches((prevBatches) => {
+        const expiredAutoBatches = prevBatches.filter(
+          (b) =>
+            b.withdrawalMode === 'automatic' &&
+            b.status === 'active' &&
+            b.stock > 0 &&
+            new Date(b.expiryDate + 'T00:00:00').getTime() < todayTime,
+        );
 
-          if (expiredAutoBatches.length === 0) return prevBatches;
+        if (expiredAutoBatches.length === 0) return prevBatches;
 
-          setWithdrawalRequests((prev) => {
-            const updated = [...prev];
+        // Schedule the withdrawal-requests update in the next microtask so it
+        // runs after this setter has committed — standard trick to break nesting.
+        setTimeout(() => {
+          setWithdrawalRequests((prevRequests) => {
+            const updated = [...prevRequests];
             let addedAny = false;
             expiredAutoBatches.forEach((b) => {
               const exists = updated.some((r) => r.batchId === b.id && r.status === 'pending');
               if (!exists) {
+                // Bug 2 fix: resolve productName via ref instead of hardcoded 'Bakery Item'
+                const productName =
+                  productsRef.current.find((p) => p.id === b.productId)?.name ?? 'Producto';
                 updated.unshift({
                   id: `req_auto_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`,
                   batchId: b.id,
                   productId: b.productId,
-                  productName: 'Bakery Item',
+                  productName,
                   batchNumber: b.batchNumber,
                   quantity: b.stock,
                   reason: 'Baja automática generada por fecha límite de caducidad.',
@@ -169,12 +156,11 @@ export function useBatches({ notify, products }: UseBatchesParams) {
                 );
               }
             });
-            return addedAny ? updated : prev;
+            return addedAny ? updated : prevRequests;
           });
+        }, 0);
 
-          return prevBatches;
-        });
-        return prevRequests;
+        return prevBatches;
       });
     };
 

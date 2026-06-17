@@ -104,6 +104,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   const addSale = (cartItems: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail: boolean = false) => {
     if (cartItems.length === 0) return { success: false, error: 'La venta está vacía.' };
 
+    // Bug 8 fix: capture settings once — avoids repeated getSettings() calls throughout the function
+    const settings = getSettings();
+    const ivaRate = settings.fiscal.ivaRate;
+
     if (paymentMethod === 'tarjeta' || paymentMethod === 'mercado_pago' || paymentMethod === 'paypal') {
       const gMap: Record<Sale['paymentMethod'], string> = { tarjeta: 'gate_stripe', mercado_pago: 'gate_mp', paypal: 'gate_paypal', efectivo: '' };
       const gate = inv.gateways.find(g => g.id === gMap[paymentMethod]);
@@ -114,8 +118,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       }
     }
 
-    const updatedProducts = [...inv.products];
-    const updatedIngredients = [...inv.ingredients];
+    // Snapshot for validation and line-item building; actual state updates use functional setters below.
+    const snapshotProducts = [...inv.products];
+    const snapshotIngredients = [...inv.ingredients];
     const saleLineItems: Sale['items'] = [];
     const lowStockAlerts: string[] = [];
 
@@ -131,7 +136,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
           return { productId: cart.productId, name: prod?.name || 'Producto Desconocido', quantity: cart.quantity, price: prod?.price || 0, subtotal: (prod?.price || 0) * cart.quantity };
         }),
         total: totalFail,
-        tax: parseFloat((totalFail - totalFail / (1 + getSettings().fiscal.ivaRate)).toFixed(2)),
+        tax: parseFloat((totalFail - totalFail / (1 + ivaRate)).toFixed(2)),
         paymentMethod, paymentStatus: 'failed',
         operatorRole: usr.activeUser.role, operatorName: usr.activeUser.name,
         customerName: customName || 'Cliente de Caja', customerDoc: customDoc,
@@ -141,48 +146,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       return { success: false, invoice: failedSalePayload, error: 'Transacción denegada por la pasarela de pagos.' };
     }
 
+    // Validation pass — uses snapshot (early-exit, no state mutation yet)
     for (const item of cartItems) {
-      const product = updatedProducts.find(p => p.id === item.productId);
+      const product = snapshotProducts.find(p => p.id === item.productId);
       if (!product) return { success: false, error: `El producto ${item.productId} no existe.` };
       if (product.stock < item.quantity) return { success: false, error: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}, Solicitado: ${item.quantity}` };
       for (const recipeIng of product.ingredients) {
-        const ing = updatedIngredients.find(i => i.id === recipeIng.ingredientId);
+        const ing = snapshotIngredients.find(i => i.id === recipeIng.ingredientId);
         if (!ing) continue;
         const needed = recipeIng.quantity * item.quantity;
         if (ing.stock < needed) return { success: false, error: `Materia prima insuficiente para producir ${product.name}. Falta ${ing.name} (Necesitado: ${needed.toFixed(2)}${ing.unit}, Disponible: ${ing.stock.toFixed(2)}${ing.unit})` };
       }
     }
 
+    // Build line items from snapshot (for sale record and low-stock alerts)
+    const updatedSnapshot = [...snapshotProducts];
+    const updatedIngSnapshot = [...snapshotIngredients];
     for (const item of cartItems) {
-      const productIdx = updatedProducts.findIndex(p => p.id === item.productId);
+      const productIdx = updatedSnapshot.findIndex(p => p.id === item.productId);
       if (productIdx === -1) continue;
-      updatedProducts[productIdx] = {
-        ...updatedProducts[productIdx],
-        stock: updatedProducts[productIdx].stock - item.quantity,
+      updatedSnapshot[productIdx] = {
+        ...updatedSnapshot[productIdx],
+        stock: updatedSnapshot[productIdx].stock - item.quantity,
       };
-      const product = updatedProducts[productIdx];
+      const product = updatedSnapshot[productIdx];
       if (product.stock <= product.minStock) lowStockAlerts.push(`Stock bajo de ${product.name}: quedan ${product.stock} unidades.`);
       for (const recipeIng of product.ingredients) {
-        const ingIdx = updatedIngredients.findIndex(i => i.id === recipeIng.ingredientId);
+        const ingIdx = updatedIngSnapshot.findIndex(i => i.id === recipeIng.ingredientId);
         if (ingIdx === -1) continue;
-        updatedIngredients[ingIdx] = {
-          ...updatedIngredients[ingIdx],
-          stock: updatedIngredients[ingIdx].stock - recipeIng.quantity * item.quantity,
+        updatedIngSnapshot[ingIdx] = {
+          ...updatedIngSnapshot[ingIdx],
+          stock: updatedIngSnapshot[ingIdx].stock - recipeIng.quantity * item.quantity,
         };
-        const ing = updatedIngredients[ingIdx];
+        const ing = updatedIngSnapshot[ingIdx];
         if (ing.stock <= ing.minStock) lowStockAlerts.push(`Peligro: Materia prima baja en "${ing.name}" (${ing.stock.toFixed(2)}${ing.unit} restante).`);
       }
       saleLineItems.push({ productId: product.id, name: product.name, quantity: item.quantity, price: product.price, subtotal: product.price * item.quantity, cost: product.cost });
     }
 
     const subtotalTotal = saleLineItems.reduce((acc, curr) => acc + curr.subtotal, 0);
-    const ivaRate = getSettings().fiscal.ivaRate;
     const calculatedTax = parseFloat((subtotalTotal - subtotalTotal / (1 + ivaRate)).toFixed(2));
 
     const dateToday = new Date();
-    usr.invoiceSeqRef.current += 1;
-    try { localStorage.setItem('pan_erp_invoice_seq', String(usr.invoiceSeqRef.current)); } catch { /* storage full */ }
-    const sequenceStr = String(usr.invoiceSeqRef.current).padStart(7, '0');
+
+    // Bug 7 fix: compute the NEXT sequence number but don't commit it yet —
+    // the increment and localStorage write happen just before the success return.
+    const nextSeq = usr.invoiceSeqRef.current + 1;
+    const sequenceStr = String(nextSeq).padStart(7, '0');
     const invoiceNumber = `FC-A-001-${sequenceStr}`;
 
     const seller = sellerId ? usr.users.find(u => u.id === sellerId) : null;
@@ -216,8 +226,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       return updatedBatches;
     });
 
-    inv.setProducts(updatedProducts);
-    inv.setIngredients(updatedIngredients);
+    // Bug 6 fix: use functional updaters so concurrent calls (e.g. double-click)
+    // each see the latest committed state, not a stale snapshot.
+    inv.setProducts(prev => {
+      const updated = [...prev];
+      for (const item of cartItems) {
+        const idx = updated.findIndex(p => p.id === item.productId);
+        if (idx === -1) continue;
+        updated[idx] = { ...updated[idx], stock: updated[idx].stock - item.quantity };
+      }
+      return updated;
+    });
+
+    inv.setIngredients(prev => {
+      const updated = [...prev];
+      for (const item of cartItems) {
+        const product = snapshotProducts.find(p => p.id === item.productId);
+        if (!product) continue;
+        for (const recipeIng of product.ingredients) {
+          const ingIdx = updated.findIndex(i => i.id === recipeIng.ingredientId);
+          if (ingIdx === -1) continue;
+          updated[ingIdx] = {
+            ...updated[ingIdx],
+            stock: updated[ingIdx].stock - recipeIng.quantity * item.quantity,
+          };
+        }
+      }
+      return updated;
+    });
+
     sal.setSales(prev => [newSaleInstance, ...prev]);
 
     syncEnqueueSale({
@@ -226,8 +263,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         product_id: i.productId,
         quantity: i.quantity,
         unit_price: i.price,
-        tax_rate: getSettings().fiscal.ivaRate * 100,
-        tax_amount: (i.subtotal - i.subtotal / (1 + getSettings().fiscal.ivaRate)),
+        tax_rate: ivaRate * 100,
+        tax_amount: (i.subtotal - i.subtotal / (1 + ivaRate)),
       })),
       payments: [{ payment_method: paymentMethod === 'efectivo' ? 'cash' : paymentMethod, amount: newSaleInstance.total }],
       subtotal: parseFloat((newSaleInstance.total / (1 + ivaRate)).toFixed(2)),
@@ -252,10 +289,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       if (import.meta.env.DEV) console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);
     });
 
+    // Low-stock alerts were computed from the snapshot before functional setters ran —
+    // safe to process here since they're derived from the same cart items.
     lowStockAlerts.forEach(alertMessage => {
       notif.addSystemNotification('⚠️ Alerta de Inventario', alertMessage, 'warning');
       addAutoNote('⚠️ Stock bajo', alertMessage, 'inventario', 'high');
     });
+
+    // Bug 7 fix: commit invoice sequence only after all side-effects succeed
+    usr.invoiceSeqRef.current = nextSeq;
+    try { localStorage.setItem('pan_erp_invoice_seq', String(nextSeq)); } catch { /* storage full */ }
 
     return { success: true, invoice: newSaleInstance };
   };

@@ -64,12 +64,22 @@ export function useCustomers(notify: NotifyFn) {
   const loadCustomersFromD1 = () => {
     fetchCustomersFromD1()
       .then(d1Customers => {
-        if (d1Customers.length > 0) {
-          setCustomers(prev => {
-            const existing = new Set(prev.map(c => c.id));
-            return [...prev, ...d1Customers.filter((c: { id: string }) => !existing.has(c.id))];
-          });
-        }
+        if (d1Customers.length === 0) return;
+        // Bug 10 fix: merge by updated_at so edits made on other devices
+        // overwrite stale local copies rather than being silently ignored.
+        setCustomers(prev => {
+          const prevMap = new Map(prev.map(c => [c.id, c]));
+          for (const d1Customer of d1Customers) {
+            const local = prevMap.get(d1Customer.id);
+            if (
+              !local ||
+              (d1Customer.updated_at && local.updated_at && d1Customer.updated_at > local.updated_at)
+            ) {
+              prevMap.set(d1Customer.id, d1Customer);
+            }
+          }
+          return Array.from(prevMap.values());
+        });
       })
       .catch(() => {});
   };

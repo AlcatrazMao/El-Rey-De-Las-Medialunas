@@ -172,13 +172,14 @@ async function applyOperation(
         .first<{ next_number: number }>();
       const saleNumber = saleNumberRow?.next_number ?? 1;
       const subtotal = Number(d.subtotal ?? 0);
+      const discountTotal = Number(d.discount_total ?? 0);
       const taxTotal = Number(d.tax_total ?? 0);
       const total = Number(d.total ?? subtotal + taxTotal);
 
       await db.prepare(
-        `INSERT OR IGNORE INTO sales (id, branch_id, user_id, customer_id, sale_number, subtotal, tax_total, total, status, sync_status, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'synced', ?, ?)`
-      ).bind(id, branchId, userId, d.customer_id ?? null, saleNumber, subtotal, taxTotal, total, d.notes ?? null, now).run();
+        `INSERT OR IGNORE INTO sales (id, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'synced', ?, ?)`
+      ).bind(id, branchId, userId, d.customer_id ?? null, saleNumber, subtotal, discountTotal, taxTotal, total, d.notes ?? null, now).run();
 
       const items = Array.isArray(d.items) ? d.items as Record<string, unknown>[] : [];
       const payments = Array.isArray(d.payments) ? d.payments as Record<string, unknown>[] : [];

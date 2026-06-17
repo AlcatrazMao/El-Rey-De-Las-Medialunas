@@ -78,7 +78,7 @@ async function verifyFirebaseToken(token: string, env: Env): Promise<DecodedToke
     throw new Error("Invalid token payload");
   }
 
-  if (payload.exp && payload.exp * 1000 < Date.now()) {
+  if (!payload.exp || payload.exp * 1000 < Date.now()) {
     throw new Error("Token expired");
   }
 

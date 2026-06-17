@@ -29,6 +29,15 @@ offerRoutes.get("/", async (c) => {
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
   const status = c.req.query("status");
+  const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "50", 10) || 50), 100);
+  const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
+
+  if (status !== undefined && !VALID_STATUSES.has(status)) {
+    return c.json(
+      { success: false, error: `status must be one of: ${[...VALID_STATUSES].join(", ")}` },
+      400
+    );
+  }
 
   let query = `SELECT o.*, u.name AS created_by_name
                FROM offers o
@@ -41,10 +50,11 @@ offerRoutes.get("/", async (c) => {
     bindings.push(status);
   }
 
-  query += " ORDER BY o.created_at DESC";
+  query += " ORDER BY o.created_at DESC LIMIT ? OFFSET ?";
+  bindings.push(limit, offset);
 
   const results = await db.prepare(query).bind(...bindings).all<OfferRow>();
-  return c.json({ success: true, data: results.results ?? [] });
+  return c.json({ success: true, data: results.results ?? [], pagination: { limit, offset } });
 });
 
 offerRoutes.get("/:id", async (c) => {

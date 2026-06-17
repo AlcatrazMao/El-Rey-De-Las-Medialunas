@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import type { Env, Variables } from "../types/bindings";
+import { resolveUser } from "../lib/resolve-user";
 
 export const customerRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -72,6 +73,10 @@ customerRoutes.get("/:id", async (c) => {
 
 // POST / — Crear cliente
 customerRoutes.post("/", async (c) => {
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
   const db = c.env.DB;
   const body = await c.req.json<{
     name: string;
@@ -124,6 +129,10 @@ customerRoutes.post("/", async (c) => {
 
 // PUT /:id — Actualizar cliente
 customerRoutes.put("/:id", async (c) => {
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
   const db = c.env.DB;
   const id = c.req.param("id");
 
@@ -143,8 +152,13 @@ customerRoutes.put("/:id", async (c) => {
     is_active?: number;
   }>();
 
-  const fields: string[] = ["updated_at = datetime('now')"];
-  const vals: (string | number | null)[] = [];
+  if (body.is_active !== undefined && body.is_active !== 0 && body.is_active !== 1) {
+    return c.json({ success: false, error: "is_active must be 0 or 1" }, 400);
+  }
+
+  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const fields: string[] = ["updated_at = ?"];
+  const vals: (string | number | null)[] = [now];
 
   if (body.name !== undefined) { fields.push("name = ?"); vals.push(body.name.trim()); }
   if (body.email !== undefined) { fields.push("email = ?"); vals.push(body.email); }

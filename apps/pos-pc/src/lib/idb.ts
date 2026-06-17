@@ -80,8 +80,10 @@ export function openDB(): Promise<IDBDatabase> {
           s.createIndex('status', 'status', { unique: false });
         }
       } catch (e) {
+        // Bug 5 fix: reject the promise so callers don't hang forever
         dbPromise = null;
         req.transaction?.abort();
+        reject(e);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -126,9 +128,17 @@ export const batchStore = {
   async putMany(batches: IDBBatch[]): Promise<void> {
     if (batches.length === 0) return;
     const db = await openDB();
-    const txn = db.transaction(STORE_BATCHES, 'readwrite');
-    const store = txn.objectStore(STORE_BATCHES);
-    await Promise.all(batches.map(b => request(store.put(b))));
+    // Bug 4 fix: wait for txn.oncomplete, not just individual request onsuccess.
+    // Individual puts resolving does NOT guarantee the transaction committed
+    // (e.g. disk-full errors surface only at commit time).
+    await new Promise<void>((res, rej) => {
+      const txn = db.transaction(STORE_BATCHES, 'readwrite');
+      txn.oncomplete = () => res();
+      txn.onerror = () => rej(txn.error);
+      txn.onabort = () => rej(new Error('Transaction aborted'));
+      const store = txn.objectStore(STORE_BATCHES);
+      batches.forEach(b => store.put(b)); // fire all puts synchronously; no await needed
+    });
   },
 
   async markSynced(id: string): Promise<void> {

@@ -22,8 +22,8 @@ expenseRoutes.get("/", async (c) => {
   const category = c.req.query("category");
   const fromDate = c.req.query("from_date");
   const toDate = c.req.query("to_date");
-  const limit = parseInt(c.req.query("limit") ?? "100", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "50", 10) || 50), 200);
+  const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
 
   let query = "SELECT * FROM expenses WHERE branch_id = ?";
   const bindings: (string | number)[] = [branchId];

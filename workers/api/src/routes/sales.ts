@@ -13,8 +13,8 @@ salesRoutes.get("/", async (c) => {
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
   const fromDate = c.req.query("from_date");
   const toDate = c.req.query("to_date");
-  const limit = parseInt(c.req.query("limit") ?? "50", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "50", 10) || 50), 200);
+  const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
   const sortOrder = c.req.query("sort_order") === "asc" ? "ASC" : "DESC";
 
   let query = "SELECT * FROM sales WHERE branch_id = ?";
@@ -125,6 +125,8 @@ salesRoutes.post("/", async (c) => {
   const userId = user.id;
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
+  // TODO: add UNIQUE constraint on (branch_id, sale_number) in a migration to prevent
+  // duplicate sale numbers under concurrent requests (MAX+1 is not safe without a lock).
   const saleNumberRow = await db
     .prepare(
       "SELECT COALESCE(MAX(sale_number), 0) + 1 AS next_number FROM sales WHERE branch_id = ?"
@@ -283,8 +285,8 @@ salesRoutes.post("/:id/refund", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
   const body = await c.req
-    .json<{ reason?: string; items?: { product_id: string; quantity: number }[] }>()
-    .catch(() => ({}) as { reason?: string; items?: { product_id: string; quantity: number }[] });
+    .json<{ reason?: string; items?: { sale_item_id?: string; product_id?: string; quantity: number }[] }>()
+    .catch(() => ({}) as { reason?: string; items?: { sale_item_id?: string; product_id?: string; quantity: number }[] });
 
   const firebaseUid = c.get("firebaseUid") ?? "";
   const user = await resolveUser(c.env.DB, firebaseUid);
@@ -323,16 +325,30 @@ salesRoutes.post("/:id/refund", async (c) => {
   const toRefund: { product_id: string; batch_id: string | null; quantity: number }[] = [];
 
   if (partial) {
+    // Key by sale_item id to correctly handle the same product appearing on multiple lines.
+    // Also build a product_id index for backwards-compatible callers that don't send sale_item_id.
+    const itemsById = new Map<
+      string,
+      { id: string; product_id: string; batch_id: string | null; quantity: number }
+    >();
     const itemsByProduct = new Map<
       string,
       { id: string; product_id: string; batch_id: string | null; quantity: number }
     >();
-    for (const it of allItems) itemsByProduct.set(it.product_id, it);
+    for (const it of allItems) {
+      itemsById.set(it.id, it);
+      // last-writer wins for product_id fallback — only safe when product appears once
+      itemsByProduct.set(it.product_id, it);
+    }
     for (const req of requested) {
-      const matched = itemsByProduct.get(req.product_id);
+      // Prefer explicit sale_item_id; fall back to product_id for backwards compat
+      const matched = req.sale_item_id
+        ? itemsById.get(req.sale_item_id)
+        : (req.product_id ? itemsByProduct.get(req.product_id) : undefined);
+      const label = req.sale_item_id ?? req.product_id ?? "(unknown)";
       if (!matched) {
         return c.json(
-          { success: false, error: `Product ${req.product_id} is not part of this sale` },
+          { success: false, error: `Item ${label} is not part of this sale` },
           400
         );
       }
@@ -340,7 +356,7 @@ salesRoutes.post("/:id/refund", async (c) => {
         return c.json(
           {
             success: false,
-            error: `Refund quantity for ${req.product_id} must be > 0 and <= ${matched.quantity}`,
+            error: `Refund quantity for ${label} must be > 0 and <= ${matched.quantity}`,
           },
           400
         );

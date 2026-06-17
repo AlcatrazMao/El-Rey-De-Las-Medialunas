@@ -59,6 +59,10 @@ cashRoutes.post("/sessions/open", async (c) => {
     branch_id?: string;
   }>();
 
+  if (typeof body.opening_amount !== 'number' || body.opening_amount < 0) {
+    return c.json({ success: false, error: 'opening_amount must be a non-negative number' }, 400);
+  }
+
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const firebaseUid = c.get("firebaseUid") ?? "";
   const user = await resolveUser(c.env.DB, firebaseUid);
@@ -171,6 +175,35 @@ cashRoutes.post("/movements", async (c) => {
     description?: string;
     category?: string;
   }>();
+
+  if (!body.cash_session_id || typeof body.cash_session_id !== 'string') {
+    return c.json({ success: false, error: 'cash_session_id is required' }, 400);
+  }
+
+  const VALID_MOVEMENT_TYPES = ['income', 'expense', 'adjustment'];
+  if (!VALID_MOVEMENT_TYPES.includes(body.type)) {
+    return c.json(
+      { success: false, error: `type must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}` },
+      400
+    );
+  }
+
+  if (typeof body.amount !== 'number' || body.amount <= 0) {
+    return c.json({ success: false, error: 'amount must be a number greater than 0' }, 400);
+  }
+
+  const session = await db
+    .prepare("SELECT id, status FROM cash_sessions WHERE id = ? LIMIT 1")
+    .bind(body.cash_session_id)
+    .first<{ id: string; status: string }>();
+
+  if (!session) {
+    return c.json({ success: false, error: 'Cash session not found' }, 404);
+  }
+
+  if (session.status !== 'open') {
+    return c.json({ success: false, error: 'Cash session is not open' }, 409);
+  }
 
   const firebaseUid = c.get("firebaseUid") ?? "";
   const user = await resolveUser(c.env.DB, firebaseUid);
