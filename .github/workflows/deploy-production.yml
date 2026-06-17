@@ -42,9 +42,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          BUCKET_R2_URL: ${{ secrets.BUCKET_R2 }}
-          R2_CF_TOKEN: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          IMAGES_INTERNAL_TOKEN: ${{ secrets.IMAGES_INTERNAL_TOKEN }}
         run: |
           D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"uuid":"\K[0-9a-f-]+(?=","name":"el-rey-db")' | head -1 || echo "")
           [ -z "$D1_ID" ] && D1_ID=$(npx wrangler d1 list --json 2>&1 | grep -oP '"name":"el-rey-db","uuid":"\K[0-9a-f-]+' | head -1 || echo "")
@@ -63,7 +61,6 @@ jobs:
             [ -n "$KV0" ] && sed -i "s/KV_CACHE_PLACEHOLDER/$KV0/g" "$f"
             [ -n "$KV1" ] && sed -i "s/KV_SESSIONS_PLACEHOLDER/$KV1/g" "$f"
             [ -n "$KV2" ] && sed -i "s/KV_RATE_LIMIT_PLACEHOLDER/$KV2/g" "$f"
-            [ -n "$BUCKET_R2_URL" ] && sed -i "s|BUCKET_R2_URL_PLACEHOLDER|$BUCKET_R2_URL|g" "$f"
           done
           [ -n "$D1_ID" ] && sed -i "s/D1_ID_PLACEHOLDER/$D1_ID/g" wrangler.toml
 
@@ -78,8 +75,7 @@ jobs:
           set -e
 
           echo "=== Setting Worker Secrets (api) ==="
-          echo "$R2_CF_TOKEN" | (cd workers/api && npx wrangler secret put R2_CF_TOKEN --env production)
-          echo "$R2_ACCOUNT_ID" | (cd workers/api && npx wrangler secret put R2_ACCOUNT_ID --env production)
+          echo "$IMAGES_INTERNAL_TOKEN" | (cd workers/api && npx wrangler secret put IMAGES_INTERNAL_TOKEN --env production)
 
           echo "=== Deploying Workers ==="
           for dir in workers/api workers/inventory-worker workers/reports-worker workers/sync-worker; do

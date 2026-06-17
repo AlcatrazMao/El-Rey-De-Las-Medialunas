@@ -7,9 +7,7 @@ export interface Env {
   RATE_LIMIT: KVNamespace;
   INVENTORY_QUEUE: Queue<unknown>;
   REPORTS_QUEUE: Queue<unknown>;
-  R2_CF_TOKEN: string;
-  R2_ACCOUNT_ID: string;
-  PRODUCT_IMAGES_URL: string;
+  IMAGES_INTERNAL_TOKEN: string;
   FIREBASE_SERVICE_ACCOUNT?: string;
   FIREBASE_API_KEY?: string;
   APP_ENV?: string;
