@@ -75,14 +75,10 @@ export async function flushSalesQueue(): Promise<{ flushed: number; failed: numb
   return { flushed, failed };
 }
 
-// WHY: salesQueueStore lacks getAll/deleteOlderThan; stub only logs in DEV until idb gains those methods.
 export async function cleanupOldSynced(): Promise<void> {
   const settings = getSettings();
   const cutoff = new Date(Date.now() - settings.sync.cleanupDays * 86400000).toISOString();
-  if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
-    console.debug("[sync] cleanupOldSynced stub — cutoff", cutoff);
-  }
+  await salesQueueStore.deleteOlderThan(cutoff);
 }
 
 export async function syncOnCashClose(triggerSync?: () => Promise<void> | void): Promise<void> {

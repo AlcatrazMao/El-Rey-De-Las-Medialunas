@@ -166,6 +166,20 @@ export const salesQueueStore = {
     existing.retries += 1;
     await request(store.put(existing));
   },
+
+  async getAll(): Promise<IDBSaleQueueItem[]> {
+    const db = await openDB();
+    return (await request(tx(db, STORE_SALES_QUEUE, 'readonly').getAll())) as IDBSaleQueueItem[];
+  },
+
+  async deleteOlderThan(cutoff: string): Promise<number> {
+    const db = await openDB();
+    const store = tx(db, STORE_SALES_QUEUE, 'readwrite');
+    const all = (await request(store.getAll())) as IDBSaleQueueItem[];
+    const toDelete = all.filter(i => i.synced && i.createdAt < cutoff);
+    await Promise.all(toDelete.map(i => request(store.delete(i.id))));
+    return toDelete.length;
+  },
 };
 
 export const offerStore = {
