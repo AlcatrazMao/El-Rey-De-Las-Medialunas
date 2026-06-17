@@ -5,6 +5,12 @@ import type { Env, Variables } from "../types/bindings";
 export const uploadRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const CONTENT_TYPE_TO_EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
 const MAX_SIZE_BYTES = 2 * 1024 * 1024;
 const IMAGES_WORKER_URL = "https://imagenes-cf-r2.isosistemas2.workers.dev";
 
@@ -29,8 +35,11 @@ uploadRoutes.post("/product-image", async (c) => {
     return c.json({ success: false, error: "File exceeds maximum size of 2MB" }, 413);
   }
 
+  const key = `el-rey/products/${crypto.randomUUID()}.${CONTENT_TYPE_TO_EXT[file.type]}`;
+
   const form = new FormData();
   form.append("file", file);
+  form.append("key", key);
 
   const upstream = await fetch(`${IMAGES_WORKER_URL}/upload`, {
     method: "POST",

@@ -29,6 +29,22 @@ export default defineConfig({
       manifest: false,
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) =>
+              url.hostname === "imagenes-cf-r2.isosistemas2.workers.dev" &&
+              url.pathname.startsWith("/el-rey/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "el-rey-product-images",
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 año
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],
