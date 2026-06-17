@@ -3,7 +3,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
-  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings
+  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect } from 'react';
@@ -17,6 +17,7 @@ import { CustomersView } from './components/CustomersView';
 import { Dashboard } from './components/Dashboard';
 import { IntegrationsView } from './components/IntegrationsView';
 import { InventoryView } from './components/InventoryView';
+import { OffersView } from './components/OffersView';
 import { LoginPage } from './components/LoginPage';
 import { MainHeadLayout } from './components/MainHeadLayout';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
@@ -96,7 +97,7 @@ function UpdateBanner() {
 }
 
 function ERPLayout() {
-  const { activeTab, setActiveTab, activeUser, logout } = useApp();
+  const { activeTab, setActiveTab, activeUser, logout, batches } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showSessionMenu, setShowSessionMenu] = useState(false);
   const [_showAddSession, setShowAddSession] = useState(false);
@@ -136,6 +137,7 @@ function ERPLayout() {
       case 'pos': return <POSView />;
       case 'caja': return <CashSessionView />;
       case 'inventory': return <InventoryView />;
+      case 'offers': return <OffersView batches={batches} />;
       case 'history': return <SalesHistoryView />;
       case 'accounting': return <AccountingView />;
       case 'integrations': return <IntegrationsView />;
@@ -175,6 +177,7 @@ function ERPLayout() {
           { id: 'pos', label: 'Vender', icon: <ShoppingCart className="h-4 w-4" /> },
           { id: 'caja', label: 'Caja', icon: <Wallet className="h-4 w-4" /> },
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
+          { id: 'offers', label: 'Ofertas', icon: <Tag className="h-4 w-4" /> },
           { id: 'history', label: 'Historial', icon: <ReceiptText className="h-4 w-4" /> },
           { id: 'accounting', label: 'Egresos', icon: <HandCoins className="h-4 w-4" /> },
           { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },

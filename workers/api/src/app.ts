@@ -8,12 +8,14 @@ import { validate } from "./middleware/validate";
 import { auditRoutes } from "./routes/audit";
 import { uploadRoutes } from "./routes/uploads";
 import { authRoutes } from "./routes/auth";
+import { batchRoutes } from "./routes/batches";
 import { branchRoutes } from "./routes/branches";
 import { cashRoutes } from "./routes/cash";
 import { categoryRoutes } from "./routes/categories";
 import { customerRoutes } from "./routes/customers";
 import { expenseRoutes } from "./routes/expenses";
 import { inventoryRoutes } from "./routes/inventory";
+import { offerRoutes } from "./routes/offers";
 import { productionRoutes } from "./routes/production";
 import { productRoutes } from "./routes/products";
 import { purchaseRoutes } from "./routes/purchases";
@@ -48,6 +50,8 @@ app.route("/api/v1/audit", auditRoutes);
 app.route("/api/v1/supply-requests", supplyRequestRoutes);
 app.route("/api/v1/expenses", expenseRoutes);
 app.route("/api/v1/upload", uploadRoutes);
+app.route("/api/v2/batches", batchRoutes);
+app.route("/api/v2/offers", offerRoutes);
 
 app.get("/api/v1/health", (c) => {
   return c.json({

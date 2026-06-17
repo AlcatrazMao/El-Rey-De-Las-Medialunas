@@ -274,21 +274,85 @@ productRoutes.delete("/:id", async (c) => {
   return c.json({ success: true, data: { id } });
 });
 
-// GET /:id/prices — stub preserved
+// GET /:id/prices
 productRoutes.get("/:id/prices", async (c) => {
-  return c.json({
-    success: true,
-    data: [],
-    message: "Product prices endpoint",
-  });
+  const db = c.env.DB;
+  const id = c.req.param("id");
+
+  const results = await db
+    .prepare(
+      `SELECT pp.*, b.name AS branch_name
+       FROM product_prices pp
+       LEFT JOIN branches b ON b.id = pp.branch_id
+       WHERE pp.product_id = ? AND pp.is_active = 1
+       ORDER BY pp.price_list_type, pp.created_at DESC`
+    )
+    .bind(id)
+    .all();
+
+  return c.json({ success: true, data: results.results ?? [] });
 });
 
-// POST /:id/prices — stub preserved
+// POST /:id/prices
 productRoutes.post("/:id/prices", async (c) => {
-  return c.json({
-    success: true,
-    data: {
-      message: "Create product price endpoint",
-    },
-  }, 201);
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
+  const db = c.env.DB;
+  const productId = c.req.param("id");
+  const body = await c.req.json<{
+    price_list_type: "retail" | "wholesale" | "promotional";
+    price: number;
+    branch_id?: string;
+    start_date?: string;
+    end_date?: string;
+  }>();
+
+  const validTypes = new Set(["retail", "wholesale", "promotional"]);
+  if (!body.price_list_type || !validTypes.has(body.price_list_type)) {
+    return c.json(
+      { success: false, error: "price_list_type must be one of: retail, wholesale, promotional" },
+      400
+    );
+  }
+  if (typeof body.price !== "number" || body.price <= 0) {
+    return c.json({ success: false, error: "price must be a positive number" }, 400);
+  }
+
+  const productExists = await db
+    .prepare("SELECT id FROM products WHERE id = ? AND deleted_at IS NULL LIMIT 1")
+    .bind(productId)
+    .first<{ id: string }>();
+  if (!productExists) return c.json({ success: false, error: "Product not found" }, 404);
+
+  const branchId = body.branch_id ?? DEFAULT_BRANCH;
+  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+
+  await db
+    .prepare(
+      `INSERT INTO product_prices
+        (id, product_id, branch_id, price_list_type, price, start_date, end_date, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    )
+    .bind(
+      id,
+      productId,
+      branchId,
+      body.price_list_type,
+      body.price,
+      body.start_date ?? null,
+      body.end_date ?? null,
+      now,
+      now
+    )
+    .run();
+
+  const created = await db
+    .prepare("SELECT * FROM product_prices WHERE id = ? LIMIT 1")
+    .bind(id)
+    .first();
+
+  return c.json({ success: true, data: created }, 201);
 });

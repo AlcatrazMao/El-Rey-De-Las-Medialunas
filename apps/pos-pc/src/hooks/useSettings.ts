@@ -24,6 +24,12 @@ export interface CashSettings {
 export interface InventorySettings {
   expiryAlertDays: number;
   globalLowStockThreshold: number;
+  offerRecommendHours: number;
+}
+
+export interface SyncSettings {
+  cleanupDays: number;
+  autoSyncOnClose: boolean;
 }
 
 export interface GatewayCredential {
@@ -61,6 +67,7 @@ export interface AppSettings {
   gatewayCredentials: GatewayCredential[];
   priceLists: PriceList[];
   promotions: Promotion[];
+  sync: SyncSettings;
 }
 
 type ObjectSections = Omit<AppSettings, 'gatewayCredentials' | 'priceLists' | 'promotions'>;
@@ -89,6 +96,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   inventory: {
     expiryAlertDays: 2,
     globalLowStockThreshold: 0,
+    offerRecommendHours: 24,
   },
   gatewayCredentials: [],
   priceLists: [
@@ -96,6 +104,10 @@ const DEFAULT_SETTINGS: AppSettings = {
     { id: 'list_2', name: 'Mayorista', discountPercent: -15, customerTypes: ['mayorista', 'empresa'], isDefault: false },
   ],
   promotions: [],
+  sync: {
+    cleanupDays: 7,
+    autoSyncOnClose: true,
+  },
 };
 
 export function getSettings(): AppSettings {
@@ -111,6 +123,7 @@ export function getSettings(): AppSettings {
       gatewayCredentials: parsed.gatewayCredentials ?? DEFAULT_SETTINGS.gatewayCredentials,
       priceLists: parsed.priceLists ?? DEFAULT_SETTINGS.priceLists,
       promotions: parsed.promotions ?? DEFAULT_SETTINGS.promotions,
+      sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
     };
   } catch {
     return DEFAULT_SETTINGS;

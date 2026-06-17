@@ -39,6 +39,14 @@ syncRoutes.get("/pull", async (c) => {
       type: "sales",
       query: `SELECT * FROM sales WHERE branch_id = '${branchId}' AND created_at > '${since}'`,
     },
+    {
+      type: "batches",
+      query: `SELECT ib.*, p.name as product_name FROM inventory_batches ib LEFT JOIN products p ON p.id = ib.product_id WHERE ib.branch_id = '${branchId}' AND ib.created_at > '${since}'`,
+    },
+    {
+      type: "offers",
+      query: `SELECT * FROM offers WHERE branch_id = '${branchId}' AND updated_at > '${since}'`,
+    },
   ];
 
   const activePullable = requestedTypes
@@ -222,6 +230,66 @@ async function applyOperation(
         `INSERT OR IGNORE INTO supply_requests (id, branch_id, user_id, type, item_id, item_name, quantity, unit, reason, requested_by, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
       ).bind(id, branchId, userId, String(d.type ?? "product"), String(d.item_id ?? ""), String(d.item_name ?? ""), Number(d.quantity ?? 0), String(d.unit ?? ""), d.reason ?? null, String(d.requested_by ?? ""), now, now).run();
+      break;
+    }
+
+    case "batch": {
+      if (op.operation !== "create" && op.operation !== "update") break;
+      await db.prepare(
+        `INSERT OR REPLACE INTO inventory_batches
+          (id, product_id, branch_id, batch_number, entry_date, expiry_date, durability_days,
+           cost_per_unit, initial_quantity, remaining_quantity, inventory_method, status, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        id,
+        String(d.product_id ?? ""),
+        branchId,
+        String(d.batch_number ?? ""),
+        String(d.entry_date ?? now.slice(0, 10)),
+        d.expiry_date == null ? null : String(d.expiry_date),
+        d.durability_days == null ? null : Number(d.durability_days),
+        Number(d.cost_per_unit ?? 0),
+        Number(d.initial_quantity ?? 0),
+        Number(d.remaining_quantity ?? d.initial_quantity ?? 0),
+        String(d.inventory_method ?? "FIFO"),
+        String(d.status ?? "active"),
+        d.notes == null ? null : String(d.notes),
+        String(d.created_at ?? now),
+      ).run();
+      break;
+    }
+
+    case "offer": {
+      const batchIds = Array.isArray(d.batch_ids)
+        ? JSON.stringify(d.batch_ids)
+        : typeof d.batch_ids === "string"
+          ? d.batch_ids
+          : "[]";
+      const productIds = Array.isArray(d.product_ids)
+        ? JSON.stringify(d.product_ids)
+        : typeof d.product_ids === "string"
+          ? d.product_ids
+          : "[]";
+      await db.prepare(
+        `INSERT OR IGNORE INTO offers
+          (id, branch_id, user_id, name, discount_percent, batch_ids, product_ids,
+           starts_at, ends_at, status, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        id,
+        branchId,
+        userId,
+        String(d.name ?? ""),
+        Number(d.discount_percent ?? 0),
+        batchIds,
+        productIds,
+        String(d.starts_at ?? now),
+        d.ends_at == null ? null : String(d.ends_at),
+        String(d.status ?? "active"),
+        d.notes == null ? null : String(d.notes),
+        now,
+        now,
+      ).run();
       break;
     }
 

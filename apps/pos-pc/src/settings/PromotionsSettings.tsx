@@ -19,8 +19,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   salados: 'Salados',
   bebidas: 'Bebidas',
 };
-const MAX_PROMOTIONS = 5;
-
 const EMPTY_PROMO: Omit<Promotion, 'id'> = {
   name: '',
   type: 'quantity_discount',
@@ -79,7 +77,7 @@ export const PromotionsSettings: React.FC<Props> = ({ settings, onUpdate, onSave
           <Percent className="h-4 w-4 text-amber-500" />
           <h3 className="text-sm font-extrabold text-gray-800 dark:text-zinc-50">Promociones</h3>
         </div>
-        {!showForm && promotions.length < MAX_PROMOTIONS && (
+        {!showForm && (
           <button
             type="button"
             onClick={() => setShowForm(true)}
@@ -91,8 +89,7 @@ export const PromotionsSettings: React.FC<Props> = ({ settings, onUpdate, onSave
       </div>
 
       <p className="text-[11px] text-gray-400">
-        Máximo {MAX_PROMOTIONS} promociones activas. Las promociones se muestran en el POS al agregar
-        productos que cumplen las condiciones.
+        Las promociones se muestran en el POS al agregar productos que cumplen las condiciones.
       </p>
 
       {/* Add promotion form */}

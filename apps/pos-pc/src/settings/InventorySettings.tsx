@@ -60,6 +60,24 @@ export const InventorySettings: React.FC<Props> = ({ settings, onUpdate, onSaved
             0 = usar el umbral configurado por producto individualmente.
           </p>
         </div>
+
+        <div className="space-y-1 sm:col-span-2">
+          <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+            Horas previas al vencimiento — Recomendar como oferta
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="72"
+            step="1"
+            value={form.offerRecommendHours}
+            onChange={e => setForm(f => ({ ...f, offerRecommendHours: Number(e.target.value) }))}
+            className="w-full text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+          />
+          <p className="text-[10px] text-gray-400">
+            Los lotes con vencimiento dentro de este plazo aparecen en la vista de Ofertas.
+          </p>
+        </div>
       </div>
 
       <div className="pt-2">

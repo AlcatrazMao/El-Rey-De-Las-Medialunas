@@ -283,20 +283,333 @@ salesRoutes.post("/:id/void", async (c) => {
   return c.json({ success: true, data: { id, voided_at: voidedAt } });
 });
 
-// POST /:id/refund — stub preserved
+// POST /:id/refund
 salesRoutes.post("/:id/refund", async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param("id");
+  const body = await c.req
+    .json<{ reason?: string; items?: { product_id: string; quantity: number }[] }>()
+    .catch(() => ({}) as { reason?: string; items?: { product_id: string; quantity: number }[] });
+
+  const firebaseUid = c.get("firebaseUid") ?? "";
+  const user = await resolveUser(c.env.DB, firebaseUid);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userId = user.id;
+
+  const sale = await db
+    .prepare(
+      `SELECT s.*, u.name AS cashier_name
+       FROM sales s
+       LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.id = ? LIMIT 1`
+    )
+    .bind(id)
+    .first<{ id: string; status: string; branch_id: string }>();
+
+  if (!sale) return c.json({ success: false, error: "Sale not found" }, 404);
+  if (sale.status === "voided") {
+    return c.json({ success: false, error: "Sale already voided" }, 400);
+  }
+  if (sale.status === "refunded") {
+    return c.json({ success: false, error: "Sale already refunded" }, 400);
+  }
+
+  const saleItems = await db
+    .prepare(
+      "SELECT id, product_id, batch_id, quantity FROM sale_items WHERE sale_id = ?"
+    )
+    .bind(id)
+    .all<{ id: string; product_id: string; batch_id: string | null; quantity: number }>();
+
+  const allItems = saleItems.results ?? [];
+  const requested = body.items ?? [];
+  const partial = requested.length > 0;
+
+  const toRefund: { product_id: string; batch_id: string | null; quantity: number }[] = [];
+
+  if (partial) {
+    const itemsByProduct = new Map<
+      string,
+      { id: string; product_id: string; batch_id: string | null; quantity: number }
+    >();
+    for (const it of allItems) itemsByProduct.set(it.product_id, it);
+    for (const req of requested) {
+      const matched = itemsByProduct.get(req.product_id);
+      if (!matched) {
+        return c.json(
+          { success: false, error: `Product ${req.product_id} is not part of this sale` },
+          400
+        );
+      }
+      if (req.quantity <= 0 || req.quantity > matched.quantity) {
+        return c.json(
+          {
+            success: false,
+            error: `Refund quantity for ${req.product_id} must be > 0 and <= ${matched.quantity}`,
+          },
+          400
+        );
+      }
+      toRefund.push({
+        product_id: matched.product_id,
+        batch_id: matched.batch_id,
+        quantity: req.quantity,
+      });
+    }
+  } else {
+    for (const it of allItems) {
+      toRefund.push({ product_id: it.product_id, batch_id: it.batch_id, quantity: it.quantity });
+    }
+  }
+
+  const refundedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const reason = body.reason ?? "Reembolso";
+  const branchId = sale.branch_id;
+
+  const stmts = [
+    db.prepare(
+      `UPDATE sales SET status = 'refunded', voided_at = ?, voided_by = ?, void_reason = ?, sync_status = 'pending'
+       WHERE id = ?`
+    ).bind(refundedAt, userId, reason, id),
+    ...toRefund.flatMap((item) => {
+      const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+      const baseStmts = [
+        db.prepare(
+          `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+           VALUES (?, ?, ?, 'return_in', ?, 'Reembolso', ?, ?)`
+        ).bind(movementId, item.product_id, branchId, item.quantity, userId, refundedAt),
+        db.prepare(
+          `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+           WHERE product_id = ? AND branch_id = ?`
+        ).bind(item.quantity, refundedAt, item.product_id, branchId),
+      ];
+      if (item.batch_id) {
+        baseStmts.push(
+          db.prepare(
+            `UPDATE inventory_batches SET remaining_quantity = remaining_quantity + ? WHERE id = ?`
+          ).bind(item.quantity, item.batch_id)
+        );
+      }
+      return baseStmts;
+    }),
+  ];
+
+  await db.batch(stmts);
+
   return c.json({
     success: true,
-    data: { id: c.req.param("id") },
-    message: "Refund sale endpoint",
+    data: { id, refunded_at: refundedAt, items_refunded: toRefund.length },
   });
 });
 
-// GET /:id/receipt — stub preserved
+// GET /:id/receipt
 salesRoutes.get("/:id/receipt", async (c) => {
-  return c.json({
-    success: true,
-    data: { id: c.req.param("id") },
-    message: "Receipt download endpoint",
+  const db = c.env.DB;
+  const id = c.req.param("id");
+  const format = c.req.query("format") ?? "json";
+
+  const sale = await db
+    .prepare(
+      `SELECT s.*,
+        u.name AS cashier_name,
+        c.name AS customer_name, c.document_type, c.phone AS customer_phone
+       FROM sales s
+       LEFT JOIN users u ON u.id = s.user_id
+       LEFT JOIN customers c ON c.id = s.customer_id
+       WHERE s.id = ? LIMIT 1`
+    )
+    .bind(id)
+    .first<{
+      id: string;
+      sale_number: number;
+      branch_id: string | null;
+      subtotal: number;
+      discount_total: number;
+      tax_total: number;
+      total: number;
+      status: string;
+      notes: string | null;
+      created_at: string;
+      cashier_name: string | null;
+      customer_name: string | null;
+      document_type: string | null;
+      customer_phone: string | null;
+    }>();
+
+  if (!sale) return c.json({ success: false, error: "Sale not found" }, 404);
+
+  const [itemsResult, paymentsResult, branch] = await Promise.all([
+    db
+      .prepare(
+        `SELECT si.*, p.name AS product_name, p.code AS product_code
+         FROM sale_items si
+         LEFT JOIN products p ON p.id = si.product_id
+         WHERE si.sale_id = ?
+         ORDER BY si.created_at`
+      )
+      .bind(id)
+      .all<{
+        product_name: string | null;
+        product_code: string | null;
+        quantity: number;
+        unit_price: number;
+        total: number;
+      }>(),
+    db
+      .prepare(
+        "SELECT * FROM sale_payments WHERE sale_id = ? ORDER BY created_at"
+      )
+      .bind(id)
+      .all<{ payment_method: string; amount: number }>(),
+    db
+      .prepare("SELECT name, address, phone FROM branches WHERE id = ? LIMIT 1")
+      .bind(sale.branch_id ?? DEFAULT_BRANCH)
+      .first<{ name: string; address: string | null; phone: string | null }>(),
+  ]);
+
+  const items = itemsResult.results ?? [];
+  const payments = paymentsResult.results ?? [];
+
+  if (format === "json") {
+    return c.json({
+      success: true,
+      data: { sale, items, payments, branch },
+    });
+  }
+
+  const html = renderReceiptHtml({ sale, items, payments, branch });
+  return new Response(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 });
+
+interface ReceiptData {
+  sale: {
+    id: string;
+    sale_number: number;
+    subtotal: number;
+    discount_total: number;
+    tax_total: number;
+    total: number;
+    status: string;
+    created_at: string;
+    cashier_name: string | null;
+    customer_name: string | null;
+    customer_phone: string | null;
+  };
+  items: {
+    product_name: string | null;
+    product_code: string | null;
+    quantity: number;
+    unit_price: number;
+    total: number;
+  }[];
+  payments: { payment_method: string; amount: number }[];
+  branch: { name: string; address: string | null; phone: string | null } | null;
+}
+
+function escapeHtml(value: string | null | undefined): string {
+  if (value == null) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatCurrency(n: number): string {
+  return `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+}
+
+function renderReceiptHtml(data: ReceiptData): string {
+  const { sale, items, payments, branch } = data;
+  const banner =
+    sale.status === "voided"
+      ? `<div class="banner">ANULADA</div>`
+      : sale.status === "refunded"
+        ? `<div class="banner">REEMBOLSADA</div>`
+        : "";
+
+  const itemsRows = items
+    .map(
+      (it) => `
+      <tr>
+        <td colspan="3" class="item-name">${escapeHtml(it.product_name ?? it.product_code ?? "")}</td>
+      </tr>
+      <tr>
+        <td>${it.quantity}</td>
+        <td>${formatCurrency(it.unit_price)}</td>
+        <td class="right">${formatCurrency(it.total)}</td>
+      </tr>`
+    )
+    .join("");
+
+  const paymentRows = payments
+    .map(
+      (p) =>
+        `<tr><td colspan="2">${escapeHtml(p.payment_method)}</td><td class="right">${formatCurrency(p.amount)}</td></tr>`
+    )
+    .join("");
+
+  const customerBlock = sale.customer_name
+    ? `<div class="row">Cliente: ${escapeHtml(sale.customer_name)}</div>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Ticket #${sale.sale_number}</title>
+<style>
+  body { font-family: 'Courier New', monospace; font-size: 11px; max-width: 300px; margin: 0 auto; padding: 8px; color: #000; }
+  h1 { font-size: 13px; text-align: center; margin: 0 0 4px; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .row { margin: 2px 0; }
+  hr { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 1px 2px; vertical-align: top; }
+  .item-name { font-weight: bold; }
+  .totals td { padding-top: 2px; }
+  .banner { background: #c00; color: #fff; text-align: center; padding: 4px; font-weight: bold; margin: 6px 0; }
+  @media print { body { margin: 0; } }
+</style>
+</head>
+<body>
+  <h1>${escapeHtml(branch?.name ?? "")}</h1>
+  ${branch?.address ? `<div class="center">${escapeHtml(branch.address)}</div>` : ""}
+  ${branch?.phone ? `<div class="center">Tel: ${escapeHtml(branch.phone)}</div>` : ""}
+  <hr />
+  ${banner}
+  <div class="row">Ticket #${sale.sale_number}</div>
+  <div class="row">Fecha: ${escapeHtml(sale.created_at)}</div>
+  <div class="row">Cajero: ${escapeHtml(sale.cashier_name ?? "")}</div>
+  ${customerBlock}
+  <hr />
+  <table>
+    <thead>
+      <tr><td>Cant</td><td>P.U.</td><td class="right">Subt.</td></tr>
+    </thead>
+    <tbody>
+      ${itemsRows}
+    </tbody>
+  </table>
+  <hr />
+  <table class="totals">
+    <tr><td colspan="2">Subtotal</td><td class="right">${formatCurrency(sale.subtotal)}</td></tr>
+    <tr><td colspan="2">Descuento</td><td class="right">${formatCurrency(sale.discount_total)}</td></tr>
+    <tr><td colspan="2">IVA</td><td class="right">${formatCurrency(sale.tax_total)}</td></tr>
+    <tr><td colspan="2"><strong>TOTAL</strong></td><td class="right"><strong>${formatCurrency(sale.total)}</strong></td></tr>
+  </table>
+  <hr />
+  <table>
+    ${paymentRows}
+  </table>
+  <hr />
+  <div class="center">Gracias por su compra</div>
+  <script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+}
