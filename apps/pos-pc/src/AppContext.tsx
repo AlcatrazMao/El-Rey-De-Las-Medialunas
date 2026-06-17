@@ -17,6 +17,7 @@ import {
 } from './initialData';
 import { syncSaleToD1, syncCustomerToD1, syncCashSessionToD1, syncCashSessionCloseToD1, fetchCustomersFromD1, fetchProductsFromD1, syncExpenseToD1, syncSupplyRequestToD1, updateSupplyRequestStatusInD1, syncUserPreferencesToD1 } from './services/d1-sync';
 import type { Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway, UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer } from './types';
+import { safeSetItem, safeRemoveItem } from './utils/safeStorage';
 
 interface AppContextType {
   ingredients: Ingredient[];
@@ -369,23 +370,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
   // Save changes to localStorage on any state update
   useEffect(() => {
-    localStorage.setItem('pan_erp_ingredients', JSON.stringify(ingredients));
+    safeSetItem('pan_erp_ingredients', JSON.stringify(ingredients));
   }, [ingredients]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_products', JSON.stringify(products));
+    safeSetItem('pan_erp_products', JSON.stringify(products));
   }, [products]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_batches', JSON.stringify(batches));
+    safeSetItem('pan_erp_batches', JSON.stringify(batches));
   }, [batches]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_withdrawal_requests', JSON.stringify(withdrawalRequests));
+    safeSetItem('pan_erp_withdrawal_requests', JSON.stringify(withdrawalRequests));
   }, [withdrawalRequests]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_supply_requests', JSON.stringify(supplyRequests));
+    safeSetItem('pan_erp_supply_requests', JSON.stringify(supplyRequests));
   }, [supplyRequests]);
 
   // Automatic verification of automatic-mode expired batches
@@ -436,43 +437,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
   }, [batches, products]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_sales', JSON.stringify(sales));
+    safeSetItem('pan_erp_sales', JSON.stringify(sales));
   }, [sales]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_expenses', JSON.stringify(expenses));
+    safeSetItem('pan_erp_expenses', JSON.stringify(expenses));
   }, [expenses]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_users', JSON.stringify(users));
+    safeSetItem('pan_erp_users', JSON.stringify(users));
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_notifications', JSON.stringify(notifications));
+    safeSetItem('pan_erp_notifications', JSON.stringify(notifications));
   }, [notifications]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_gateways', JSON.stringify(gateways));
+    safeSetItem('pan_erp_gateways', JSON.stringify(gateways));
   }, [gateways]);
 
   useEffect(() => {
     if (currentCashSession) {
-      localStorage.setItem('pan_erp_current_cash_session', JSON.stringify(currentCashSession));
+      safeSetItem('pan_erp_current_cash_session', JSON.stringify(currentCashSession));
     } else {
-      localStorage.removeItem('pan_erp_current_cash_session');
+      safeRemoveItem('pan_erp_current_cash_session');
     }
   }, [currentCashSession]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_cash_sessions_history', JSON.stringify(cashSessionsHistory));
+    safeSetItem('pan_erp_cash_sessions_history', JSON.stringify(cashSessionsHistory));
   }, [cashSessionsHistory]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_active_user_id', activeUserId);
+    safeSetItem('pan_erp_active_user_id', activeUserId);
   }, [activeUserId]);
 
   useEffect(() => {
-    localStorage.setItem('pan_erp_customers', JSON.stringify(customers));
+    safeSetItem('pan_erp_customers', JSON.stringify(customers));
   }, [customers]);
 
   // Load D1 data on startup (retry when token is ready)
@@ -1261,10 +1262,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
   const closeCashSession = (realAmount: number, note?: string) => {
     if (!currentCashSession) return;
-    
+
+    const sessionId = currentCashSession.id;
     const expected = currentCashSession.expectedAmount;
     const discrepancy = realAmount - expected;
-    
+
     const finishedSession: CashSession = {
       ...currentCashSession,
       closedAt: new Date().toISOString(),
@@ -1284,7 +1286,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       Math.abs(discrepancy) < 0.01 ? 'success' : 'warning'
     );
     syncCashSessionCloseToD1(
-      currentCashSession.id,
+      sessionId,
       realAmount,
       expected,
       note

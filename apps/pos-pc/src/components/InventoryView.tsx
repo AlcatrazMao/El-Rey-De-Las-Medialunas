@@ -69,6 +69,7 @@ export const InventoryView: React.FC = () => {
   const getProductExpiryDays = (prod: Product) => {
     if (!prod.elaborationDate || !prod.durabilityDays) return 999;
     const elaborDateObj = new Date(prod.elaborationDate + 'T00:00:00');
+    if (isNaN(elaborDateObj.getTime())) return 999;
     const expiryDateObj = new Date(elaborDateObj.getTime());
     expiryDateObj.setDate(expiryDateObj.getDate() + prod.durabilityDays);
     

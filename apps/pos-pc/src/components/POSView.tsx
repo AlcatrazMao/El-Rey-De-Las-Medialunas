@@ -61,8 +61,12 @@ export const POSView: React.FC = () => {
   const barcodeBufferRef = useRef<string>('');
   const lastKeyTimeRef = useRef<number>(0);
   const barcodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Stable ref so the keydown listener always gets the latest addToCart without re-subscribing
+  // Stable refs so the keydown listener always gets the latest closures without re-subscribing
   const addToCartRef = useRef<((product: Product) => void) | null>(null);
+  const productsRef = useRef(products);
+  const addSystemNotificationRef = useRef(addSystemNotification);
+  productsRef.current = products;
+  addSystemNotificationRef.current = addSystemNotification;
 
   // Simulation states
   const [isScanning, setIsScanning] = useState(false);
@@ -95,12 +99,12 @@ export const POSView: React.FC = () => {
         barcodeBufferRef.current = '';
         if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
         if (code.length >= 3) {
-          const found = products.find(p => p.code === code || p.code.endsWith(code));
+          const found = productsRef.current.find(p => p.code === code || p.code.endsWith(code));
           if (found) {
             addToCartRef.current?.(found);
-            addSystemNotification('📷 Código escaneado', `Lector leyó: ${code} → ${found.name}`, 'success');
+            addSystemNotificationRef.current('📷 Código escaneado', `Lector leyó: ${code} → ${found.name}`, 'success');
           } else {
-            addSystemNotification('⚠️ Código no encontrado', `Barcode "${code}" no coincide con ningún producto`, 'warning');
+            addSystemNotificationRef.current('⚠️ Código no encontrado', `Barcode "${code}" no coincide con ningún producto`, 'warning');
           }
         }
         return;
@@ -121,7 +125,7 @@ export const POSView: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
     };
-  }, [products, addSystemNotification]);
+  }, []);
 
   if (!currentCashSession) {
     return (
@@ -161,6 +165,7 @@ export const POSView: React.FC = () => {
   const getExpiryStatus = (elaborationDate?: string, durabilityDays?: number) => {
     if (!elaborationDate || !durabilityDays) return { status: 'unknown', text: 'N/A', daysRemaining: 999 };
     const elaborDateObj = new Date(elaborationDate + 'T00:00:00');
+    if (isNaN(elaborDateObj.getTime())) return { status: 'unknown', text: 'N/A', daysRemaining: 999 };
     const expiryDateObj = new Date(elaborDateObj.getTime());
     expiryDateObj.setDate(expiryDateObj.getDate() + durabilityDays);
     

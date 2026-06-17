@@ -27,6 +27,7 @@ import { StickyNotesView } from './components/StickyNotesView';
 import { auth } from './config/firebase';
 import { useSyncEngine } from './hooks/useSyncEngine';
 import { useVersionCheck } from './hooks/useVersionCheck';
+import { safeSetItem } from './utils/safeStorage';
 
 
 interface SavedSession { email: string; name: string; role: string; }
@@ -113,7 +114,7 @@ function ERPLayout() {
     if (!activeUser?.email) return;
     const sessions = sessionsRef.current.filter(s => s.email !== activeUser.email);
     sessions.unshift({ email: activeUser.email, name: activeUser.name, role: activeUser.role });
-    localStorage.setItem('erp_sessions', JSON.stringify(sessions));
+    safeSetItem('erp_sessions', JSON.stringify(sessions));
     setSavedSessions(sessions);
   }, [activeUser?.email, activeUser?.role]);
 
@@ -125,7 +126,7 @@ function ERPLayout() {
 
   const removeSession = (email: string) => {
     const sessions = savedSessions.filter(s => s.email !== email);
-    localStorage.setItem('erp_sessions', JSON.stringify(sessions));
+    safeSetItem('erp_sessions', JSON.stringify(sessions));
     setSavedSessions(sessions);
   };
 
@@ -349,11 +350,11 @@ export default function App() {
   useEffect(() => {
     if (!firebaseUser) return;
     firebaseUser.getIdToken().then(t => {
-      localStorage.setItem('firebase_token', t);
+      safeSetItem('firebase_token', t);
       window.dispatchEvent(new Event('firebase-token-ready'));
     });
     const interval = setInterval(() => {
-      firebaseUser.getIdToken(true).then(t => localStorage.setItem('firebase_token', t));
+      firebaseUser.getIdToken(true).then(t => safeSetItem('firebase_token', t));
     }, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, [firebaseUser]);
