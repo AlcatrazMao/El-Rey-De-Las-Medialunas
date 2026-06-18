@@ -96,8 +96,8 @@ productionRoutes.post("/recipes", async (c) => {
     return c.json({ success: false, error: "ingredients is required and must not be empty" }, 400);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -138,8 +138,8 @@ productionRoutes.put("/recipes/:id", async (c) => {
     .first<{ id: string }>();
   if (!existing) return c.json({ success: false, error: "Recipe not found" }, 404);
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const fields: string[] = [];
@@ -204,8 +204,8 @@ productionRoutes.post("/batches", async (c) => {
     return c.json({ success: false, error: "planned_quantity must be > 0" }, 400);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const recipe = await db
@@ -249,8 +249,8 @@ productionRoutes.post("/batches/:id/start", async (c) => {
     return c.json({ success: false, error: `Batch cannot be started: current status is '${batch.status}'` }, 409);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const ingredients = await db
@@ -312,8 +312,8 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
     return c.json({ success: false, error: `Batch cannot be completed: current status is '${batch.status}'` }, 409);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -357,8 +357,8 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
     return c.json({ success: false, error: "Batch is already cancelled" }, 409);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);

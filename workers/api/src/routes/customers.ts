@@ -73,8 +73,8 @@ customerRoutes.get("/:id", async (c) => {
 
 // POST / — Crear cliente
 customerRoutes.post("/", async (c) => {
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const db = c.env.DB;
@@ -129,8 +129,8 @@ customerRoutes.post("/", async (c) => {
 
 // PUT /:id — Actualizar cliente
 customerRoutes.put("/:id", async (c) => {
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const db = c.env.DB;

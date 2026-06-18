@@ -83,8 +83,8 @@ purchaseRoutes.post("/orders", async (c) => {
     return c.json({ success: false, error: "items is required and must not be empty" }, 400);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const supplier = await db
@@ -142,8 +142,8 @@ purchaseRoutes.put("/orders/:id", async (c) => {
     .first<{ id: string }>();
   if (!existing) return c.json({ success: false, error: "Purchase order not found" }, 404);
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const fields: string[] = [];
@@ -185,8 +185,8 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
     return c.json({ success: false, error: "Purchase order already fully received" }, 409);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -254,8 +254,8 @@ purchaseRoutes.post("/orders/:id/cancel", async (c) => {
     return c.json({ success: false, error: "Purchase order is already cancelled" }, 409);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);

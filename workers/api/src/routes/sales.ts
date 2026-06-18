@@ -119,10 +119,9 @@ salesRoutes.post("/", async (c) => {
   }>();
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
-  const userId = user.id;
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   // TODO: add UNIQUE constraint on (branch_id, sale_number) in a migration to prevent
@@ -227,10 +226,9 @@ salesRoutes.post("/:id/void", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json<{ void_reason?: string }>().catch((): { void_reason?: string } => ({}));
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
-  const userId = user.id;
 
   const sale = await db
     .prepare("SELECT id, status FROM sales WHERE id = ? LIMIT 1")
@@ -288,10 +286,9 @@ salesRoutes.post("/:id/refund", async (c) => {
     .json<{ reason?: string; items?: { sale_item_id?: string; product_id?: string; quantity: number }[] }>()
     .catch(() => ({}) as { reason?: string; items?: { sale_item_id?: string; product_id?: string; quantity: number }[] });
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
-  const userId = user.id;
 
   const sale = await db
     .prepare(

@@ -65,8 +65,8 @@ supplierRoutes.post("/", async (c) => {
     return c.json({ success: false, error: "name is required" }, 400);
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -118,8 +118,8 @@ supplierRoutes.put("/:id", async (c) => {
 
   if (!existing) return c.json({ success: false, error: "Supplier not found" }, 404);
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const fields: string[] = [];
@@ -161,8 +161,8 @@ supplierRoutes.delete("/:id", async (c) => {
 
   if (!existing) return c.json({ success: false, error: "Supplier not found" }, 404);
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);

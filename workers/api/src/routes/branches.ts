@@ -55,8 +55,8 @@ branchRoutes.post("/", async (c) => {
   if (!body.name?.trim()) return c.json({ success: false, error: "name is required" }, 400);
   if (!body.code?.trim()) return c.json({ success: false, error: "code is required" }, 400);
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const existing = await db
@@ -112,8 +112,8 @@ branchRoutes.put("/:id", async (c) => {
     .first<{ id: string }>();
   if (!existing) return c.json({ success: false, error: "Branch not found" }, 404);
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const fields: string[] = [];
@@ -149,8 +149,8 @@ branchRoutes.delete("/:id", async (c) => {
     .first<{ id: string }>();
   if (!existing) return c.json({ success: false, error: "Branch not found" }, 404);
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const activeCount = await db

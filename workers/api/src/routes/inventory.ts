@@ -117,10 +117,9 @@ inventoryRoutes.post("/adjust", async (c) => {
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
-  const userId = user.id;
 
   const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);

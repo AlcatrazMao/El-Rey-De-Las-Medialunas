@@ -112,8 +112,8 @@ productRoutes.get("/:id", async (c) => {
 
 // POST /
 productRoutes.post("/", async (c) => {
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const db = c.env.DB;
@@ -185,8 +185,8 @@ productRoutes.post("/", async (c) => {
 
 // PUT /:id
 productRoutes.put("/:id", async (c) => {
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const db = c.env.DB;
@@ -252,8 +252,8 @@ productRoutes.put("/:id", async (c) => {
 
 // DELETE /:id — soft delete
 productRoutes.delete("/:id", async (c) => {
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const db = c.env.DB;
@@ -304,8 +304,8 @@ productRoutes.get("/:id/prices", async (c) => {
 
 // POST /:id/prices
 productRoutes.post("/:id/prices", async (c) => {
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const db = c.env.DB;

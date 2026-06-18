@@ -81,10 +81,9 @@ supplyRequestRoutes.post("/", async (c) => {
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
-  const userId = user.id;
 
   const id = body.id ?? crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -130,8 +129,8 @@ supplyRequestRoutes.put("/:id", async (c) => {
     );
   }
 
-  const firebaseUid = c.get("firebaseUid") ?? "";
-  const user = await resolveUser(c.env.DB, firebaseUid);
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const existing = await db
