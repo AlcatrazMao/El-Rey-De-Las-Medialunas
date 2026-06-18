@@ -658,7 +658,7 @@ export const POSView: React.FC = () => {
     <div className="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-140px)] transition-all duration-300">
       
       {/* LEFT COLUMN: VISUAL POS GRILL (Big buttons McDonald's style) */}
-      <div className="hidden lg:flex flex-1 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl p-5 shadow-xs flex flex-col gap-4">
+      <div className="hidden lg:flex flex-1 min-w-0 min-h-0 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl p-5 shadow-xs flex flex-col gap-4">
         
         {/* Category filters (Big scrollable pills) */}
         <div className="flex items-center justify-between border-b pb-3 border-gray-100 dark:border-zinc-800 flex-wrap gap-2">
@@ -811,7 +811,7 @@ export const POSView: React.FC = () => {
       </div>
 
       {/* RIGHT COLUMN: POS CHECKOUT CART PANEL (Nueva Venta) */}
-      <div className="w-full lg:w-[420px] bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl p-5 shadow-xs flex flex-col overflow-visible">
+      <div className="w-full lg:w-[420px] min-w-0 min-h-0 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl p-5 shadow-xs flex flex-col overflow-visible">
         
         {/* Header detail */}
         <div className="flex items-center justify-between border-b pb-3 border-gray-100 dark:border-zinc-800 mb-4">
@@ -846,13 +846,13 @@ export const POSView: React.FC = () => {
         <div className="mb-3 bg-gray-50 dark:bg-zinc-950/40 p-3 rounded-xl border border-gray-100 dark:border-zinc-850 relative">
           <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Cliente</label>
           {customerName ? (
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0 truncate">
                 <span className="text-sm font-bold text-gray-800 dark:text-zinc-100">{customerName}</span>
                 {customerDoc && <span className="text-xs text-gray-500 ml-2">({customerDoc})</span>}
               </div>
               <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }}
-                className="text-xs text-red-500 hover:underline">Cambiar</button>
+                className="text-xs text-red-500 hover:underline shrink-0">Cambiar</button>
             </div>
           ) : (
             <div>
@@ -896,9 +896,9 @@ export const POSView: React.FC = () => {
               nearLimit ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40' :
               'bg-gray-50 dark:bg-zinc-850 border-gray-200 dark:border-zinc-700'
             }`}>
-              <div className="flex items-center justify-between">
-                <span className="font-extrabold text-gray-700 dark:text-zinc-200">{sc.name}</span>
-                <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <span className="font-extrabold text-gray-700 dark:text-zinc-200 truncate min-w-0">{sc.name}</span>
+                <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] shrink-0 ${
                   sc.type === 'mayorista' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300' :
                   sc.type === 'empresa' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' :
                   sc.type === 'frecuente' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' :
@@ -915,32 +915,45 @@ export const POSView: React.FC = () => {
                   </span>
                 </div>
               )}
-              <div className="flex items-center justify-between text-gray-400">
-                <span>Cond. fiscal: <span className="font-bold text-gray-600 dark:text-zinc-300">{sc.condicion_fiscal.replace(/_/g, ' ')}</span></span>
-                {sc.phone && <span>📞 {sc.phone}</span>}
+              <div className="flex items-center justify-between text-gray-400 gap-2 min-w-0">
+                <span className="truncate min-w-0">Cond. fiscal: <span className="font-bold text-gray-600 dark:text-zinc-300">{sc.condicion_fiscal.replace(/_/g, ' ')}</span></span>
+                {sc.phone && <span className="shrink-0">📞 {sc.phone}</span>}
               </div>
             </div>
           );
         })()}
 
         {/* Cart Item rows list */}
-        <div className="flex-1 overflow-y-auto max-h-[35vh] pr-1 divide-y divide-gray-100 dark:divide-zinc-800 space-y-2 mb-4">
+        <div className="flex-1 overflow-y-auto min-h-[120px] max-h-[calc(100vh-520px)] pr-1 divide-y divide-gray-100 dark:divide-zinc-800 space-y-2 mb-4 min-w-0">
           {cart.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 dark:text-zinc-500 border border-dashed border-gray-100 dark:border-zinc-800 rounded-xl">
-              <span className="text-4xl block mb-2 opacity-50 font-emoji" role="img" aria-label="bread">🍞</span>
-              <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Espera de Selección</p>
-              <p className="text-[11px] text-gray-400/80 mt-1">Pulsa un panificado o escanea un barcode para facturar</p>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setModalMode('visual');
+                setModalSelectedCategory('todos');
+                setSearchQuery('');
+                setShowSelectionModal(true);
+                playBeep(705, 0.05);
+              }}
+              className="group w-full text-center py-12 px-4 text-gray-400 dark:text-zinc-500 border border-dashed border-gray-100 dark:border-zinc-800 rounded-xl cursor-pointer transition-colors duration-200 hover:border-orange-300 dark:hover:border-orange-700 hover:bg-orange-50/40 dark:hover:bg-orange-900/10"
+            >
+              <span className="text-4xl block mb-2 opacity-50 font-emoji transition-opacity duration-200 group-hover:opacity-100" role="img" aria-label="bread">🍞</span>
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-400 transition-colors duration-200 group-hover:text-orange-500 dark:group-hover:text-orange-400">Espera de Selección</p>
+              <p className="text-[11px] text-gray-400/80 mt-1 transition-colors duration-200 group-hover:text-orange-500/80 dark:group-hover:text-orange-400/80">
+                <span className="group-hover:hidden">Pulsa un panificado o escanea un barcode para facturar</span>
+                <span className="hidden group-hover:inline">Tocá para explorar el catálogo</span>
+              </p>
+            </button>
           ) : (
             cart.map(item => (
-              <div key={item.product.id} className="pt-2 flex items-center justify-between gap-3 text-xs">
-                <div className="min-w-0 flex-1">
+              <div key={item.product.id} className="pt-2 flex items-center justify-between gap-3 text-xs min-w-0">
+                <div className="min-w-0 flex-1 overflow-hidden">
                   <p className="font-bold text-gray-800 dark:text-zinc-100 truncate">{item.product.name}</p>
-                  <p className="text-[10px] text-amber-600 dark:text-amber-500 font-semibold">${item.product.price.toFixed(2)} c/u</p>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-500 font-semibold truncate">${item.product.price.toFixed(2)} c/u</p>
                 </div>
-                
+
                 {/* Item adjustments */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <div className="flex items-center border border-gray-200 dark:border-zinc-700 rounded-lg">
                     <button
                       id={`btn-cart-minus-${item.product.id}`}
