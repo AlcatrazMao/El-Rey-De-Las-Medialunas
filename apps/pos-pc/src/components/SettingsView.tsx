@@ -109,7 +109,7 @@ export const SettingsView: React.FC = () => {
 
       <div className="flex flex-col lg:flex-row gap-5">
         <aside className="lg:w-48 shrink-0">
-          <nav className="flex lg:flex-col gap-1 flex-wrap">
+          <nav className="flex lg:flex-col gap-1 flex-wrap overflow-x-auto scrollbar-none">
             {TABS.map(tab => {
               const isActive = activeTab === tab.id;
               return (

@@ -104,6 +104,10 @@ export const CustomersView: React.FC = () => {
       return c;
     });
     saveCustomers(updated);
+    if (selectedCustomer && selectedCustomer.id === editingCustomer.id) {
+      const refreshed = updated.find(c => c.id === editingCustomer.id);
+      if (refreshed) setSelectedCustomer(refreshed);
+    }
     setEditingCustomer(null);
     setFormData(EMPTY_CUSTOMER);
     setShowForm(false);
@@ -145,7 +149,7 @@ export const CustomersView: React.FC = () => {
   };
 
   const customerSales = selectedCustomer
-    ? sales.filter(s => s.customerName === selectedCustomer.name || s.customerId === selectedCustomer.id)
+    ? sales.filter(s => s.customerId === selectedCustomer.id || s.customerName === selectedCustomer.name)
     : [];
 
   const filteredCustomers = customers.filter(c =>
@@ -292,12 +296,18 @@ export const CustomersView: React.FC = () => {
               </div>
             </div>
           ))}
-          {filteredCustomers.length === 0 && (
+          {filteredCustomers.length === 0 && customers.length === 0 && (
             <div className="text-center py-12 text-gray-400">
               <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No se encontraron clientes</p>
+              <p className="text-sm">Aún no hay clientes registrados</p>
               <button onClick={() => { setFormData(EMPTY_CUSTOMER); setShowForm(true); }}
-                className="text-amber-500 text-xs font-bold mt-1 hover:underline">Crear primer cliente</button>
+                className="text-amber-500 text-xs font-bold mt-1 hover:underline">Registrá tu primer cliente</button>
+            </div>
+          )}
+          {filteredCustomers.length === 0 && customers.length > 0 && (
+            <div className="text-center py-12 text-gray-400">
+              <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No se encontraron clientes con ese filtro</p>
             </div>
           )}
         </div>

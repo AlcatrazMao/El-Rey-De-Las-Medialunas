@@ -24,7 +24,8 @@ export const Dashboard: React.FC = () => {
     approveWithdrawalRequest,
     rejectWithdrawalRequest,
     approveSupplyRequest,
-    rejectSupplyRequest
+    rejectSupplyRequest,
+    addSystemNotification
   } = useApp();
 
   // Control customization modal visibility
@@ -77,8 +78,7 @@ export const Dashboard: React.FC = () => {
     if (isPresent) {
       // Don't let users empty all widgets so they don't see a blank screen
       if (activeUser.customPanels.length <= 1) {
-        // eslint-disable-next-line no-alert -- temporary UX for widget minimum warning
-        alert('Debes dejar al menos una sección activa para visualizar el tablero.');
+        addSystemNotification('⚠️ Tablero mínimo', 'Debes dejar al menos una sección activa para visualizar el tablero.', 'warning');
         return;
       }
       updated = activeUser.customPanels.filter(id => id !== widgetId);
@@ -128,7 +128,7 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
           <span className="text-xs text-emerald-500 font-bold bg-emerald-50 dark:bg-emerald-950/10 px-2 py-1 rounded">
-            +{(totalRevenue > 0 ? 100 : 0)}%
+            —
           </span>
         </div>
 
@@ -144,7 +144,7 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
           <span className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/10 px-2 py-1 rounded">
-            -{(totalExpenses > 0 ? 100 : 0)}%
+            —
           </span>
         </div>
 
@@ -428,13 +428,13 @@ export const Dashboard: React.FC = () => {
           {/* Conditional rendering depending on chosen tab */}
           {activeRequestTab === 'mermas' ? (
             <div className="space-y-3">
-              {withdrawalRequests.length === 0 ? (
+              {withdrawalRequests.filter(r => r.status === 'pending').length === 0 ? (
                 <p className="text-xs text-gray-400 italic font-semibold p-4 text-center bg-white dark:bg-zinc-950/20 border border-dashed rounded-2xl">
-                  No hay solicitudes de mermas registradas.
+                  No hay solicitudes de mermas pendientes.
                 </p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {withdrawalRequests.map(req => {
+                  {withdrawalRequests.filter(r => r.status === 'pending').map(req => {
                     const isPending = req.status === 'pending';
                     return (
                       <div
@@ -554,13 +554,13 @@ export const Dashboard: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3">
-              {supplyRequests.length === 0 ? (
+              {supplyRequests.filter(r => r.status === 'pending').length === 0 ? (
                 <p className="text-xs text-gray-400 italic font-semibold p-4 text-center bg-white dark:bg-zinc-950/20 border border-dashed rounded-2xl">
-                  No hay solicitudes de abastecimiento registradas.
+                  No hay solicitudes de abastecimiento pendientes.
                 </p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {supplyRequests.map(req => {
+                  {supplyRequests.filter(r => r.status === 'pending').map(req => {
                     const isPending = req.status === 'pending';
                     return (
                       <div
@@ -685,9 +685,11 @@ export const Dashboard: React.FC = () => {
 
       {/* DYNAMIC WIDGETS DISPLAY (based on user custom preferred array!) */}
       <div className="space-y-6">
-        {activeUser.customPanels.map(widgetId => {
+        {activeUser.customPanels.map((widgetId, idx) => {
           const renderer = widgetMapping[widgetId];
           if (!renderer) return null;
+          const isFirst = idx === 0;
+          const isLast = idx === activeUser.customPanels.length - 1;
 
           return (
             <div key={widgetId} className="relative group">
@@ -696,7 +698,8 @@ export const Dashboard: React.FC = () => {
                 <button
                   id={`btn-widget-up-${widgetId}`}
                   onClick={() => shiftWidgetOrderDetail(widgetId, 'up')}
-                  className="text-xs font-bold text-gray-500 hover:text-amber-500 p-1 cursor-pointer shrink-0"
+                  disabled={isFirst}
+                  className={`text-xs font-bold text-gray-500 hover:text-amber-500 p-1 shrink-0 ${isFirst ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   title="Subir posición"
                 >
                   ▲
@@ -704,7 +707,8 @@ export const Dashboard: React.FC = () => {
                 <button
                   id={`btn-widget-down-${widgetId}`}
                   onClick={() => shiftWidgetOrderDetail(widgetId, 'down')}
-                  className="text-xs font-bold text-gray-500 hover:text-amber-500 p-1 cursor-pointer shrink-0"
+                  disabled={isLast}
+                  className={`text-xs font-bold text-gray-500 hover:text-amber-500 p-1 shrink-0 ${isLast ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   title="Bajar posición"
                 >
                   ▼

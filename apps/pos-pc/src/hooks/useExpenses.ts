@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { INITIAL_EXPENSES } from '../initialData';
 import { syncExpenseToD1 } from '../services/d1-sync';
 import type { Expense } from '../types';
+import { formatCurrency } from '../utils/format';
 import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
@@ -37,10 +38,16 @@ export function useExpenses(notify: NotifyFn) {
       date: new Date().toISOString(),
     };
     setExpenses(prev => [expenseInstance, ...prev]);
-    syncExpenseToD1(expenseInstance).catch(() => {});
+    syncExpenseToD1(expenseInstance).catch(() =>
+      notify(
+        '⚠️ Sync fallido',
+        'El gasto se guardó localmente pero no se sincronizó con el servidor.',
+        'warning'
+      )
+    );
     notify(
       '📉 Gasto Registrado',
-      `Se registró un egreso por $${expenseInstance.amount.toFixed(2)} bajo el concepto: ${expenseInstance.concept}`,
+      `Se registró un egreso por ${formatCurrency(expenseInstance.amount)} bajo el concepto: ${expenseInstance.concept}`,
       'info'
     );
   };

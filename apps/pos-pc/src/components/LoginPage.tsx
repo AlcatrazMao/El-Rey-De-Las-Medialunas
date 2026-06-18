@@ -35,11 +35,22 @@ export function LoginPage({ onLogin, accessError }: LoginPageProps) {
       onLogin(result.user);
     } catch (err) {
       const fbErr = err as { code?: string };
-      setError(fbErr.code === 'auth/invalid-credential' 
-        ? 'Email o contraseña incorrectos' 
-        : fbErr.code === 'auth/too-many-requests'
-        ? 'Demasiados intentos. Esperá unos minutos.'
-        : 'Error al iniciar sesión');
+      switch (fbErr.code) {
+        case 'auth/invalid-credential':
+          setError('Email o contraseña incorrectos');
+          break;
+        case 'auth/too-many-requests':
+          setError('Demasiados intentos. Esperá unos minutos.');
+          break;
+        case 'auth/network-request-failed':
+          setError('Sin conexión a internet. Verificá tu red.');
+          break;
+        case 'auth/user-disabled':
+          setError('Esta cuenta fue deshabilitada. Contactá al administrador.');
+          break;
+        default:
+          setError('Error al iniciar sesión');
+      }
     } finally {
       setLoading(false);
     }
@@ -81,7 +92,7 @@ export function LoginPage({ onLogin, accessError }: LoginPageProps) {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="cajero@panaderia.com"
+                  placeholder="correo@ejemplo.com"
                   required
                   className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-xl text-sm text-gray-800 dark:text-zinc-100 placeholder:text-gray-400 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
                 />
@@ -134,7 +145,7 @@ export function LoginPage({ onLogin, accessError }: LoginPageProps) {
         </div>
 
         <p className="text-center text-xs text-gray-400 dark:text-zinc-500 mt-6">
-          © 2026 El Rey De Las Medialunas · v0.1.0
+          © 2026 El Rey De Las Medialunas · {import.meta.env.VITE_APP_VERSION ?? 'v0.1.0'}
         </p>
       </div>
     </div>

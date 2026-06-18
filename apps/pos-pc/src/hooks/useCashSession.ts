@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 
 import { syncCashSessionToD1, syncCashSessionCloseToD1 } from '../services/d1-sync';
 import type { CashSession } from '../types';
+import { formatCurrency } from '../utils/format';
 import { safeSetItem, safeRemoveItem } from '../utils/safeStorage';
 
 import { getSettings } from './useSettings';
@@ -52,6 +53,10 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
   }, [cashSessionsHistory]);
 
   const openCashSession = (initialAmount: number, note?: string): void => {
+    if (currentCashSession) {
+      notify('⚠️ Sesión activa', 'Ya hay una caja abierta. Cerrala primero.', 'warning');
+      return;
+    }
     const activeUser = getActiveUser();
     const newSession: CashSession = {
       id: `cash_ses_${Date.now()}`,
@@ -65,7 +70,7 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
     setCurrentCashSession(newSession);
     notify(
       '🏦 Apertura de Caja',
-      `Se abrió la caja con un saldo inicial de $${initialAmount.toFixed(2)} por ${activeUser.name}.`,
+      `Se abrió la caja con un saldo inicial de ${formatCurrency(initialAmount)} por ${activeUser.name}.`,
       'success',
     );
     syncCashSessionToD1({
@@ -74,7 +79,13 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
       opening_amount: initialAmount,
       status: 'open',
       notes: note ?? '',
-    }).catch(() => {});
+    }).catch(() =>
+      notify(
+        '⚠️ Sync fallido',
+        'La sesión se guardó localmente pero no se sincronizó con el servidor.',
+        'warning',
+      ),
+    );
   };
 
   const closeCashSession = (realAmount: number, note?: string): void => {
@@ -96,10 +107,16 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
     setCurrentCashSession(null);
     notify(
       '🏦 Cierre de Caja',
-      `Caja cerrada. Esperado: $${expected.toFixed(2)}, Real: $${realAmount.toFixed(2)}, Discrepancia: $${discrepancy.toFixed(2)}`,
+      `Caja cerrada. Esperado: ${formatCurrency(expected)}, Real: ${formatCurrency(realAmount)}, Discrepancia: ${formatCurrency(discrepancy)}`,
       Math.abs(discrepancy) < 0.01 ? 'success' : 'warning',
     );
-    syncCashSessionCloseToD1(sessionId, realAmount, expected, note).catch(() => {});
+    syncCashSessionCloseToD1(sessionId, realAmount, expected, note).catch(() =>
+      notify(
+        '⚠️ Sync fallido',
+        'La sesión se guardó localmente pero no se sincronizó con el servidor.',
+        'warning',
+      ),
+    );
     onCashClose?.();
   };
 

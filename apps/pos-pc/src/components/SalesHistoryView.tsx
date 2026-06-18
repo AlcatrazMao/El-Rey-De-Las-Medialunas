@@ -12,6 +12,7 @@ import * as React from 'react'
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
+import { getSettings } from '../hooks/useSettings';
 import { syncVoidSaleToD1 } from '../services/d1-sync';
 import type { Sale } from '../types';
 import { exportSalesToCSV, printTicketOrInvoice } from '../utils/exportUtils';
@@ -38,13 +39,11 @@ export const SalesHistoryView: React.FC = () => {
   // Dialog to view ticket detail
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
+  // Inline confirmation state for void action
+  const [confirmVoidId, setConfirmVoidId] = useState<string | null>(null);
+
   // Void/Cancel Sale (gently restores stock!)
   const handleVoidSale = (sale: Sale) => {
-    // eslint-disable-next-line no-alert -- confirm is appropriate UX for void action
-    if (!window.confirm(`¿Estás seguro de que deseas anular la factura ${sale.invoiceNumber}? El importe de $${sale.total.toFixed(2)} será revertido y los productos reingresarán al stock.`)) {
-      return;
-    }
-
     // Restore products stock & ingredients in one pass
     sale.items.forEach(item => {
       const dbProd = products.find(p => p.id === item.productId);
@@ -89,6 +88,7 @@ export const SalesHistoryView: React.FC = () => {
       `Factura ${sale.invoiceNumber} anulada. Mercadería e insumos reingresados a inventario.`,
       'warning'
     );
+    setConfirmVoidId(null);
     setSelectedSale(null);
   };
 
@@ -102,7 +102,7 @@ export const SalesHistoryView: React.FC = () => {
     return matchesSearch && matchesMethod && matchesStatus;
   }).sort((a, b) => {
     const dir = sortDir === 'asc' ? 1 : -1;
-    if (sortCol === 'date') return dir * (new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (sortCol === 'date') return dir * (new Date(a.date).getTime() - new Date(b.date).getTime());
     if (sortCol === 'total') return dir * (b.total - a.total);
     return dir * a.invoiceNumber.localeCompare(b.invoiceNumber);
   });
@@ -276,16 +276,36 @@ export const SalesHistoryView: React.FC = () => {
                             <Receipt className="h-4 w-4" />
                           </button>
                           
-                          {isSuccess && !isVoided && (
+                          {isSuccess && !isVoided && confirmVoidId !== sale.id && (
                             // Only can void success billing records in PC admin session
                             <button
                               id={`btn-void-invoice-${sale.id}`}
-                              onClick={() => handleVoidSale(sale)}
+                              onClick={() => setConfirmVoidId(sale.id)}
                               className="p-1.5 rounded-lg border border-red-250 dark:border-red-900/40 bg-red-50/10 hover:bg-red-500 hover:text-white text-red-500 dark:text-red-400 cursor-pointer transition-colors"
                               title="Anular venta y reingresar stock de productos e ingredientes"
                             >
                               <X className="h-4 w-4" />
                             </button>
+                          )}
+                          {isSuccess && !isVoided && confirmVoidId === sale.id && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                id={`btn-confirm-void-${sale.id}`}
+                                onClick={() => handleVoidSale(sale)}
+                                className="px-2 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white text-[10px] font-bold cursor-pointer transition-colors"
+                                title={`Confirmar anulación de ${sale.invoiceNumber}`}
+                              >
+                                Confirmar
+                              </button>
+                              <button
+                                id={`btn-cancel-void-${sale.id}`}
+                                onClick={() => setConfirmVoidId(null)}
+                                className="px-2 py-1 rounded-lg border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-850 text-gray-700 dark:text-zinc-200 hover:bg-gray-100 text-[10px] font-bold cursor-pointer transition-colors"
+                                title="Cancelar anulación"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
                           )}
                         </div>
                       </td>
@@ -318,7 +338,7 @@ export const SalesHistoryView: React.FC = () => {
             {/* Simulated scroll details paper style */}
             <div className="flex-1 overflow-y-auto max-h-[45vh] bg-amber-50/15 dark:bg-zinc-950/20 p-4 rounded-xl border border-dotted border-gray-300 dark:border-zinc-800 font-mono text-xs text-gray-800 dark:text-zinc-300">
               <div className="text-center">
-                <p className="font-extrabold text-sm text-amber-600 dark:text-amber-500">🥐 El Rey De Las Medialunas 🥐</p>
+                <p className="font-extrabold text-sm text-amber-600 dark:text-amber-500">🥐 {getSettings().business.businessName || 'El Rey De Las Medialunas'} 🥐</p>
                 <p className="text-[10px] text-gray-400">Factura electrónica</p>
                 <p className="border-b border-dashed border-gray-300 dark:border-zinc-800 my-2" />
               </div>
@@ -347,7 +367,7 @@ export const SalesHistoryView: React.FC = () => {
                   {selectedSale.items.map((item, id) => (
                     <tr key={id}>
                       <td className="py-1.5">{item.name} x{item.quantity}</td>
-                      <td className="text-right py-1.5">${(item.price * item.quantity).toFixed(2)}</td>
+                      <td className="text-right py-1.5">{formatCurrency(item.price * item.quantity)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -357,11 +377,11 @@ export const SalesHistoryView: React.FC = () => {
 
               <div className="space-y-1 font-sans font-medium text-gray-600 dark:text-zinc-400">
                 <div className="flex justify-between">
-                  <span>Neto Neto:</span>
+                  <span>Neto Gravado:</span>
                   <span>{formatCurrency(selectedSale.total - selectedSale.tax)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>IVA Tasa Gral (21%):</span>
+                  <span>{`IVA Tasa Gral (${(getSettings().fiscal.ivaRate * 100).toFixed(0)}%):`}</span>
                   <span>{formatCurrency(selectedSale.tax)}</span>
                 </div>
                 <div className="flex justify-between text-base font-extrabold text-gray-850 dark:text-zinc-50 border-t pt-1.5 border-amber-200">
@@ -389,14 +409,38 @@ export const SalesHistoryView: React.FC = () => {
               </button>
             </div>
 
-            {selectedSale.paymentStatus === 'completed' && (
+            {selectedSale.paymentStatus === 'completed' && confirmVoidId !== selectedSale.id && (
               <button
                 id="btn-void-secondary-trigger"
-                onClick={() => handleVoidSale(selectedSale)}
+                onClick={() => setConfirmVoidId(selectedSale.id)}
                 className="w-full mt-3 py-2.5 bg-red-100 hover:bg-red-500 hover:text-white border border-red-200 dark:border-red-950/20 text-red-650 rounded-xl text-xs font-bold cursor-pointer transition-colors flex items-center justify-center gap-1"
               >
                 <Trash2 className="h-3.5 w-3.5" /> Anular Factura y Devolver Stock
               </button>
+            )}
+
+            {selectedSale.paymentStatus === 'completed' && confirmVoidId === selectedSale.id && (
+              <div className="mt-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40">
+                <p className="text-[11px] font-bold text-red-700 dark:text-red-300 mb-2 text-center">
+                  ¿Confirmás anular {selectedSale.invoiceNumber} por {formatCurrency(selectedSale.total)}? El stock será reingresado.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    id="btn-void-secondary-confirm"
+                    onClick={() => handleVoidSale(selectedSale)}
+                    className="py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Confirmar anulación
+                  </button>
+                  <button
+                    id="btn-void-secondary-cancel"
+                    onClick={() => setConfirmVoidId(null)}
+                    className="py-2 bg-white dark:bg-zinc-850 border border-gray-300 dark:border-zinc-700 text-gray-700 dark:text-zinc-200 hover:bg-gray-100 rounded-lg text-[11px] font-bold cursor-pointer transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
             )}
 
             <button

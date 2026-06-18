@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
 import { fetchProductsFromD1 } from '../services/d1-sync';
@@ -36,7 +36,9 @@ export function useInventory(notify: NotifyFn) {
     safeSetItem('pan_erp_ingredients', JSON.stringify(ingredients));
   }, [ingredients]);
 
+  const productsRef = useRef<Product[]>(products);
   useEffect(() => {
+    productsRef.current = products;
     safeSetItem('pan_erp_products', JSON.stringify(products));
   }, [products]);
 
@@ -52,7 +54,7 @@ export function useInventory(notify: NotifyFn) {
     setIngredients(prev => [...prev, item]);
     notify(
       '🌾 Nueva Materia Prima',
-      `Se incorporó ${item.name} (${item.unitCost} $/unidad) al catálogo.`,
+      `Se incorporó ${item.name} (${item.unitCost?.toFixed(2)} $/unidad) al catálogo.`,
       'success'
     );
   };
@@ -113,10 +115,9 @@ export function useInventory(notify: NotifyFn) {
   };
 
   const refreshProductsFromD1 = useCallback((branchId: string) => {
-    setProducts(current => {
-      fetchProductsFromD1(current, branchId).then(setProducts).catch(() => {});
-      return current;
-    });
+    fetchProductsFromD1(productsRef.current, branchId)
+      .then(result => { if (result) setProducts(result); })
+      .catch(() => {});
   }, []);
 
   return {

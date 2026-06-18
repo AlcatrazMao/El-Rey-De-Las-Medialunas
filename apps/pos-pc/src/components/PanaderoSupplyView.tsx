@@ -8,7 +8,7 @@ import {
   Workflow 
 } from 'lucide-react';
 import * as React from 'react'
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useApp } from '../AppContext';
 
@@ -33,6 +33,16 @@ export const PanaderoSupplyView: React.FC = () => {
   const [productQty, setProductQty] = useState<number>(50);
   const [productReason, setProductReason] = useState<string>('Producción fresca lista en el horno. Solicito traslado a mostrador.');
 
+  useEffect(() => {
+    if (!selectedIngredientId && ingredients.length > 0)
+      setSelectedIngredientId(ingredients[0].id);
+  }, [ingredients, selectedIngredientId]);
+
+  useEffect(() => {
+    if (!selectedProductId && products.length > 0)
+      setSelectedProductId(products[0].id);
+  }, [products, selectedProductId]);
+
   const activeIngredient = ingredients.find(i => i.id === selectedIngredientId);
 
   const handleIngredientSubmit = (e: React.FormEvent) => {
@@ -55,6 +65,7 @@ export const PanaderoSupplyView: React.FC = () => {
 
     requestSupply('ingredient', selectedIngredientId, ingredientQty, ingredientReason);
     setIngredientReason('Reposición ordinaria de materiales de panadería.');
+    setIngredientQty(10);
     addSystemNotification('🚚 Solicitud Enviada', 'Se registró tu solicitud de insumos correctamente.', 'success');
   };
 
@@ -78,6 +89,7 @@ export const PanaderoSupplyView: React.FC = () => {
 
     requestSupply('product', selectedProductId, productQty, productReason);
     setProductReason('Lote caliente listo en bandeja de traslado.');
+    setProductQty(50);
     addSystemNotification('🔥 Solicitud Enviada', 'Se registró el pedido de aprobación de traslado.', 'success');
   };
 
@@ -287,7 +299,7 @@ export const PanaderoSupplyView: React.FC = () => {
                 return (
                   <div
                     key={req.id}
-                    className="bg-white dark:bg-zinc-900 border border-gray-150 dark:border-zinc-800/80 rounded-2xl p-4.5 space-y-3 shadow-xs transition-colors"
+                    className="bg-white dark:bg-zinc-900 border border-gray-150 dark:border-zinc-800/80 rounded-2xl p-4 space-y-3 shadow-xs transition-colors"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div>
@@ -302,7 +314,7 @@ export const PanaderoSupplyView: React.FC = () => {
                           </span>
                         </div>
                         <p className="text-[10px] text-gray-400">
-                          {new Date(req.date).toLocaleString()} • por <span className="font-semibold text-zinc-400">{req.requestedBy}</span>
+                          {new Date(req.date).toLocaleString('es-AR')} • por <span className="font-semibold text-zinc-400">{req.requestedBy}</span>
                         </p>
                       </div>
 

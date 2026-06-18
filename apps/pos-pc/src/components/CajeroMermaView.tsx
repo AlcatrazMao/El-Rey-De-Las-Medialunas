@@ -125,7 +125,7 @@ export const CajeroMermaView: React.FC = () => {
                   setSelectedBatchId(e.target.value);
                   const selectedB = batches.find(b => b.id === e.target.value);
                   if (selectedB) {
-                    setQuantity(selectedB.stock);
+                    setQuantity(1);
                   }
                 }}
                 disabled={productBatches.length === 0}
@@ -138,7 +138,7 @@ export const CajeroMermaView: React.FC = () => {
                 </option>
                 {productBatches.map(b => (
                   <option key={b.id} value={b.id}>
-                    Lote: {b.batchNumber} - Disp: {b.stock} u. (Vence: {b.expiryDate})
+                    Lote: {b.batchNumber} - Disp: {b.stock} u. (Vence: {b.expiryDate ? new Date(b.expiryDate).toLocaleDateString('es-AR') : '—'})
                   </option>
                 ))}
               </select>
@@ -186,7 +186,7 @@ export const CajeroMermaView: React.FC = () => {
               type="submit"
               id="btn-submit-merma"
               disabled={!selectedBatchId}
-              className="w-full py-3 bg-red-505 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer shadow-md disabled:bg-gray-350 disabled:cursor-not-allowed transition-all"
+              className="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer shadow-md disabled:bg-gray-350 disabled:cursor-not-allowed transition-all"
             >
               Enviar Solicitud a Administración ✓
             </button>
@@ -201,7 +201,7 @@ export const CajeroMermaView: React.FC = () => {
 
           {withdrawalRequests.length === 0 ? (
             <div className="text-center py-10 bg-gray-50/50 dark:bg-zinc-950/20 border border-gray-150 dark:border-zinc-800 rounded-2xl">
-              <Clock className="mx-auto h-8 w-8 text-gray-300 dark:text-zinc-700 animate-spin-slow mb-2.5" />
+              <Clock className="mx-auto h-8 w-8 text-gray-300 dark:text-zinc-700 mb-2.5" />
               <p className="text-xs text-gray-400 italic">No hay registros de solicitudes registradas.</p>
             </div>
           ) : (
@@ -236,7 +236,7 @@ export const CajeroMermaView: React.FC = () => {
                           </span>
                         </div>
                         <div className="text-[10px] text-gray-400">
-                          {new Date(req.date).toLocaleString()} • por <span className="font-semibold text-zinc-400">{req.requestedBy}</span>
+                          {new Date(req.date).toLocaleString('es-AR')} • por <span className="font-semibold text-zinc-400">{req.requestedBy}</span>
                         </div>
                       </div>
 
@@ -260,7 +260,7 @@ export const CajeroMermaView: React.FC = () => {
                           <span className="font-extrabold text-gray-400 block text-[9.5px] uppercase tracking-wider leading-none mb-1">
                             Respuesta de Administración:
                           </span>
-                          <p className="font-black text-rose-650 dark:text-amber-400 italic">
+                          <p className="font-black text-rose-600 dark:text-amber-400 italic">
                             "{req.adminMemo}"
                           </p>
                         </div>
