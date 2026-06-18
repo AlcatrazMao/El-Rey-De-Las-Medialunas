@@ -12,6 +12,7 @@ import { useState } from 'react';
 
 import { useApp } from '../AppContext';
 import { useSettings } from '../hooks/useSettings';
+import { formatCurrency } from '../utils/format';
 
 export const CashSessionView: React.FC = () => {
   const {
@@ -246,11 +247,11 @@ export const CashSessionView: React.FC = () => {
                     <div className="flex justify-between items-center text-xs">
                       <span>Diferencia calculada de saldo:</span>
                       <strong className="font-exrabold text-sm">
-                        {closingAmount === currentCashSession.expectedAmount 
-                          ? '✓ Caja Cuadrada ($0.00)' 
+                        {closingAmount === currentCashSession.expectedAmount
+                          ? `✓ Caja Cuadrada (${formatCurrency(0)})`
                           : closingAmount > currentCashSession.expectedAmount
-                          ? `📈 Sobrante: + $${(closingAmount - currentCashSession.expectedAmount).toFixed(2)}`
-                          : `📉 Faltante: - $${(currentCashSession.expectedAmount - closingAmount).toFixed(2)}`}
+                          ? `📈 Sobrante: + ${formatCurrency(closingAmount - currentCashSession.expectedAmount)}`
+                          : `📉 Faltante: - ${formatCurrency(currentCashSession.expectedAmount - closingAmount)}`}
                       </strong>
                     </div>
                   </div>
@@ -372,22 +373,22 @@ export const CashSessionView: React.FC = () => {
                             ? 'bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/15'
                             : 'bg-red-505/15 text-red-800 dark:text-red-400 border border-red-500/15'
                         }`}>
-                          {isExact ? 'Exacto ✓' : isPositive ? `Sobrante: +$${sess.discrepancy?.toFixed(2)}` : `Faltante: -$${Math.abs(sess.discrepancy || 0).toFixed(2)}`}
+                          {isExact ? 'Exacto ✓' : isPositive ? `Sobrante: +${formatCurrency(sess.discrepancy || 0)}` : `Faltante: -${formatCurrency(Math.abs(sess.discrepancy || 0))}`}
                         </span>
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px] bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/80 p-3 rounded-xl select-none">
                         <div>
                           <span className="text-[8px] text-gray-400 font-bold uppercase block">Fondo Inicial</span>
-                          <strong className="text-gray-700 dark:text-zinc-300 font-black">${sess.initialAmount.toFixed(1)}</strong>
+                          <strong className="text-gray-700 dark:text-zinc-300 font-black">{formatCurrency(sess.initialAmount)}</strong>
                         </div>
                         <div>
                           <span className="text-[8px] text-gray-400 font-bold uppercase block">Caja Esperada</span>
-                          <strong className="text-gray-700 dark:text-zinc-350 font-black">${sess.expectedAmount.toFixed(1)}</strong>
+                          <strong className="text-gray-700 dark:text-zinc-350 font-black">{formatCurrency(sess.expectedAmount)}</strong>
                         </div>
                         <div>
                           <span className="text-[8px] text-gray-400 font-bold uppercase block">Arqueo Real</span>
-                          <strong className="text-gray-850 dark:text-zinc-150 font-extrabold">${sess.realAmount?.toFixed(1)}</strong>
+                          <strong className="text-gray-850 dark:text-zinc-150 font-extrabold">{sess.realAmount != null ? formatCurrency(sess.realAmount) : '-'}</strong>
                         </div>
                         <div>
                           <span className="text-[8px] text-gray-400 font-bold uppercase block">Cajero de Turno</span>

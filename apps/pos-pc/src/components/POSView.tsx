@@ -20,6 +20,7 @@ import { useApp } from '../AppContext';
 import { getSettings } from '../hooks/useSettings';
 import type { CategoryType, Product, Sale } from '../types';
 import { printTicketOrInvoice } from '../utils/exportUtils';
+import { formatCurrency } from '../utils/format';
 
 export const POSView: React.FC = () => {
   const {
@@ -295,7 +296,7 @@ export const POSView: React.FC = () => {
                 </span>
                 <p className="font-extrabold text-xs text-gray-800 dark:text-zinc-100 leading-snug line-clamp-2">{prod.name}</p>
               </div>
-              <span className="text-sm font-extrabold text-amber-600 dark:text-amber-500 mt-2">${prod.price.toFixed(2)}</span>
+              <span className="text-sm font-extrabold text-amber-600 dark:text-amber-500 mt-2">{formatCurrency(prod.price)}</span>
             </button>
           );
         })}
@@ -398,7 +399,7 @@ export const POSView: React.FC = () => {
                     {/* Column 3: Precio */}
                     <td className="py-3 px-3 text-right">
                       <span className="font-mono text-xs font-black text-amber-700 dark:text-amber-405">
-                        ${prod.price.toFixed(2)}
+                        {formatCurrency(prod.price)}
                       </span>
                     </td>
 
@@ -797,7 +798,7 @@ export const POSView: React.FC = () => {
                   {/* Pricing and Recipe helper bottom */}
                   <div className="mt-4 pt-2 border-t border-dotted border-gray-100 dark:border-zinc-800 flex items-center justify-between w-full">
                     <span className="text-sm font-extrabold text-amber-600 dark:text-amber-500">
-                      ${prod.price.toFixed(2)}
+                      {formatCurrency(prod.price)}
                     </span>
                     <span className="text-[10px] text-gray-400 font-mono italic">
                       779123...{prod.code.slice(-4)}
@@ -911,7 +912,7 @@ export const POSView: React.FC = () => {
                     {overLimit ? '⛔ Límite excedido' : nearLimit ? '⚠️ Cerca del límite' : '✓ Crédito disponible'}
                   </span>
                   <span className={`font-extrabold ${overLimit ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-zinc-200'}`}>
-                    Deuda: ${sc.current_debt.toFixed(0)} / ${sc.credit_limit.toFixed(0)}
+                    Deuda: {formatCurrency(sc.current_debt)} / {formatCurrency(sc.credit_limit)}
                   </span>
                 </div>
               )}
@@ -949,7 +950,7 @@ export const POSView: React.FC = () => {
               <div key={item.product.id} className="pt-2 flex items-center justify-between gap-3 text-xs min-w-0">
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <p className="font-bold text-gray-800 dark:text-zinc-100 truncate">{item.product.name}</p>
-                  <p className="text-[10px] text-amber-600 dark:text-amber-500 font-semibold truncate">${item.product.price.toFixed(2)} c/u</p>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-500 font-semibold truncate">{formatCurrency(item.product.price)} c/u</p>
                 </div>
 
                 {/* Item adjustments */}
@@ -990,16 +991,16 @@ export const POSView: React.FC = () => {
         <div className="bg-gray-50 dark:bg-zinc-950 p-4 rounded-xl border border-gray-100 dark:border-zinc-800 mb-4 space-y-2">
           <div className="flex justify-between text-xs text-gray-500">
             <span>Neto Gravado (Facturación):</span>
-            <span className="font-semibold text-gray-700 dark:text-zinc-300">${(cartSubtotal - cartTax).toFixed(2)}</span>
+            <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal - cartTax)}</span>
           </div>
           <div className="flex justify-between text-xs text-gray-500">
             <span>IVA Factura (21.00%):</span>
-            <span className="font-semibold text-gray-700 dark:text-zinc-300">${cartTax.toFixed(2)}</span>
+            <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartTax)}</span>
           </div>
           <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
           <div className="flex justify-between text-base font-extrabold text-gray-850 dark:text-zinc-50">
             <span>TOTAL DE COMPRA:</span>
-            <span className="text-amber-600 dark:text-amber-500">${cartTotal.toFixed(2)}</span>
+            <span className="text-amber-600 dark:text-amber-500">{formatCurrency(cartTotal)}</span>
           </div>
         </div>
 
@@ -1089,7 +1090,7 @@ export const POSView: React.FC = () => {
           ) : (
             <>
               <CreditCard className="h-4.5 w-4.5" />
-              <span>COBRAR Y AUTORIZAR ${cartTotal.toFixed(2)}</span>
+              <span>COBRAR Y AUTORIZAR {formatCurrency(cartTotal)}</span>
             </>
           )}
         </button>
@@ -1154,7 +1155,7 @@ export const POSView: React.FC = () => {
                   {latestInvoice.items.map((item, idx) => (
                     <tr key={idx}>
                       <td className="py-1">{item.name} x{item.quantity}</td>
-                      <td className="text-right py-1">${item.subtotal.toFixed(2)}</td>
+                      <td className="text-right py-1">{formatCurrency(item.subtotal)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1165,15 +1166,15 @@ export const POSView: React.FC = () => {
               <div className="space-y-1 font-sans">
                 <div className="flex justify-between">
                   <span>Neto Gravado:</span>
-                  <span>${(latestInvoice.total - latestInvoice.tax).toFixed(2)}</span>
+                  <span>{formatCurrency(latestInvoice.total - latestInvoice.tax)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>IVA Incluido (21%):</span>
-                  <span>${latestInvoice.tax.toFixed(2)}</span>
+                  <span>{formatCurrency(latestInvoice.tax)}</span>
                 </div>
                 <div className="flex justify-between text-base font-extrabold border-t pt-1.5 border-amber-200">
                   <span>TOTAL COMPRA:</span>
-                  <span>${latestInvoice.total.toFixed(2)}</span>
+                  <span>{formatCurrency(latestInvoice.total)}</span>
                 </div>
               </div>
 
@@ -1398,7 +1399,7 @@ export const POSView: React.FC = () => {
               <div className="text-left font-sans">
                 <p className="text-[10px] text-gray-400 font-extrabold uppercase tracking-wider leading-none">Elementos en ticket</p>
                 <p className="text-sm font-extrabold text-gray-800 dark:text-zinc-100 mt-1 leading-none">
-                  {cart.reduce((s, c) => s + c.quantity, 0)} unidades / <span className="text-amber-600 dark:text-amber-500 font-black">${cartTotal.toFixed(2)}</span>
+                  {cart.reduce((s, c) => s + c.quantity, 0)} unidades / <span className="text-amber-600 dark:text-amber-500 font-black">{formatCurrency(cartTotal)}</span>
                 </p>
               </div>
               

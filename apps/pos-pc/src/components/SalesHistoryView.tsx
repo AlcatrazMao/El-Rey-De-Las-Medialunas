@@ -15,6 +15,7 @@ import { useApp } from '../AppContext';
 import { syncVoidSaleToD1 } from '../services/d1-sync';
 import type { Sale } from '../types';
 import { exportSalesToCSV, printTicketOrInvoice } from '../utils/exportUtils';
+import { formatCurrency } from '../utils/format';
 
 export const SalesHistoryView: React.FC = () => {
   const {
@@ -260,7 +261,7 @@ export const SalesHistoryView: React.FC = () => {
 
                       {/* Total */}
                       <td className="py-4 px-5 text-right font-mono font-extrabold text-sm text-gray-900 dark:text-zinc-50 font-sans">
-                        ${sale.total.toFixed(2)}
+                        {formatCurrency(sale.total)}
                       </td>
 
                       {/* Invoice management row */}
@@ -357,15 +358,15 @@ export const SalesHistoryView: React.FC = () => {
               <div className="space-y-1 font-sans font-medium text-gray-600 dark:text-zinc-400">
                 <div className="flex justify-between">
                   <span>Neto Neto:</span>
-                  <span>${(selectedSale.total - selectedSale.tax).toFixed(2)}</span>
+                  <span>{formatCurrency(selectedSale.total - selectedSale.tax)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>IVA Tasa Gral (21%):</span>
-                  <span>${selectedSale.tax.toFixed(2)}</span>
+                  <span>{formatCurrency(selectedSale.tax)}</span>
                 </div>
                 <div className="flex justify-between text-base font-extrabold text-gray-850 dark:text-zinc-50 border-t pt-1.5 border-amber-200">
                   <span>TOTAL COMPROBANTE:</span>
-                  <span>${selectedSale.total.toFixed(2)}</span>
+                  <span>{formatCurrency(selectedSale.total)}</span>
                 </div>
               </div>
             </div>

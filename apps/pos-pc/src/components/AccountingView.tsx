@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { useApp } from '../AppContext';
 import type { Expense } from '../types';
 import { exportExpensesToCSV } from '../utils/exportUtils';
+import { formatCurrency } from '../utils/format';
 
 export const AccountingView: React.FC = () => {
   const {
@@ -263,7 +264,7 @@ export const AccountingView: React.FC = () => {
                       {exp.paymentMethod}
                     </td>
                     <td className="py-4 px-5 text-right font-mono font-extrabold text-red-650 dark:text-red-400 text-sm">
-                      -${exp.amount.toFixed(2)}
+                      -{formatCurrency(exp.amount)}
                     </td>
                   </tr>
                 ))

@@ -9,6 +9,7 @@ import * as React from 'react'
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
+import { formatCurrency } from '../utils/format';
 
 export const Dashboard: React.FC = () => {
   const {
@@ -123,7 +124,7 @@ export const Dashboard: React.FC = () => {
             </div>
             <div>
               <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">Ventas Cobradas</p>
-              <p className="text-lg font-black text-gray-805 dark:text-zinc-50 mt-0.5">${totalRevenue.toFixed(2)}</p>
+              <p className="text-lg font-black text-gray-805 dark:text-zinc-50 mt-0.5">{formatCurrency(totalRevenue)}</p>
             </div>
           </div>
           <span className="text-xs text-emerald-500 font-bold bg-emerald-50 dark:bg-emerald-950/10 px-2 py-1 rounded">
@@ -139,7 +140,7 @@ export const Dashboard: React.FC = () => {
             </div>
             <div>
               <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">Egresos / Gastos</p>
-              <p className="text-lg font-black text-gray-850 dark:text-zinc-50 mt-0.5">${totalExpenses.toFixed(2)}</p>
+              <p className="text-lg font-black text-gray-850 dark:text-zinc-50 mt-0.5">{formatCurrency(totalExpenses)}</p>
             </div>
           </div>
           <span className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/10 px-2 py-1 rounded">
@@ -155,7 +156,7 @@ export const Dashboard: React.FC = () => {
             </div>
             <div>
               <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">Valorización Insumo</p>
-              <p className="text-lg font-black text-gray-850 dark:text-zinc-50 mt-0.5">${totalInsumosSobrantesValue.toFixed(2)}</p>
+              <p className="text-lg font-black text-gray-850 dark:text-zinc-50 mt-0.5">{formatCurrency(totalInsumosSobrantesValue)}</p>
             </div>
           </div>
           <span className="text-xs text-amber-600 dark:text-amber-500 font-bold bg-amber-50 dark:bg-amber-950/10 px-2 py-1 rounded">
@@ -226,12 +227,12 @@ export const Dashboard: React.FC = () => {
             return (
               <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full">
                 {/* Popover value */}
-                <span className="text-[10px] font-mono font-bold text-gray-700 dark:text-zinc-300 mb-1.5">${val.toFixed(1)}</span>
+                <span className="text-[10px] font-mono font-bold text-gray-700 dark:text-zinc-300 mb-1.5">{formatCurrency(val)}</span>
                 {/* Column block */}
                 <div
                   className={`w-11 md:w-16 rounded-t-lg transition-all duration-500 ${colors[catKey]} shadow-xs hover:opacity-90 cursor-pointer`}
                   style={{ height: `${heightPct}%` }}
-                  title={`${titles[catKey]}: $${val.toFixed(2)}`}
+                  title={`${titles[catKey]}: ${formatCurrency(val)}`}
                 />
                 {/* Name label */}
                 <span className="text-[10px] font-bold text-gray-500 mt-2 truncate max-w-full text-center">
@@ -334,7 +335,7 @@ export const Dashboard: React.FC = () => {
                 <p className="font-bold text-gray-800 dark:text-zinc-200">{sale.invoiceNumber}</p>
                 <p className="text-[9px] text-gray-400 capitalize">{sale.customerName || 'Consumidor Final'} • {sale.paymentMethod.replace('_', ' ')}</p>
               </div>
-              <span className="font-mono font-black text-amber-600 dark:text-amber-500">${sale.total.toFixed(2)}</span>
+              <span className="font-mono font-black text-amber-600 dark:text-amber-500">{formatCurrency(sale.total)}</span>
             </div>
           ))}
         </div>

@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { useApp } from '../AppContext';
 import type { Ingredient, Product, CategoryType} from '../types';
 import { exportIngredientsToCSV } from '../utils/exportUtils';
+import { formatCurrency } from '../utils/format';
 
 import { ImagePicker } from './ImagePicker';
 
@@ -417,7 +418,7 @@ export const InventoryView: React.FC = () => {
                             <p className="text-[10px] text-gray-450 dark:text-zinc-500 font-mono italic">ID: {ing.id}</p>
                           </div>
                         </td>
-                        <td className="py-4 px-5 font-mono">${ing.unitCost.toFixed(2)}</td>
+                        <td className="py-4 px-5 font-mono">{formatCurrency(ing.unitCost)}</td>
                         <td className="py-4 px-5 capitalize text-gray-500 font-medium">{ing.unit}</td>
                         <td className="py-4 px-5 text-center">
                           <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
@@ -499,8 +500,8 @@ export const InventoryView: React.FC = () => {
                       </div>
                       
                       <div className="text-right">
-                        <p className="text-xs font-extrabold text-emerald-500">${prod.price.toFixed(2)}</p>
-                        <p className="text-[9px] text-gray-400 leading-tight">Costo: ${prod.cost.toFixed(2)}</p>
+                        <p className="text-xs font-extrabold text-emerald-500">{formatCurrency(prod.price)}</p>
+                        <p className="text-[9px] text-gray-400 leading-tight">Costo: {formatCurrency(prod.cost)}</p>
                       </div>
                     </div>
 
@@ -525,7 +526,7 @@ export const InventoryView: React.FC = () => {
                             <div key={idx} className="flex justify-between text-[11px] font-medium text-gray-600 dark:text-zinc-400">
                               <span className="truncate">🌾 {originalIng?.name || 'Insumo Eliminado'}</span>
                               <span className="font-mono text-zinc-400 shrink-0">
-                                {recipe.quantity} {originalIng?.unit}
+                                {recipe.quantity} {originalIng?.unit ?? ''}
                               </span>
                             </div>
                           );
@@ -678,7 +679,7 @@ export const InventoryView: React.FC = () => {
                                           const discountedPrice = prod.price * 0.5;
                                           addSystemNotification(
                                             '💰 Liquidación 50%',
-                                            `Venta Promo -50%: ${prod.name} relevado a $${discountedPrice.toFixed(2)} por fecha límite.`,
+                                            `Venta Promo -50%: ${prod.name} relevado a ${formatCurrency(discountedPrice)} por fecha límite.`,
                                             'success'
                                           );
                                           updateProductStock(prod.id, Math.max(0, prod.stock - 1));
@@ -902,13 +903,17 @@ export const InventoryView: React.FC = () => {
 
           {/* List of Withdrawal Events */}
           <div className="space-y-4">
-            {withdrawalRequests.filter(r => mermasFilter === 'all' || r.status === mermasFilter).length === 0 ? (
+            {withdrawalRequests
+              .filter(r => mermasFilter === 'all' || r.status === mermasFilter)
+              .filter(r => !searchQuery || r.productName?.toLowerCase().includes(searchQuery.toLowerCase()))
+              .length === 0 ? (
               <div className="bg-white dark:bg-zinc-900 border border-gray-150 dark:border-zinc-800 rounded-2xl text-center py-12 text-gray-400 font-bold select-none">
                 Ninguna solicitud de baja coincide con este filtro.
               </div>
             ) : (
               withdrawalRequests
                 .filter(r => mermasFilter === 'all' || r.status === mermasFilter)
+                .filter(r => !searchQuery || r.productName?.toLowerCase().includes(searchQuery.toLowerCase()))
                 .map(req => {
                   const isPending = req.status === 'pending';
                   const isApproved = req.status === 'approved';
@@ -1018,7 +1023,7 @@ export const InventoryView: React.FC = () => {
                                             setResolvingAction(null);
                                           }}
                                           className={`flex-1 py-1.5 px-2.5 rounded text-[9.5px] font-extrabold cursor-pointer text-white disabled:opacity-40 transition-colors ${
-                                            resolvingAction === 'approved' ? 'bg-emerald-505 hover:bg-emerald-600' : 'bg-red-505 hover:bg-red-600'
+                                            resolvingAction === 'approved' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'
                                           }`}
                                         >
                                           Confirmar
@@ -1265,7 +1270,7 @@ export const InventoryView: React.FC = () => {
                   onChange={(e) => setProdCategory(e.target.value as CategoryType)}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
                 >
-                  <option value="panes">Panes (loaves)</option>
+                  <option value="panes">Panes Artesanales</option>
                   <option value="facturas">Facturas / Dulces</option>
                   <option value="pasteleria">Pastelería y Tortas</option>
                   <option value="bebidas">Cafetaría y Bebidas</option>
@@ -1472,11 +1477,14 @@ const ProductBatchesModal: React.FC<ProductBatchesModalProps> = ({ product, onCl
       return;
     }
 
+    const createdBatchNumber = newBatchNumber;
+    const createdQuantity = newQuantity;
+
     addBatch({
       productId: product.id,
-      batchNumber: newBatchNumber,
-      quantity: newQuantity,
-      stock: newQuantity,
+      batchNumber: createdBatchNumber,
+      quantity: createdQuantity,
+      stock: createdQuantity,
       elaborationDate: newElabDate,
       expiryDate: newExpDate,
       withdrawalMode
@@ -1485,7 +1493,7 @@ const ProductBatchesModal: React.FC<ProductBatchesModalProps> = ({ product, onCl
     // Reset Form
     setNewBatchNumber(`L-${product.name.slice(0, 3).toUpperCase()}-${(Date.now().toString(36) + Math.random().toString(36).slice(2)).slice(0, 6).toUpperCase()}`);
     setNewQuantity(50);
-    addSystemNotification('📦 Lote Creado', `Se registró lote "${newBatchNumber}" con ${newQuantity} u.`, 'success');
+    addSystemNotification('📦 Lote Creado', `Se registró lote "${createdBatchNumber}" con ${createdQuantity} u.`, 'success');
   };
 
   const activeProductBatches = batches.filter(b => b.productId === product.id);
@@ -1503,7 +1511,7 @@ const ProductBatchesModal: React.FC<ProductBatchesModalProps> = ({ product, onCl
                 Lotes de Producción: {product.name}
               </h3>
               <p className="text-[10px] text-gray-400">
-                Control de fecha límite de vida útil ({product.durabilityDays || 0} hs de caducidad)
+                Control de fecha límite de vida útil ({product.durabilityDays || 0} días de caducidad)
               </p>
             </div>
           </div>

@@ -24,6 +24,7 @@ import {
   PAYMENT_GATEWAYS,
 } from './initialData';
 import { syncSaleToD1, updateSupplyRequestStatusInD1 } from './services/d1-sync';
+import { formatCurrency } from './utils/format';
 import type {
   Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway,
   UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer,
@@ -142,7 +143,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         customerName: customName || 'Cliente de Caja', customerDoc: customDoc,
       };
       sal.setSales(prev => [failedSalePayload, ...prev]);
-      notif.addSystemNotification('❌ Transacción Fallida', `Pago con ${paymentMethod.replace('_', ' ').toUpperCase()} rechazado por el banco. Importe: $${failedSalePayload.total.toFixed(2)}`, 'error');
+      notif.addSystemNotification('❌ Transacción Fallida', `Pago con ${paymentMethod.replace('_', ' ').toUpperCase()} rechazado por el banco. Importe: ${formatCurrency(failedSalePayload.total)}`, 'error');
       return { success: false, invoice: failedSalePayload, error: 'Transacción denegada por la pasarela de pagos.' };
     }
 
@@ -282,8 +283,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       });
     }
 
-    notif.addSystemNotification('💸 Nueva Venta Registrada', `Factura ${invoiceNumber} generada con éxito por $${newSaleInstance.total.toFixed(2)}`, 'success');
-    addAutoNote(`💸 Venta ${invoiceNumber}`, `Total: $${newSaleInstance.total.toFixed(2)}\nItems: ${saleLineItems.length}\nPago: ${paymentMethod}`, 'ventas', 'low');
+    notif.addSystemNotification('💸 Nueva Venta Registrada', `Factura ${invoiceNumber} generada con éxito por ${formatCurrency(newSaleInstance.total)}`, 'success');
+    addAutoNote(`💸 Venta ${invoiceNumber}`, `Total: ${formatCurrency(newSaleInstance.total)}\nItems: ${saleLineItems.length}\nPago: ${paymentMethod}`, 'ventas', 'low');
 
     syncSaleToD1(newSaleInstance).catch((err: unknown) => {
       if (import.meta.env.DEV) console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);

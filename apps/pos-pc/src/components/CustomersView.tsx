@@ -19,6 +19,7 @@ import { useState } from 'react';
 
 import { useApp } from '../AppContext';
 import type { Customer, CustomerTimelineEntry } from '../types';
+import { formatCurrency } from '../utils/format';
 
 const EMPTY_CUSTOMER: Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'timeline' | 'total_purchases' | 'last_purchase_date' | 'current_debt'> = {
   name: '',
@@ -186,8 +187,8 @@ export const CustomersView: React.FC = () => {
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <StatCard icon={<Hash className="w-4 h-4" />} label="Condición Fiscal" value={CONDICION_FISCAL_LABELS[selectedCustomer.condicion_fiscal]} />
-            <StatCard icon={<CreditCard className="w-4 h-4" />} label="Límite Crédito" value={`$${selectedCustomer.credit_limit.toLocaleString()}`} />
-            <StatCard icon={<TrendingUp className="w-4 h-4" />} label="Total Compras" value={`$${selectedCustomer.total_purchases.toLocaleString()}`} />
+            <StatCard icon={<CreditCard className="w-4 h-4" />} label="Límite Crédito" value={formatCurrency(selectedCustomer.credit_limit)} />
+            <StatCard icon={<TrendingUp className="w-4 h-4" />} label="Total Compras" value={formatCurrency(selectedCustomer.total_purchases)} />
             <StatCard icon={<Clock className="w-4 h-4" />} label="Última Compra" value={selectedCustomer.last_purchase_date ? new Date(selectedCustomer.last_purchase_date).toLocaleDateString() : '—'} />
           </div>
 
@@ -209,7 +210,7 @@ export const CustomersView: React.FC = () => {
               <div key={entry.id} className="flex items-start gap-3 text-xs border-l-2 border-amber-300 dark:border-amber-700 pl-3 py-1">
                 <span className="text-gray-400 whitespace-nowrap">{new Date(entry.date).toLocaleDateString()}</span>
                 <span className="text-gray-700 dark:text-zinc-300">{entry.description}</span>
-                {entry.amount && <span className="font-bold text-amber-600">${entry.amount.toLocaleString()}</span>}
+                {entry.amount != null && <span className="font-bold text-amber-600">{formatCurrency(entry.amount)}</span>}
               </div>
             ))}
           </div>
@@ -223,7 +224,7 @@ export const CustomersView: React.FC = () => {
                   <div key={s.id} className="flex justify-between text-xs text-gray-600 dark:text-zinc-400 py-1 border-b border-gray-100 dark:border-zinc-800">
                     <span>{s.invoiceNumber}</span>
                     <span>{new Date(s.date).toLocaleDateString()}</span>
-                    <span className="font-bold">${s.total.toFixed(2)}</span>
+                    <span className="font-bold">{formatCurrency(s.total)}</span>
                   </div>
                 ))}
               </div>
@@ -282,7 +283,7 @@ export const CustomersView: React.FC = () => {
               <div className="flex items-center gap-4 text-xs">
                 <span className="text-gray-500">{CONDICION_FISCAL_LABELS[customer.condicion_fiscal]}</span>
                 {customer.credit_limit > 0 && (
-                  <span className="font-bold text-amber-600">Crédito: ${customer.credit_limit.toLocaleString()}</span>
+                  <span className="font-bold text-amber-600">Crédito: {formatCurrency(customer.credit_limit)}</span>
                 )}
                 <span className={`px-2 py-0.5 rounded-full font-bold ${customer.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
                   {customer.status === 'active' ? 'Activo' : 'Inactivo'}
