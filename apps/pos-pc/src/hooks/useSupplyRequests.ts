@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { safeSetItem } from '../utils/safeStorage';
+
 import { syncSupplyRequestToD1, updateSupplyRequestStatusInD1 } from '../services/d1-sync';
 import type { SupplyRequest, Ingredient, Product } from '../types';
+import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (
   title: string,

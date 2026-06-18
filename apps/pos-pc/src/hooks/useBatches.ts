@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+
 import { INITIAL_PRODUCTS } from '../initialData';
-import { safeSetItem } from '../utils/safeStorage';
 import type { ProductBatch, BatchWithdrawalRequest, Product } from '../types';
+import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (
   title: string,

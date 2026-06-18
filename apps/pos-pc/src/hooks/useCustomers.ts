@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { safeSetItem } from '../utils/safeStorage';
+
 import { syncCustomerToD1, fetchCustomersFromD1 } from '../services/d1-sync';
 import type { Customer } from '../types';
+import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 

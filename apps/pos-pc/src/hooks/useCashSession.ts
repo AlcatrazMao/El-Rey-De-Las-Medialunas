@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { safeSetItem, safeRemoveItem } from '../utils/safeStorage';
-import { getSettings } from './useSettings';
+
 import { syncCashSessionToD1, syncCashSessionCloseToD1 } from '../services/d1-sync';
 import type { CashSession } from '../types';
+import { safeSetItem, safeRemoveItem } from '../utils/safeStorage';
+
+import { getSettings } from './useSettings';
 
 type NotifyFn = (
   title: string,

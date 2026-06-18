@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 
 import { useSettings } from '../hooks/useSettings';
 import { batchStore, offerStore, type IDBBatch, type IDBOffer } from '../lib/idb';
-import { API_URL } from '../services/api';
+import { API_URL, fetchWithAuth } from '../services/api';
 
 interface BatchInput {
   id: string;
@@ -130,9 +130,7 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v2/offers?branch_id=${encodeURIComponent(branchId)}&status=all`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('firebase_token') ?? ''}` },
-      });
+      const res = await fetchWithAuth(`${API_URL}/api/v2/offers?branch_id=${encodeURIComponent(branchId)}&status=all`);
       if (!res.ok) throw new Error('fetch failed');
       const data = (await res.json()) as { offers?: IDBOffer[] } | IDBOffer[];
       const list = Array.isArray(data) ? data : (data.offers ?? []);
@@ -183,12 +181,9 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
 
     let synced = false;
     try {
-      const res = await fetch(`${API_URL}/api/v2/offers`, {
+      const res = await fetchWithAuth(`${API_URL}/api/v2/offers`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('firebase_token') ?? ''}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (res.ok) synced = true;
@@ -224,12 +219,9 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
   const handleCancelOffer = async (offer: IDBOffer) => {
     let ok = false;
     try {
-      const res = await fetch(`${API_URL}/api/v2/offers/${encodeURIComponent(offer.id)}/status`, {
+      const res = await fetchWithAuth(`${API_URL}/api/v2/offers/${encodeURIComponent(offer.id)}/status`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('firebase_token') ?? ''}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'cancelled' }),
       });
       ok = res.ok;

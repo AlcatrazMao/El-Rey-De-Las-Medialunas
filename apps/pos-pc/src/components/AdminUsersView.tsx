@@ -14,7 +14,7 @@ export const AdminUsersView: React.FC = () => {
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'ADMIN_READY') {
-        const token = localStorage.getItem('firebase_token');
+        const token = sessionStorage.getItem('access_token');
         iframeRef.current?.contentWindow?.postMessage(
           { type: 'AUTH_TOKEN', token },
           ADMIN_URL

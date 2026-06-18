@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
+
 import { INITIAL_EXPENSES } from '../initialData';
-import { safeSetItem } from '../utils/safeStorage';
 import { syncExpenseToD1 } from '../services/d1-sync';
 import type { Expense } from '../types';
+import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 

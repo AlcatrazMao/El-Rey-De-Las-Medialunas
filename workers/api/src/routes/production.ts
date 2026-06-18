@@ -289,7 +289,7 @@ productionRoutes.post("/batches/:id/start", async (c) => {
 productionRoutes.post("/batches/:id/complete", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
-  const body = await c.req.json<{ actual_quantity: number; waste_quantity?: number; notes?: string }>().catch(() => ({
+  const body = await c.req.json<{ actual_quantity: number; waste_quantity?: number; notes?: string }>().catch((): { actual_quantity: number; waste_quantity?: number; notes?: string } => ({
     actual_quantity: 0, waste_quantity: 0, notes: undefined,
   }));
 

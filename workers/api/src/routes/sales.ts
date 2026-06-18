@@ -225,7 +225,7 @@ salesRoutes.post("/", async (c) => {
 salesRoutes.post("/:id/void", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
-  const body = await c.req.json<{ void_reason?: string }>().catch(() => ({}));
+  const body = await c.req.json<{ void_reason?: string }>().catch((): { void_reason?: string } => ({}));
 
   const firebaseUid = c.get("firebaseUid") ?? "";
   const user = await resolveUser(c.env.DB, firebaseUid);

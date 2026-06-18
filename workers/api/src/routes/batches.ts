@@ -242,7 +242,7 @@ batchRoutes.delete("/:id", async (c) => {
 
   const db = c.env.DB;
   const id = c.req.param("id");
-  const body = await c.req.json<{ withdrawal_reason?: string }>().catch(() => ({}));
+  const body = await c.req.json<{ withdrawal_reason?: string }>().catch((): { withdrawal_reason?: string } => ({}));
 
   const existing = await db
     .prepare("SELECT id FROM inventory_batches WHERE id = ? LIMIT 1")

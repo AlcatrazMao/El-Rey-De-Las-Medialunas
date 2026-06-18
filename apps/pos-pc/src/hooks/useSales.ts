@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+
 import { INITIAL_SALES } from '../initialData';
-import { safeSetItem } from '../utils/safeStorage';
 import type { Sale } from '../types';
+import { safeSetItem } from '../utils/safeStorage';
 
 const safeParse = <T,>(key: string, fallback: T): T => {
   try {

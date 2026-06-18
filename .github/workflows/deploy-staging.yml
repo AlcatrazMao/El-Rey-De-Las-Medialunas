@@ -101,6 +101,13 @@ jobs:
       - name: Build workers
         run: pnpm build --filter="./workers/*"
 
+      - name: Set JWT_SECRET
+        working-directory: workers/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET --env staging
+
       - name: Deploy API Worker
         uses: cloudflare/wrangler-action@v3
         with:

@@ -2,6 +2,7 @@ import type { Role } from "@medialunas/shared";
 import { createMiddleware } from "hono/factory";
 
 import type { Env, Variables } from "../types/bindings";
+import { verifyJWT } from "../utils/jwt";
 
 const PUBLIC_ROUTES = [
   "/api/v1/health",
@@ -38,10 +39,22 @@ export function authMiddleware() {
 
     const token = authHeader.slice(7);
 
-    let decoded: DecodedToken;
-    try {
-      decoded = await verifyFirebaseToken(token, c.env);
-    } catch {
+    const payload = await verifyJWT(token, c.env.JWT_SECRET);
+    if (!payload) {
+      return c.json(
+        {
+          success: false,
+          error: { code: "UNAUTHORIZED", message: "Token inválido o expirado" },
+        },
+        401,
+      );
+    }
+
+    const sub = typeof payload.sub === "string" ? payload.sub : "";
+    const role = typeof payload.role === "string" ? (payload.role as Role) : ("cashier" as Role);
+    const email = typeof payload.email === "string" ? payload.email : "";
+
+    if (!sub) {
       return c.json(
         {
           success: false,
@@ -53,18 +66,18 @@ export function authMiddleware() {
 
     const branchHeader = c.req.header("X-Branch-Id") ?? "";
 
-    c.set("userId", decoded.uid);
-    c.set("userRole", decoded.role ?? "cashier");
+    c.set("userId", sub);
+    c.set("userRole", role);
     c.set("branchId", branchHeader);
-    c.set("firebaseUid", decoded.uid);
-    c.set("userEmail", decoded.email ?? "");
+    c.set("firebaseUid", "");
+    c.set("userEmail", email);
     c.set("requestId", crypto.randomUUID());
 
     await next();
   });
 }
 
-async function verifyFirebaseToken(token: string, env: Env): Promise<DecodedToken> {
+export async function verifyFirebaseToken(token: string, env: Env): Promise<DecodedToken> {
   const parts = token.split(".");
   if (parts.length !== 3) throw new Error("Invalid token format");
 
@@ -86,7 +99,6 @@ async function verifyFirebaseToken(token: string, env: Env): Promise<DecodedToke
   if (!firebaseUid) throw new Error("No uid in token");
 
   if (env.FIREBASE_API_KEY) {
-    // KV cache: avoid repeated Firebase API calls for the same token
     const cacheKey = `tkn:${firebaseUid}:${payload.iat ?? 0}`;
     try {
       const cached = await env.CACHE.get(cacheKey, "json") as DecodedToken | null;
@@ -99,7 +111,7 @@ async function verifyFirebaseToken(token: string, env: Env): Promise<DecodedToke
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idToken: token }),
-      }
+      },
     );
 
     if (!res.ok) throw new Error("Firebase token verification failed");
@@ -123,6 +135,5 @@ async function verifyFirebaseToken(token: string, env: Env): Promise<DecodedToke
     return decoded;
   }
 
-  // Dev fallback when FIREBASE_API_KEY not configured (token NOT verified)
   return { uid: firebaseUid, email: payload.email };
 }

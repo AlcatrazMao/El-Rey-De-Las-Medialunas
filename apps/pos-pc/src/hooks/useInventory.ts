@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+
 import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
-import { safeSetItem } from '../utils/safeStorage';
 import { fetchProductsFromD1 } from '../services/d1-sync';
 import type { Ingredient, Product, PaymentGateway } from '../types';
+import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 

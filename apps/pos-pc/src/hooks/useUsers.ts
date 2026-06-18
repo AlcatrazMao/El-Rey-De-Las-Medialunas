@@ -1,10 +1,12 @@
 import type { User as FirebaseUser } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
 import { useState, useEffect, useRef } from 'react';
+
 import { auth } from '../config/firebase';
-import { safeSetItem } from '../utils/safeStorage';
+import { API_URL } from '../services/api';
 import { syncUserPreferencesToD1 } from '../services/d1-sync';
 import type { User, UserRole } from '../types';
+import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
@@ -97,6 +99,16 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
   };
 
   const logout = () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (refreshToken) {
+      fetch(`${API_URL}/api/v1/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      }).catch(() => {});
+    }
+    sessionStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
     signOut(auth);
   };
 

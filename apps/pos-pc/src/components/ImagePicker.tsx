@@ -3,6 +3,8 @@ import Picker from "@emoji-mart/react";
 import { Upload, Smile, X } from "lucide-react";
 import { useState, useRef } from "react";
 
+import { fetchWithAuth } from "../services/api";
+
 const API_URL =
   (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
   "https://el-rey-api-production.elprincipitodeargentina.workers.dev";
@@ -39,10 +41,8 @@ export function ImagePicker({ value, onChange }: ImagePickerProps) {
     try {
       const form = new FormData();
       form.append("file", file);
-      const token = localStorage.getItem("firebase_token") || "";
-      const res = await fetch(`${API_URL}/api/v1/upload/product-image`, {
+      const res = await fetchWithAuth(`${API_URL}/api/v1/upload/product-image`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
       const json = (await res.json()) as { success: boolean; data?: { url: string }; error?: string };

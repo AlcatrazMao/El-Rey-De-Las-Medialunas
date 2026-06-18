@@ -17,9 +17,9 @@ import { CustomersView } from './components/CustomersView';
 import { Dashboard } from './components/Dashboard';
 import { IntegrationsView } from './components/IntegrationsView';
 import { InventoryView } from './components/InventoryView';
-import { OffersView } from './components/OffersView';
 import { LoginPage } from './components/LoginPage';
 import { MainHeadLayout } from './components/MainHeadLayout';
+import { OffersView } from './components/OffersView';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { POSView } from './components/POSView';
 import { SalesHistoryView } from './components/SalesHistoryView';
@@ -323,6 +323,12 @@ export default function App() {
         });
         const data = await res.json();
         if (data.success && data.data?.user) {
+          if (data.data.tokens?.access_token) {
+            sessionStorage.setItem('access_token', data.data.tokens.access_token);
+          }
+          if (data.data.tokens?.refresh_token) {
+            localStorage.setItem('refresh_token', data.data.tokens.refresh_token);
+          }
           if (!cancelled) {
             setFirestoreRole(data.data.user.role || null);
             setServerPanels(data.data.user.custom_panels ?? null);
@@ -349,18 +355,11 @@ export default function App() {
   // Offline-first sync engine — starts when user is authenticated
   const { isOnline, isSyncing, lastSync, triggerSync } = useSyncEngine(fsCheckDone && !!firebaseUser);
 
-  // Store Firebase token for D1 API calls — must be before any early returns
+  // Notify consumers when backend tokens are ready — must be before any early returns
   useEffect(() => {
-    if (!firebaseUser) return;
-    firebaseUser.getIdToken().then(t => {
-      safeSetItem('firebase_token', t);
-      window.dispatchEvent(new Event('firebase-token-ready'));
-    });
-    const interval = setInterval(() => {
-      firebaseUser.getIdToken(true).then(t => safeSetItem('firebase_token', t));
-    }, 30 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [firebaseUser]);
+    if (!firebaseUser || !fsCheckDone) return;
+    window.dispatchEvent(new Event('firebase-token-ready'));
+  }, [firebaseUser, fsCheckDone]);
 
   // Loading: Firebase auth or Firestore check not done
   if (authLoading && !accessError && !fsCheckDone) {

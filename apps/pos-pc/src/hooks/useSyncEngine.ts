@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 
 import { salesQueueStore } from "../lib/idb";
-import { getApi } from "../services/api";
+import { fetchWithAuth, getApi } from "../services/api";
 import { dbAdapter } from "../services/db-adapter";
 
 import { getSettings } from "./useSettings";
@@ -11,10 +11,6 @@ import { getSettings } from "./useSettings";
 const API_URL =
   import.meta.env.VITE_API_URL ||
   "https://el-rey-api-production.elprincipitodeargentina.workers.dev";
-
-function getToken(): string {
-  return localStorage.getItem("firebase_token") || "";
-}
 
 function detectOrigin(): "web" | "local" {
   return window.location.hostname === "localhost" ? "local" : "web";
@@ -37,12 +33,9 @@ export async function flushSalesQueue(): Promise<{ flushed: number; failed: numb
 
   for (const item of pending) {
     try {
-      const response = await fetch(`${API_URL}/api/v1/sync/push`, {
+      const response = await fetchWithAuth(`${API_URL}/api/v1/sync/push`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           branch_id: getSettings().business.branchId,
           operations: [

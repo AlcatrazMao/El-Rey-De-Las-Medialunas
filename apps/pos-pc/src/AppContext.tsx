@@ -2,8 +2,6 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import * as React from 'react';
 import { createContext, useContext, useEffect } from 'react';
 
-import { getSettings } from './hooks/useSettings';
-import { addAutoNote } from './hooks/useStickyNotes';
 import { useBatches } from './hooks/useBatches';
 import { useCashSession } from './hooks/useCashSession';
 import { useCustomers } from './hooks/useCustomers';
@@ -11,6 +9,8 @@ import { useExpenses } from './hooks/useExpenses';
 import { useInventory } from './hooks/useInventory';
 import { useNotifications } from './hooks/useNotifications';
 import { useSales } from './hooks/useSales';
+import { getSettings } from './hooks/useSettings';
+import { addAutoNote } from './hooks/useStickyNotes';
 import { useSupplyRequests } from './hooks/useSupplyRequests';
 import { enqueueSale as syncEnqueueSale, syncOnCashClose as syncOnCashCloseFn } from './hooks/useSyncEngine';
 import { useUsers } from './hooks/useUsers';

@@ -128,6 +128,39 @@ export const POSView: React.FC = () => {
     };
   }, []);
 
+  // Audio Beep generator
+  const playBeep = (freq = 880, duration = 0.08) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- webkitAudioContext fallback for Safari
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      osc.addEventListener('ended', () => { audioCtx.close().catch(() => {}); });
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch {
+      // audio blocked until user gesture
+    }
+  };
+
+  useEffect(() => {
+    try {
+      const shouldOpen = localStorage.getItem('pan_erp_open_search_list');
+      if (shouldOpen === 'true') {
+        localStorage.removeItem('pan_erp_open_search_list');
+        setModalMode('visual');
+        setModalSelectedCategory('todos');
+        setSearchQuery('');
+        setShowSelectionModal(true);
+        playBeep(705, 0.05);
+      }
+    } catch { /* storage unavailable */ }
+  }, []);
+
   if (!currentCashSession) {
     return (
       <div className="flex flex-col items-center justify-center py-20 px-6 text-center space-y-6 max-w-md mx-auto bg-gradient-to-b from-amber-500/5 via-white to-gray-50/20 dark:from-zinc-950/20 dark:via-zinc-900/40 dark:to-zinc-950/10 border border-amber-305/30 dark:border-zinc-800 rounded-3xl shadow-sm my-8">
@@ -450,39 +483,6 @@ export const POSView: React.FC = () => {
       </div>
     );
   };
-
-  // Audio Beep generator
-  const playBeep = (freq = 880, duration = 0.08) => {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- webkitAudioContext fallback for Safari
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-      osc.addEventListener('ended', () => { audioCtx.close().catch(() => {}); });
-      osc.start();
-      osc.stop(audioCtx.currentTime + duration);
-    } catch {
-      // audio blocked until user gesture
-    }
-  };
-
-  useEffect(() => {
-    try {
-      const shouldOpen = localStorage.getItem('pan_erp_open_search_list');
-      if (shouldOpen === 'true') {
-        localStorage.removeItem('pan_erp_open_search_list');
-        setModalMode('visual');
-        setModalSelectedCategory('todos');
-        setSearchQuery('');
-        setShowSelectionModal(true);
-        playBeep(705, 0.05);
-      }
-    } catch { /* storage unavailable */ }
-  }, []);
 
   // Add item to POS cart
   const addToCart = (product: Product) => {

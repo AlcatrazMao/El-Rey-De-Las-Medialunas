@@ -8,6 +8,7 @@ export interface Env {
   INVENTORY_QUEUE: Queue<unknown>;
   REPORTS_QUEUE: Queue<unknown>;
   IMAGES_INTERNAL_TOKEN: string;
+  JWT_SECRET: string;
   FIREBASE_SERVICE_ACCOUNT?: string;
   FIREBASE_API_KEY?: string;
   APP_ENV?: string;

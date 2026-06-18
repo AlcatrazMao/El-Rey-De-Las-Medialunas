@@ -67,9 +67,12 @@ export interface LoginRequest {
   branch_id: string;
 }
 
-export interface LoginResponse extends ApiResponse<AuthTokens> {
+export interface LoginData {
+  tokens: AuthTokens;
   user: User;
 }
+
+export interface LoginResponse extends ApiResponse<LoginData> {}
 
 export interface RefreshTokenRequest {
   refresh_token: string;

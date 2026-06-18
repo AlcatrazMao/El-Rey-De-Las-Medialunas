@@ -170,7 +170,7 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
   const body = await c.req.json<{
     items: { product_id: string; received_quantity: number; unit_cost?: number }[];
     notes?: string;
-  }>().catch(() => ({ items: [], notes: undefined }));
+  }>().catch((): { items: { product_id: string; received_quantity: number; unit_cost?: number }[]; notes?: string } => ({ items: [], notes: undefined }));
 
   const order = await db
     .prepare("SELECT id, branch_id, status FROM purchase_orders WHERE id = ? LIMIT 1")
