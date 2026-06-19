@@ -28,6 +28,7 @@ import { formatCurrency } from './utils/format';
 import type {
   Ingredient, Product, ProductGroup, Sale, Expense, User, PushNotification, PaymentGateway,
   UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer,
+  SyncStatus,
 } from './types';
 
 interface AppContextType {
@@ -70,6 +71,10 @@ interface AppContextType {
   closeHistoricalSession: (sessionId: string, realAmount: number, note?: string) => void;
   loadMoreSessions: () => void;
   hasMoreSessions: boolean;
+  // sync-error-console: estado del LED + handlers para consola admin
+  syncStatus: SyncStatus;
+  retryError: (errorId: number) => Promise<void>;
+  retryAllNetwork: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -80,7 +85,15 @@ export const useApp = () => {
   return context;
 };
 
-export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: FirebaseUser; firestoreRole?: string | null; serverPanels?: string[] | null }> = ({ children, firebaseUser, firestoreRole, serverPanels }) => {
+export const AppProvider: React.FC<{
+  children: React.ReactNode;
+  firebaseUser: FirebaseUser;
+  firestoreRole?: string | null;
+  serverPanels?: string[] | null;
+  syncStatus: SyncStatus;
+  retryError: (errorId: number) => Promise<void>;
+  retryAllNetwork: () => Promise<void>;
+}> = ({ children, firebaseUser, firestoreRole, serverPanels, syncStatus, retryError, retryAllNetwork }) => {
   const notif = useNotifications();
   const inv = useInventory(notif.addSystemNotification);
   const cust = useCustomers(notif.addSystemNotification);
@@ -485,6 +498,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     openCashSession: cash.openCashSession, closeCashSession: cash.closeCashSession,
     closeHistoricalSession: cash.closeHistoricalSession,
     loadMoreSessions: cash.loadMoreSessions, hasMoreSessions: cash.hasMoreSessions,
+    syncStatus, retryError, retryAllNetwork,
   };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };

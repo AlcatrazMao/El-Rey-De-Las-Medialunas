@@ -25,6 +25,7 @@ import { POSView } from './components/POSView';
 import { SalesHistoryView } from './components/SalesHistoryView';
 import { SettingsView } from './components/SettingsView';
 import { StickyNotesView } from './components/StickyNotesView';
+import { SyncErrorConsole } from './components/SyncErrorConsole';
 import { auth } from './config/firebase';
 import { useSyncEngine } from './hooks/useSyncEngine';
 import { useVersionCheck } from './hooks/useVersionCheck';
@@ -149,6 +150,7 @@ function ERPLayout() {
       case 'admin_users': return <AdminUsersView />;
       case 'notes': return <StickyNotesView />;
       case 'settings': return <SettingsView />;
+      case 'sync_console': return <SyncErrorConsole />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <Dashboard />;
@@ -355,7 +357,7 @@ export default function App() {
   }, [firebaseUser]);
 
   // Offline-first sync engine — starts when user is authenticated
-  const { isOnline, isSyncing, lastSync, triggerSync } = useSyncEngine(fsCheckDone && !!firebaseUser);
+  const { isOnline, isSyncing, lastSync, triggerSync, syncStatus, retryError, retryAllNetwork } = useSyncEngine(fsCheckDone && !!firebaseUser);
 
   // Notify consumers when backend tokens are ready — must be before any early returns
   useEffect(() => {
@@ -379,7 +381,7 @@ export default function App() {
   }
 
   return (
-    <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole} serverPanels={serverPanels}>
+    <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole} serverPanels={serverPanels} syncStatus={syncStatus} retryError={retryError} retryAllNetwork={retryAllNetwork}>
       <UpdateBanner />
       <NetworkStatusBar isOnline={isOnline} isSyncing={isSyncing} lastSync={lastSync} onSyncNow={triggerSync} />
       <ERPLayout />

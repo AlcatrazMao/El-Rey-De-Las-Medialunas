@@ -1,16 +1,20 @@
 import { NetworkMonitor, SyncEngine } from "@medialunas/sync-engine";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-
-import { salesQueueStore } from "../lib/idb";
-import { fetchWithAuth, getApi } from "../services/api";
+import { auth } from "../config/firebase";
+import { salesQueueStore, syncErrorStore } from "../lib/idb";
+import type { IDBSyncError } from "../lib/idb";
+import { fetchWithAuth, getApi, API_URL as API_URL_CONST } from "../services/api";
+import { calcNextRetry, classifyError, persistSyncError } from "../services/d1-sync";
 import { dbAdapter } from "../services/db-adapter";
+import type { SyncStatus, SyncLedState } from "../types";
 
 import { getSettings } from "./useSettings";
 
-const API_URL =
-  import.meta.env.VITE_API_URL ||
-  "https://el-rey-api-production.elprincipitodeargentina.workers.dev";
+
+const API_URL = API_URL_CONST;
+
+const MAX_AUTO_RETRY_ATTEMPTS = 10;
 
 function detectOrigin(): "web" | "local" {
   return window.location.hostname === "localhost" ? "local" : "web";
@@ -81,12 +85,113 @@ export async function syncOnCashClose(triggerSync?: () => Promise<void> | void):
   if (triggerSync) await triggerSync();
 }
 
+// ── Retry helpers (sync-error-console) ───────────────────────────────────
+/**
+ * Reintenta una venta usando su payload guardado. Devuelve el Response o lanza.
+ * En éxito → marca el error como resuelto. En fallo → reclasifica + reagenda
+ * o marca permanent_fail si llegó al cap.
+ */
+async function attemptRetry(errorId: number, opts?: { forceTokenRefresh?: boolean }): Promise<void> {
+  const record = await syncErrorStore.get(errorId);
+  if (!record || record.resolved_at !== null) return;
+
+  let payloadParsed: Record<string, unknown>;
+  try {
+    payloadParsed = JSON.parse(record.payload);
+  } catch {
+    // Payload corrupto: no hay cómo reintentar. Marcamos permanent_fail.
+    await syncErrorStore.incrementAttempt(errorId, null, "permanent_fail");
+    return;
+  }
+
+  // Refresh forzado de Firebase id-token cuando el error original fue auth.
+  if (opts?.forceTokenRefresh) {
+    const user = auth.currentUser;
+    if (user) {
+      try {
+        await user.getIdToken(true);
+      } catch {
+        // Si no se puede refrescar, dejamos pendiente sin auto-retry.
+        await syncErrorStore.incrementAttempt(errorId, null, "pending");
+        return;
+      }
+    }
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- payload super-set del tipo CreateSaleRequest oficial
+    await getApi().sales.create(payloadParsed as any);
+    await syncErrorStore.markResolved(errorId);
+  } catch (err) {
+    const maybeResponse =
+      err && typeof err === "object" && "response" in (err as Record<string, unknown>)
+        ? ((err as { response?: Response }).response)
+        : undefined;
+    const category = classifyError(err, maybeResponse);
+    const newAttempts = (record.attempts ?? 0) + 1;
+
+    if (category === "network") {
+      if (newAttempts >= MAX_AUTO_RETRY_ATTEMPTS) {
+        await syncErrorStore.incrementAttempt(errorId, null, "permanent_fail");
+      } else {
+        const nextRetryAt = calcNextRetry(newAttempts);
+        await syncErrorStore.incrementAttempt(errorId, nextRetryAt, "retrying");
+      }
+    } else {
+      // validation / server / auth → no auto-reschedule. El admin decide.
+      // (auth ya tuvo su intento con forceTokenRefresh si correspondía).
+      await syncErrorStore.incrementAttempt(errorId, null, "pending");
+    }
+  }
+}
+
 export function useSyncEngine(isAuthenticated: boolean) {
   const engineRef = useRef<SyncEngine | null>(null);
   const syncingRef = useRef(false);
+  const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [pendingErrorCount, setPendingErrorCount] = useState(0);
+
+  // ── Scheduler de retries ──────────────────────────────────────────────
+  const scheduleRetry = useCallback((errorId: number, nextRetryAt: string) => {
+    // Cancelar timer previo si existe (evitamos duplicados).
+    const prev = timersRef.current.get(errorId);
+    if (prev) clearTimeout(prev);
+
+    const delay = Math.max(0, new Date(nextRetryAt).getTime() - Date.now());
+    const timer = setTimeout(() => {
+      timersRef.current.delete(errorId);
+      void attemptRetry(errorId).then(async () => {
+        // Después del intento, releemos el record para decidir reschedule.
+        const updated = await syncErrorStore.get(errorId);
+        if (!updated) return;
+        if (updated.resolved_at !== null) return;
+        if (updated.status === "retrying" && updated.next_retry_at) {
+          scheduleRetry(errorId, updated.next_retry_at);
+        }
+      }).catch(() => {/* swallow */});
+    }, delay);
+    timersRef.current.set(errorId, timer);
+  }, []);
+
+  // ── Re-auth + retry (T2.5) ────────────────────────────────────────────
+  // Para errores categoría=auth: refrescamos token y reintentamos UNA vez.
+  // Si vuelve a fallar, queda pending sin schedule (el admin debe revisar).
+  const retryAuthError = useCallback(async (errorId: number) => {
+    await attemptRetry(errorId, { forceTokenRefresh: true });
+  }, []);
+
+  // Refrescar contador de pendientes (poll cada 5s + en demanda).
+  const refreshPendingCount = useCallback(async () => {
+    try {
+      const pending = await syncErrorStore.getPending();
+      setPendingErrorCount(pending.length);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const triggerSync = useCallback(async () => {
     if (!engineRef.current || syncingRef.current) return;
@@ -98,12 +203,72 @@ export function useSyncEngine(isAuthenticated: boolean) {
     } finally {
       syncingRef.current = false;
       setIsSyncing(false);
+      void refreshPendingCount();
     }
-  }, []);
+  }, [refreshPendingCount]);
 
   const syncOnCashCloseCb = useCallback(async () => {
     await syncOnCashClose(triggerSync);
   }, [triggerSync]);
+
+  // ── Boot reschedule (T2.6) ────────────────────────────────────────────
+  // Al montar, levantamos del store todos los errores network pendientes y
+  // les programamos su próximo retry respetando su next_retry_at original.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const pending = await syncErrorStore.getPending();
+        if (cancelled) return;
+        for (const e of pending) {
+          if (!e.id) continue;
+          if (e.category === "network" && e.status !== "permanent_fail" && e.next_retry_at) {
+            scheduleRetry(e.id, e.next_retry_at);
+          }
+        }
+      } catch {
+        // store puede no estar listo aún
+      }
+      void refreshPendingCount();
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, scheduleRetry, refreshPendingCount]);
+
+  // Polling del contador (UI viva sin librerías reactivas extra).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const id = setInterval(() => { void refreshPendingCount(); }, 5_000);
+    return () => clearInterval(id);
+  }, [isAuthenticated, refreshPendingCount]);
+
+  // Listener `online`: cuando vuelve la red, intentamos retry inmediato
+  // de todos los pending de categoría network.
+  useEffect(() => {
+    const onOnline = () => {
+      void (async () => {
+        const pending = await syncErrorStore.getPendingByCategory("network");
+        for (const e of pending) {
+          if (!e.id) continue;
+          // Forzamos el next_retry a ahora — el scheduler corre inmediato.
+          scheduleRetry(e.id, new Date().toISOString());
+        }
+      })();
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [scheduleRetry]);
+
+  // Limpieza de timers al desmontar.
+  useEffect(() => {
+    // Capturamos la ref al montar el effect — la ref es estable, pero ESLint
+    // pide la copia explícita para evitar "changed by the time effect runs".
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach(t => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -151,14 +316,63 @@ export function useSyncEngine(isAuthenticated: boolean) {
     };
   }, [isAuthenticated, triggerSync]);
 
+  // ── syncStatus derivado (T2.7) ────────────────────────────────────────
+  // Prioridad: offline > error > synced
+  const syncStatus: SyncStatus = useMemo(() => {
+    let ledState: SyncLedState = "synced";
+    if (!isOnline) ledState = "offline";
+    else if (pendingErrorCount > 0) ledState = "error";
+    return {
+      ledState,
+      pendingErrorCount,
+      isSyncing,
+      isOnline,
+      lastSync,
+    };
+  }, [isOnline, pendingErrorCount, isSyncing, lastSync]);
+
+  // ── API pública para consola admin ────────────────────────────────────
+  const retryError = useCallback(async (errorId: number) => {
+    // Reset attempts + next_retry_at = ahora (lo hace resetForRetry).
+    await syncErrorStore.resetForRetry(errorId);
+    const record = await syncErrorStore.get(errorId);
+    if (!record) return;
+    if (record.category === "auth") {
+      await retryAuthError(errorId);
+    } else {
+      // Schedule inmediato.
+      scheduleRetry(errorId, new Date().toISOString());
+    }
+    void refreshPendingCount();
+  }, [retryAuthError, scheduleRetry, refreshPendingCount]);
+
+  const retryAllNetwork = useCallback(async () => {
+    const pending = await syncErrorStore.getPendingByCategory("network");
+    for (const e of pending) {
+      if (!e.id) continue;
+      await syncErrorStore.resetForRetry(e.id);
+      scheduleRetry(e.id, new Date().toISOString());
+    }
+    void refreshPendingCount();
+  }, [scheduleRetry, refreshPendingCount]);
+
   return {
     engineRef,
     isOnline,
     isSyncing,
     lastSync,
+    syncStatus,
+    pendingErrorCount,
     triggerSync,
     enqueueSale,
     flushSalesQueue,
     syncOnCashClose: syncOnCashCloseCb,
+    retryError,
+    retryAllNetwork,
+    refreshPendingCount,
   };
 }
+
+// Helpers para que la consola admin pueda persistir desde fuera del hook.
+export { persistSyncError };
+export type { IDBSyncError };

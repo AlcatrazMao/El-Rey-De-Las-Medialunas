@@ -8,14 +8,21 @@ import { useApp } from '../AppContext';
 
 
 import { NotificationCenter } from './NotificationCenter';
+import { SyncLed } from './SyncLed';
 
 export const MainHeadLayout: React.FC = () => {
   const {
     activeUser,
     setActiveUserRole,
     resetAllData,
-    users
+    users,
+    syncStatus,
+    setActiveTab,
   } = useApp();
+
+  // NOTE: el plan original menciona role === 'owner', pero el sistema no tiene
+  // ese rol — solo 'admin' tiene acceso a la consola de errores de sync.
+  const isAdmin = activeUser?.role === 'admin';
 
   return (
     <header className="bg-gray-100 dark:bg-zinc-950 border-b border-gray-200 dark:border-zinc-800 px-4 py-3 shadow-sm transition-all duration-300">
@@ -44,6 +51,11 @@ export const MainHeadLayout: React.FC = () => {
 
         {/* Universal Controls bar */}
         <div className="flex flex-wrap items-center justify-center gap-3 w-full md:w-auto">
+          {/* Sync LED — visible para todos, click lleva a la consola admin si corresponde */}
+          <SyncLed
+            status={syncStatus}
+            onClick={isAdmin ? () => setActiveTab('sync_console') : undefined}
+          />
           {/* User selector simulation */}
           <div className="relative group">
             <div className="flex items-center gap-2 bg-gray-100 dark:bg-zinc-900 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer">
