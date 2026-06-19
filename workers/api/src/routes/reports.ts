@@ -18,10 +18,10 @@ function dateRange(c: { req: { query: (k: string) => string | undefined } }) {
 reportRoutes.get("/sales/summary", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para ver reportes" } }, 403);
   }
 
   const db = c.env.DB;
@@ -64,10 +64,10 @@ reportRoutes.get("/sales/summary", async (c) => {
 reportRoutes.get("/sales/by-hour", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para ver reportes" } }, 403);
   }
 
   const db = c.env.DB;
@@ -98,10 +98,10 @@ reportRoutes.get("/sales/by-hour", async (c) => {
 reportRoutes.get("/sales/by-product", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para ver reportes" } }, 403);
   }
 
   const db = c.env.DB;
@@ -134,10 +134,10 @@ reportRoutes.get("/sales/by-product", async (c) => {
 reportRoutes.get("/sales/by-category", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para ver reportes" } }, 403);
   }
 
   const db = c.env.DB;
@@ -166,10 +166,10 @@ reportRoutes.get("/sales/by-category", async (c) => {
 reportRoutes.get("/inventory/valuation", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para ver reportes" } }, 403);
   }
 
   const db = c.env.DB;
@@ -218,10 +218,10 @@ reportRoutes.get("/inventory/valuation", async (c) => {
 reportRoutes.get("/cash/summary", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para ver reportes" } }, 403);
   }
 
   const db = c.env.DB;

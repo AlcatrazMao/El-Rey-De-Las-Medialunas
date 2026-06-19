@@ -6,6 +6,14 @@ import { resolveUser } from "../lib/resolve-user";
 export const batchRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
+// SECURITY: cap monetary and quantity inputs.
+const MAX_QUANTITY = 1_000_000;
+const MAX_UNIT_COST = 10_000_000;
+
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
 
 function isValidDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s).getTime());
@@ -58,7 +66,7 @@ batchRoutes.get("/", async (c) => {
   if (expiringWithinHoursRaw) {
     const hours = Number(expiringWithinHoursRaw);
     if (!Number.isFinite(hours) || hours < 0) {
-      return c.json({ success: false, error: "expiring_within_hours must be a non-negative number" }, 400);
+      return c.json(errBody("VALIDATION_ERROR", "expiring_within_hours debe ser un número no-negativo"), 400);
     }
     const limitDate = new Date(Date.now() + hours * 3_600_000).toISOString().slice(0, 10);
     query += " AND ib.expiry_date IS NOT NULL AND ib.expiry_date >= date('now') AND ib.expiry_date <= ?";
@@ -80,19 +88,32 @@ batchRoutes.get("/:id", async (c) => {
       `SELECT ib.*, p.name AS product_name, p.code AS product_code
        FROM inventory_batches ib
        LEFT JOIN products p ON p.id = ib.product_id
-       WHERE ib.id = ? LIMIT 1`
+       WHERE ib.id = ? LIMIT 1`,
     )
     .bind(id)
     .first<BatchRow>();
 
-  if (!row) return c.json({ success: false, error: "Batch not found" }, 404);
+  if (!row) return c.json(errBody("NOT_FOUND", "Lote no encontrado"), 404);
   return c.json({ success: true, data: row });
 });
 
 batchRoutes.post("/", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  // SECURITY: only privileged roles can mint inventory_batches. A cashier
+  // creating a batch is equivalent to manufacturing inventory out of nothing.
+  const userRole = c.get("userRole");
+  if (
+    userRole !== "admin" &&
+    userRole !== "owner" &&
+    userRole !== "supervisor" &&
+    userRole !== "warehouse" &&
+    userRole !== "production"
+  ) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para crear lotes"), 403);
+  }
 
   const db = c.env.DB;
   const body = await c.req.json<{
@@ -110,25 +131,47 @@ batchRoutes.post("/", async (c) => {
     notes?: string;
   }>();
 
-  if (!body.product_id) return c.json({ success: false, error: "product_id is required" }, 400);
-  if (!body.batch_number) return c.json({ success: false, error: "batch_number is required" }, 400);
-  if (!body.entry_date) return c.json({ success: false, error: "entry_date is required" }, 400);
+  if (!body.product_id) return c.json(errBody("VALIDATION_ERROR", "product_id es requerido"), 400);
+  if (!body.batch_number) return c.json(errBody("VALIDATION_ERROR", "batch_number es requerido"), 400);
+  if (!body.entry_date) return c.json(errBody("VALIDATION_ERROR", "entry_date es requerido"), 400);
   if (!isValidDate(body.entry_date)) {
-    return c.json({ success: false, error: "entry_date must be a valid date in YYYY-MM-DD format" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "entry_date debe ser una fecha válida YYYY-MM-DD"), 400);
   }
   if (body.expiry_date !== undefined && !isValidDate(body.expiry_date)) {
-    return c.json({ success: false, error: "expiry_date must be a valid date in YYYY-MM-DD format" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "expiry_date debe ser una fecha válida YYYY-MM-DD"), 400);
   }
-  if (typeof body.cost_per_unit !== "number" || body.cost_per_unit < 0) {
-    return c.json({ success: false, error: "cost_per_unit must be a non-negative number" }, 400);
+  if (
+    typeof body.cost_per_unit !== "number" ||
+    !Number.isFinite(body.cost_per_unit) ||
+    body.cost_per_unit < 0 ||
+    body.cost_per_unit > MAX_UNIT_COST
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "cost_per_unit debe ser un número finito >= 0"), 400);
   }
-  if (typeof body.initial_quantity !== "number" || body.initial_quantity <= 0) {
-    return c.json({ success: false, error: "initial_quantity must be a positive number" }, 400);
+  if (
+    typeof body.initial_quantity !== "number" ||
+    !Number.isFinite(body.initial_quantity) ||
+    body.initial_quantity <= 0 ||
+    body.initial_quantity > MAX_QUANTITY
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "initial_quantity debe ser un número finito > 0"), 400);
+  }
+  if (
+    body.remaining_quantity !== undefined &&
+    (typeof body.remaining_quantity !== "number" ||
+      !Number.isFinite(body.remaining_quantity) ||
+      body.remaining_quantity < 0 ||
+      body.remaining_quantity > body.initial_quantity)
+  ) {
+    return c.json(
+      errBody("VALIDATION_ERROR", "remaining_quantity debe ser un número finito entre 0 e initial_quantity"),
+      400,
+    );
   }
 
   const inventoryMethod = body.inventory_method ?? "FIFO";
   if (!VALID_INVENTORY_METHODS.has(inventoryMethod)) {
-    return c.json({ success: false, error: "inventory_method must be FIFO or LIFO" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "inventory_method debe ser FIFO o LIFO"), 400);
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
@@ -141,7 +184,7 @@ batchRoutes.post("/", async (c) => {
         (id, product_id, branch_id, batch_number, entry_date, expiry_date, durability_days,
          cost_per_unit, initial_quantity, remaining_quantity, inventory_method, status,
          supplier_id, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
     )
     .bind(
       id,
@@ -156,7 +199,7 @@ batchRoutes.post("/", async (c) => {
       remaining,
       inventoryMethod,
       body.supplier_id ?? null,
-      body.notes ?? null
+      body.notes ?? null,
     )
     .run();
 
@@ -166,7 +209,18 @@ batchRoutes.post("/", async (c) => {
 batchRoutes.put("/:id", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  const userRole = c.get("userRole");
+  if (
+    userRole !== "admin" &&
+    userRole !== "owner" &&
+    userRole !== "supervisor" &&
+    userRole !== "warehouse" &&
+    userRole !== "production"
+  ) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para modificar lotes"), 403);
+  }
 
   const db = c.env.DB;
   const id = c.req.param("id");
@@ -175,7 +229,7 @@ batchRoutes.put("/:id", async (c) => {
     .prepare("SELECT id FROM inventory_batches WHERE id = ? LIMIT 1")
     .bind(id)
     .first<{ id: string }>();
-  if (!existing) return c.json({ success: false, error: "Batch not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Lote no encontrado"), 404);
 
   const body = await c.req.json<{
     remaining_quantity?: number;
@@ -189,8 +243,13 @@ batchRoutes.put("/:id", async (c) => {
   const values: (string | number | null)[] = [];
 
   if (body.remaining_quantity !== undefined) {
-    if (typeof body.remaining_quantity !== "number" || body.remaining_quantity < 0) {
-      return c.json({ success: false, error: "remaining_quantity must be a non-negative number" }, 400);
+    if (
+      typeof body.remaining_quantity !== "number" ||
+      !Number.isFinite(body.remaining_quantity) ||
+      body.remaining_quantity < 0 ||
+      body.remaining_quantity > MAX_QUANTITY
+    ) {
+      return c.json(errBody("VALIDATION_ERROR", "remaining_quantity debe ser un número finito no-negativo"), 400);
     }
     setClauses.push("remaining_quantity = ?");
     values.push(body.remaining_quantity);
@@ -198,7 +257,7 @@ batchRoutes.put("/:id", async (c) => {
 
   if (body.status !== undefined) {
     if (!VALID_STATUSES.has(body.status)) {
-      return c.json({ success: false, error: `status must be one of: ${[...VALID_STATUSES].join(", ")}` }, 400);
+      return c.json(errBody("VALIDATION_ERROR", `status debe ser uno de: ${[...VALID_STATUSES].join(", ")}`), 400);
     }
     setClauses.push("status = ?");
     values.push(body.status);
@@ -216,14 +275,14 @@ batchRoutes.put("/:id", async (c) => {
 
   if (body.expiry_date !== undefined) {
     if (!isValidDate(body.expiry_date)) {
-      return c.json({ success: false, error: "expiry_date must be a valid date in YYYY-MM-DD format" }, 400);
+      return c.json(errBody("VALIDATION_ERROR", "expiry_date debe ser una fecha válida YYYY-MM-DD"), 400);
     }
     setClauses.push("expiry_date = ?");
     values.push(body.expiry_date);
   }
 
   if (setClauses.length === 0) {
-    return c.json({ success: false, error: "No fields to update" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "No hay campos para actualizar"), 400);
   }
 
   values.push(id);
@@ -238,7 +297,17 @@ batchRoutes.put("/:id", async (c) => {
 batchRoutes.delete("/:id", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  const userRole = c.get("userRole");
+  if (
+    userRole !== "admin" &&
+    userRole !== "owner" &&
+    userRole !== "supervisor" &&
+    userRole !== "warehouse"
+  ) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para retirar lotes"), 403);
+  }
 
   const db = c.env.DB;
   const id = c.req.param("id");
@@ -248,11 +317,11 @@ batchRoutes.delete("/:id", async (c) => {
     .prepare("SELECT id FROM inventory_batches WHERE id = ? LIMIT 1")
     .bind(id)
     .first<{ id: string }>();
-  if (!existing) return c.json({ success: false, error: "Batch not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Lote no encontrado"), 404);
 
   await db
     .prepare(
-      `UPDATE inventory_batches SET status = 'withdrawn', withdrawal_reason = ? WHERE id = ?`
+      `UPDATE inventory_batches SET status = 'withdrawn', withdrawal_reason = ? WHERE id = ?`,
     )
     .bind(body.withdrawal_reason ?? null, id)
     .run();

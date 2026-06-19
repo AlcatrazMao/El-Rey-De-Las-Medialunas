@@ -9,14 +9,22 @@ export const supplyRequestRoutes = new Hono<{
 }>();
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
+const MAX_QUANTITY = 1_000_000;
+
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
 
 // GET /
 supplyRequestRoutes.get("/", async (c) => {
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
   const status = c.req.query("status");
-  const limit = parseInt(c.req.query("limit") ?? "50", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
+  const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 200);
+  const offset = Math.max(isNaN(rawOffset) ? 0 : rawOffset, 0);
 
   let query =
     "SELECT * FROM supply_requests WHERE branch_id = ?";
@@ -49,7 +57,7 @@ supplyRequestRoutes.get("/:id", async (c) => {
     .first();
 
   if (!row) {
-    return c.json({ success: false, error: "Supply request not found" }, 404);
+    return c.json(errBody("NOT_FOUND", "Solicitud de abastecimiento no encontrada"), 404);
   }
 
   return c.json({ success: true, data: row });
@@ -72,18 +80,27 @@ supplyRequestRoutes.post("/", async (c) => {
 
   if (!body.type || !body.item_id || !body.item_name || !body.unit || !body.requested_by) {
     return c.json(
-      { success: false, error: "type, item_id, item_name, quantity, unit, and requested_by are required" },
-      400
+      errBody("VALIDATION_ERROR", "type, item_id, item_name, quantity, unit y requested_by son requeridos"),
+      400,
     );
   }
-  if (body.quantity === undefined || body.quantity === null || body.quantity <= 0) {
-    return c.json({ success: false, error: 'quantity es requerido y debe ser > 0' }, 400);
+  if (
+    typeof body.quantity !== 'number' ||
+    !Number.isFinite(body.quantity) ||
+    body.quantity <= 0 ||
+    body.quantity > MAX_QUANTITY
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "quantity es requerido y debe ser un número finito > 0"), 400);
+  }
+
+  if (body.id !== undefined && !/^[0-9a-f]{32}$/i.test(body.id)) {
+    return c.json(errBody("VALIDATION_ERROR", "id debe ser un string hexadecimal de 32 caracteres"), 400);
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const id = body.id ?? crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -92,7 +109,7 @@ supplyRequestRoutes.post("/", async (c) => {
     .prepare(
       `INSERT OR IGNORE INTO supply_requests
          (id, branch_id, user_id, type, item_id, item_name, quantity, unit, reason, requested_by, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
     .bind(
       id,
@@ -106,7 +123,7 @@ supplyRequestRoutes.post("/", async (c) => {
       body.reason ?? null,
       body.requested_by,
       now,
-      now
+      now,
     )
     .run();
 
@@ -128,18 +145,18 @@ supplyRequestRoutes.put("/:id", async (c) => {
 
   if (!body.status || !["approved", "rejected"].includes(body.status)) {
     return c.json(
-      { success: false, error: "status must be 'approved' or 'rejected'" },
-      400
+      errBody("VALIDATION_ERROR", "status debe ser 'approved' o 'rejected'"),
+      400,
     );
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
   if (userRole !== 'admin' && userRole !== 'owner' && userRole !== 'supervisor') {
-    return c.json({ success: false, error: 'Forbidden: insufficient role' }, 403);
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para aprobar/rechazar solicitudes"), 403);
   }
 
   const existing = await db
@@ -148,14 +165,14 @@ supplyRequestRoutes.put("/:id", async (c) => {
     .first<{ id: string }>();
 
   if (!existing) {
-    return c.json({ success: false, error: "Supply request not found" }, 404);
+    return c.json(errBody("NOT_FOUND", "Solicitud de abastecimiento no encontrada"), 404);
   }
 
   const updatedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   await db
     .prepare(
-      `UPDATE supply_requests SET status = ?, admin_memo = ?, updated_at = ? WHERE id = ?`
+      `UPDATE supply_requests SET status = ?, admin_memo = ?, updated_at = ? WHERE id = ?`,
     )
     .bind(body.status, body.admin_memo ?? null, updatedAt, id)
     .run();

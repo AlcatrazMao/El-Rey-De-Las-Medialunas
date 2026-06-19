@@ -10,6 +10,20 @@ function escapeLike(s: string): string {
 }
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
+// SECURITY: cap monetary fields so a malicious client cannot persist Infinity.
+const MAX_PRICE = 10_000_000;
+const MAX_TAX_RATE = 100;
+const MAX_STOCK_BOUND = 10_000_000;
+
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
+
+// SECURITY: only catalog-management roles can create/modify/delete products.
+function canManageProducts(role: string | undefined): boolean {
+  return role === "admin" || role === "owner" || role === "supervisor";
+}
 
 // GET /
 productRoutes.get("/", async (c) => {
@@ -102,13 +116,13 @@ productRoutes.get("/:id", async (c) => {
 
   const product = await db
     .prepare(
-      "SELECT * FROM products WHERE id = ? AND deleted_at IS NULL LIMIT 1"
+      "SELECT * FROM products WHERE id = ? AND deleted_at IS NULL LIMIT 1",
     )
     .bind(id)
     .first();
 
   if (!product) {
-    return c.json({ success: false, error: "Product not found" }, 404);
+    return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
   }
 
   return c.json({ success: true, data: product });
@@ -118,7 +132,11 @@ productRoutes.get("/:id", async (c) => {
 productRoutes.post("/", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  if (!canManageProducts(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para crear productos"), 403);
+  }
 
   const db = c.env.DB;
   const body = await c.req.json<{
@@ -138,10 +156,43 @@ productRoutes.post("/", async (c) => {
     is_producible?: boolean;
   }>();
 
-  if (!body.code?.trim()) return c.json({ success: false, error: "code is required" }, 400);
-  if (!body.name?.trim()) return c.json({ success: false, error: "name is required" }, 400);
-  if (typeof body.price !== "number" || body.price < 0) {
-    return c.json({ success: false, error: "price must be a non-negative number" }, 400);
+  if (!body.code?.trim()) return c.json(errBody("VALIDATION_ERROR", "code es requerido"), 400);
+  if (!body.name?.trim()) return c.json(errBody("VALIDATION_ERROR", "name es requerido"), 400);
+  if (
+    typeof body.price !== "number" ||
+    !Number.isFinite(body.price) ||
+    body.price < 0 ||
+    body.price > MAX_PRICE
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "price debe ser un número finito >= 0"), 400);
+  }
+  if (
+    body.cost !== undefined &&
+    body.cost !== null &&
+    (typeof body.cost !== "number" || !Number.isFinite(body.cost) || body.cost < 0 || body.cost > MAX_PRICE)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "cost debe ser un número finito >= 0"), 400);
+  }
+  if (
+    body.tax_rate !== undefined &&
+    body.tax_rate !== null &&
+    (typeof body.tax_rate !== "number" || !Number.isFinite(body.tax_rate) || body.tax_rate < 0 || body.tax_rate > MAX_TAX_RATE)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "tax_rate debe estar entre 0 y 100"), 400);
+  }
+  if (
+    body.min_stock !== undefined &&
+    body.min_stock !== null &&
+    (typeof body.min_stock !== "number" || !Number.isFinite(body.min_stock) || body.min_stock < 0 || body.min_stock > MAX_STOCK_BOUND)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "min_stock debe ser un número finito >= 0"), 400);
+  }
+  if (
+    body.max_stock !== undefined &&
+    body.max_stock !== null &&
+    (typeof body.max_stock !== "number" || !Number.isFinite(body.max_stock) || body.max_stock < 0 || body.max_stock > MAX_STOCK_BOUND)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "max_stock debe ser un número finito >= 0"), 400);
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
@@ -161,12 +212,12 @@ productRoutes.post("/", async (c) => {
   await db
     .prepare(
       `INSERT INTO products (id, code, name, description, barcode, category_id, branch_id, unit, price, cost, tax_rate, min_stock, max_stock, is_raw_material, is_producible, track_inventory, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
     )
     .bind(
       id,
-      body.code,
-      body.name,
+      body.code.trim(),
+      body.name.trim(),
       body.description ?? null,
       body.barcode ?? null,
       categoryId,
@@ -180,7 +231,7 @@ productRoutes.post("/", async (c) => {
       body.is_raw_material ? 1 : 0,
       body.is_producible ? 1 : 0,
       now,
-      now
+      now,
     )
     .run();
 
@@ -191,7 +242,11 @@ productRoutes.post("/", async (c) => {
 productRoutes.put("/:id", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  if (!canManageProducts(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para modificar productos"), 403);
+  }
 
   const db = c.env.DB;
   const id = c.req.param("id");
@@ -218,7 +273,45 @@ productRoutes.put("/:id", async (c) => {
     .first<{ id: string }>();
 
   if (!existing) {
-    return c.json({ success: false, error: "Product not found" }, 404);
+    return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
+  }
+
+  // SECURITY: re-validate numeric fields on update so a client cannot
+  // poison existing rows with NaN/Infinity/negative values.
+  if (
+    body.price !== undefined &&
+    body.price !== null &&
+    (typeof body.price !== "number" || !Number.isFinite(body.price) || body.price < 0 || body.price > MAX_PRICE)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "price debe ser un número finito >= 0"), 400);
+  }
+  if (
+    body.cost !== undefined &&
+    body.cost !== null &&
+    (typeof body.cost !== "number" || !Number.isFinite(body.cost) || body.cost < 0 || body.cost > MAX_PRICE)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "cost debe ser un número finito >= 0"), 400);
+  }
+  if (
+    body.tax_rate !== undefined &&
+    body.tax_rate !== null &&
+    (typeof body.tax_rate !== "number" || !Number.isFinite(body.tax_rate) || body.tax_rate < 0 || body.tax_rate > MAX_TAX_RATE)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "tax_rate debe estar entre 0 y 100"), 400);
+  }
+  if (
+    body.min_stock !== undefined &&
+    body.min_stock !== null &&
+    (typeof body.min_stock !== "number" || !Number.isFinite(body.min_stock) || body.min_stock < 0 || body.min_stock > MAX_STOCK_BOUND)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "min_stock debe ser un número finito >= 0"), 400);
+  }
+  if (
+    body.max_stock !== undefined &&
+    body.max_stock !== null &&
+    (typeof body.max_stock !== "number" || !Number.isFinite(body.max_stock) || body.max_stock < 0 || body.max_stock > MAX_STOCK_BOUND)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "max_stock debe ser un número finito >= 0"), 400);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -240,7 +333,7 @@ productRoutes.put("/:id", async (c) => {
   }
 
   if (setClauses.length === 0) {
-    return c.json({ success: false, error: "No fields to update" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "No hay campos para actualizar"), 400);
   }
 
   setClauses.push("updated_at = ?");
@@ -258,7 +351,14 @@ productRoutes.put("/:id", async (c) => {
 productRoutes.delete("/:id", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  // SECURITY: only admin/owner can delete products to prevent supervisors
+  // from cascading deletes of catalog entries.
+  const role = c.get("userRole");
+  if (role !== "admin" && role !== "owner") {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para eliminar productos"), 403);
+  }
 
   const db = c.env.DB;
   const id = c.req.param("id");
@@ -269,14 +369,14 @@ productRoutes.delete("/:id", async (c) => {
     .first<{ id: string }>();
 
   if (!existing) {
-    return c.json({ success: false, error: "Product not found" }, 404);
+    return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   await db
     .prepare(
-      "UPDATE products SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id = ?"
+      "UPDATE products SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id = ?",
     )
     .bind(now, now, id)
     .run();
@@ -290,7 +390,7 @@ productRoutes.get("/:id/prices", async (c) => {
   const id = c.req.param("id");
 
   const product = await db.prepare('SELECT id FROM products WHERE id = ?').bind(id).first();
-  if (!product) return c.json({ success: false, error: 'Product not found' }, 404);
+  if (!product) return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
 
   const results = await db
     .prepare(
@@ -298,7 +398,7 @@ productRoutes.get("/:id/prices", async (c) => {
        FROM product_prices pp
        LEFT JOIN branches b ON b.id = pp.branch_id
        WHERE pp.product_id = ? AND pp.is_active = 1
-       ORDER BY pp.price_list_type, pp.created_at DESC`
+       ORDER BY pp.price_list_type, pp.created_at DESC`,
     )
     .bind(id)
     .all();
@@ -310,7 +410,11 @@ productRoutes.get("/:id/prices", async (c) => {
 productRoutes.post("/:id/prices", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  if (!canManageProducts(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para gestionar precios"), 403);
+  }
 
   const db = c.env.DB;
   const productId = c.req.param("id");
@@ -325,33 +429,38 @@ productRoutes.post("/:id/prices", async (c) => {
   const validTypes = new Set(["retail", "wholesale", "promotional"]);
   if (!body.price_list_type || !validTypes.has(body.price_list_type)) {
     return c.json(
-      { success: false, error: "price_list_type must be one of: retail, wholesale, promotional" },
-      400
+      errBody("VALIDATION_ERROR", "price_list_type debe ser uno de: retail, wholesale, promotional"),
+      400,
     );
   }
-  if (typeof body.price !== "number" || body.price <= 0) {
-    return c.json({ success: false, error: "price must be a positive number" }, 400);
+  if (
+    typeof body.price !== "number" ||
+    !Number.isFinite(body.price) ||
+    body.price <= 0 ||
+    body.price > MAX_PRICE
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "price debe ser un número finito > 0"), 400);
   }
 
   const productExists = await db
     .prepare("SELECT id FROM products WHERE id = ? AND deleted_at IS NULL LIMIT 1")
     .bind(productId)
     .first<{ id: string }>();
-  if (!productExists) return c.json({ success: false, error: "Product not found" }, 404);
+  if (!productExists) return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   await db.prepare(
-    'UPDATE product_prices SET is_active = 0 WHERE product_id = ? AND price_list_type = ? AND is_active = 1'
+    'UPDATE product_prices SET is_active = 0 WHERE product_id = ? AND price_list_type = ? AND is_active = 1',
   ).bind(productId, body.price_list_type).run();
 
   await db
     .prepare(
       `INSERT INTO product_prices
         (id, product_id, branch_id, price_list_type, price, start_date, end_date, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     )
     .bind(
       id,
@@ -362,7 +471,7 @@ productRoutes.post("/:id/prices", async (c) => {
       body.start_date ?? null,
       body.end_date ?? null,
       now,
-      now
+      now,
     )
     .run();
 

@@ -7,16 +7,32 @@ interface RateLimitConfig {
   maxRequests?: number;
 }
 
+// SECURITY: hash the client identifier so we don't store raw IPs as KV keys
+// (PII minimisation). The first comma-separated value of X-Forwarded-For is
+// the closest hop and what we should consider trustworthy on the Cloudflare
+// edge; downstream proxies can append to this header.
+async function hashClientKey(raw: string): Promise<string> {
+  const data = new TextEncoder().encode(raw);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  const bytes = new Uint8Array(digest);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return hex.slice(0, 32);
+}
+
 export function rateLimitMiddleware(config: RateLimitConfig = {}) {
   const { windowSeconds = 60, maxRequests = 100 } = config;
 
   return createMiddleware<{ Bindings: Env; Variables: Variables }>(async (c, next) => {
+    const xff = c.req.header("X-Forwarded-For");
+    const firstHop = xff ? xff.split(",")[0]?.trim() : undefined;
     const clientKey =
       c.req.header("CF-Connecting-IP") ??
-      c.req.header("X-Forwarded-For") ??
+      firstHop ??
       "unknown";
 
-    const rateLimitKey = `rate-limit:${clientKey}`;
+    const hashed = await hashClientKey(clientKey);
+    const rateLimitKey = `rate-limit:${hashed}`;
 
     let currentCount = 0;
     try {

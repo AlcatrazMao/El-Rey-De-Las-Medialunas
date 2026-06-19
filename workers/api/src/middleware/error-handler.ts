@@ -40,10 +40,13 @@ export const errorHandler: ErrorHandler<{ Bindings: Env; Variables: Variables }>
     error.message = err.message;
     status = 429;
   } else {
+    // SECURITY: log full stack server-side, but never include it in the
+    // response body — even in development we now only include the message,
+    // not the stack, to avoid leaking source paths if APP_ENV is misconfigured
+    // in a deployed environment.
     console.error("Unhandled error:", err);
     if (c.env?.APP_ENV === "development") {
       error.message = err.message ?? "Error interno";
-      error.details = err.stack;
     }
   }
 

@@ -51,6 +51,10 @@ cashRoutes.get("/sessions/current", async (c) => {
   return c.json({ success: true, data: session ?? null });
 });
 
+// SECURITY: cap monetary amounts so a malicious or buggy client cannot
+// poison cash session totals with Infinity-adjacent values.
+const MAX_CASH_AMOUNT = 10_000_000; // 10 millones — más que suficiente
+
 // POST /sessions/open
 cashRoutes.post("/sessions/open", async (c) => {
   const db = c.env.DB;
@@ -61,9 +65,14 @@ cashRoutes.post("/sessions/open", async (c) => {
     branch_id?: string;
   }>();
 
-  if (typeof body.opening_amount !== 'number' || body.opening_amount < 0) {
+  if (
+    typeof body.opening_amount !== 'number' ||
+    !Number.isFinite(body.opening_amount) ||
+    body.opening_amount < 0 ||
+    body.opening_amount > MAX_CASH_AMOUNT
+  ) {
     return c.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: "opening_amount must be a non-negative number" } },
+      { success: false, error: { code: "VALIDATION_ERROR", message: "opening_amount debe ser un número finito entre 0 y 10,000,000" } },
       400
     );
   }
@@ -73,7 +82,7 @@ cashRoutes.post("/sessions/open", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) {
     return c.json(
-      { success: false, error: { code: "FORBIDDEN", message: "User not registered" } },
+      { success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } },
       403
     );
   }
@@ -87,7 +96,7 @@ cashRoutes.post("/sessions/open", async (c) => {
 
   if (existing) {
     return c.json(
-      { success: false, error: { code: "CONFLICT", message: "There is already an open session for this branch" } },
+      { success: false, error: { code: "CONFLICT", message: "Ya hay una sesión de caja abierta para esta sucursal" } },
       409
     );
   }
@@ -127,7 +136,7 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
 
   if (!session) {
     return c.json(
-      { success: false, error: { code: "NOT_FOUND", message: "Open session not found" } },
+      { success: false, error: { code: "NOT_FOUND", message: "Sesión de caja abierta no encontrada" } },
       404
     );
   }
@@ -136,22 +145,31 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) {
     return c.json(
-      { success: false, error: { code: "FORBIDDEN", message: "User not registered" } },
+      { success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } },
       403
     );
   }
 
-  if (typeof body.closing_amount !== 'number' || !Number.isFinite(body.closing_amount) || body.closing_amount < 0) {
+  if (
+    typeof body.closing_amount !== 'number' ||
+    !Number.isFinite(body.closing_amount) ||
+    body.closing_amount < 0 ||
+    body.closing_amount > MAX_CASH_AMOUNT
+  ) {
     return c.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: "closing_amount must be a non-negative number" } },
+      { success: false, error: { code: "VALIDATION_ERROR", message: "closing_amount debe ser un número finito entre 0 y 10,000,000" } },
       400
     );
   }
 
   if (body.expected_amount !== undefined && body.expected_amount !== null) {
-    if (typeof body.expected_amount !== 'number' || !Number.isFinite(body.expected_amount)) {
+    if (
+      typeof body.expected_amount !== 'number' ||
+      !Number.isFinite(body.expected_amount) ||
+      Math.abs(body.expected_amount) > MAX_CASH_AMOUNT
+    ) {
       return c.json(
-        { success: false, error: { code: "VALIDATION_ERROR", message: "expected_amount must be a number" } },
+        { success: false, error: { code: "VALIDATION_ERROR", message: "expected_amount debe ser un número finito" } },
         400
       );
     }
@@ -190,7 +208,7 @@ cashRoutes.get("/movements", async (c) => {
 
   if (!sessionId) {
     return c.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: "session_id is required" } },
+      { success: false, error: { code: "VALIDATION_ERROR", message: "session_id es requerido" } },
       400
     );
   }
@@ -218,7 +236,7 @@ cashRoutes.post("/movements", async (c) => {
 
   if (!body.cash_session_id || typeof body.cash_session_id !== 'string') {
     return c.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: "cash_session_id is required" } },
+      { success: false, error: { code: "VALIDATION_ERROR", message: "cash_session_id es requerido" } },
       400
     );
   }
@@ -226,14 +244,19 @@ cashRoutes.post("/movements", async (c) => {
   const VALID_MOVEMENT_TYPES = ['income', 'expense', 'adjustment'];
   if (!VALID_MOVEMENT_TYPES.includes(body.type)) {
     return c.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: `type must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}` } },
+      { success: false, error: { code: "VALIDATION_ERROR", message: `type debe ser uno de: ${VALID_MOVEMENT_TYPES.join(', ')}` } },
       400
     );
   }
 
-  if (typeof body.amount !== 'number' || body.amount <= 0) {
+  if (
+    typeof body.amount !== 'number' ||
+    !Number.isFinite(body.amount) ||
+    body.amount <= 0 ||
+    body.amount > MAX_CASH_AMOUNT
+  ) {
     return c.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: "amount must be a number greater than 0" } },
+      { success: false, error: { code: "VALIDATION_ERROR", message: "amount debe ser un número finito > 0 y <= 10,000,000" } },
       400
     );
   }
@@ -245,14 +268,14 @@ cashRoutes.post("/movements", async (c) => {
 
   if (!session) {
     return c.json(
-      { success: false, error: { code: "NOT_FOUND", message: "Cash session not found" } },
+      { success: false, error: { code: "NOT_FOUND", message: "Sesión de caja no encontrada" } },
       404
     );
   }
 
   if (session.status !== 'open') {
     return c.json(
-      { success: false, error: { code: "CONFLICT", message: "Cash session is not open" } },
+      { success: false, error: { code: "CONFLICT", message: "La sesión de caja no está abierta" } },
       409
     );
   }
@@ -261,8 +284,25 @@ cashRoutes.post("/movements", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) {
     return c.json(
-      { success: false, error: { code: "FORBIDDEN", message: "User not registered" } },
+      { success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } },
       403
+    );
+  }
+
+  // SECURITY: only admin/owner/supervisor can register 'expense' or 'adjustment'
+  // movements. Income (deposit) can be made by any authenticated cashier. This
+  // prevents a cashier from generating cash withdrawals to balance a stolen
+  // till without supervisor approval.
+  const userRole = c.get("userRole");
+  if (
+    (body.type === 'expense' || body.type === 'adjustment') &&
+    userRole !== 'admin' &&
+    userRole !== 'owner' &&
+    userRole !== 'supervisor'
+  ) {
+    return c.json(
+      { success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para registrar este tipo de movimiento" } },
+      403,
     );
   }
 

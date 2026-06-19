@@ -7,6 +7,15 @@ export const categoryRoutes = new Hono<{ Bindings: Env; Variables: Variables }>(
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
+
+function canManageCategories(role: string | undefined): boolean {
+  return role === "admin" || role === "owner" || role === "supervisor";
+}
+
 // GET / — flat list
 categoryRoutes.get("/", async (c) => {
   const db = c.env.DB;
@@ -34,7 +43,7 @@ categoryRoutes.get("/tree", async (c) => {
 
   const results = await db
     .prepare(
-      "SELECT * FROM categories WHERE branch_id = ? AND deleted_at IS NULL AND is_active = 1 ORDER BY sort_order ASC, name ASC"
+      "SELECT * FROM categories WHERE branch_id = ? AND deleted_at IS NULL AND is_active = 1 ORDER BY sort_order ASC, name ASC",
     )
     .bind(branchId)
     .all<{ id: string; parent_id: string | null; name: string; icon: string | null; color: string | null; sort_order: number }>();
@@ -65,7 +74,7 @@ categoryRoutes.get("/:id", async (c) => {
     .bind(id)
     .first();
 
-  if (!row) return c.json({ success: false, error: "Category not found" }, 404);
+  if (!row) return c.json(errBody("NOT_FOUND", "Categoría no encontrada"), 404);
   return c.json({ success: true, data: row });
 });
 
@@ -82,12 +91,16 @@ categoryRoutes.post("/", async (c) => {
   }>();
 
   if (!body.name?.trim()) {
-    return c.json({ success: false, error: "name is required" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "name es requerido"), 400);
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  if (!canManageCategories(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para crear categorías"), 403);
+  }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -98,13 +111,13 @@ categoryRoutes.post("/", async (c) => {
       .prepare("SELECT id FROM categories WHERE id = ? AND deleted_at IS NULL LIMIT 1")
       .bind(body.parent_id)
       .first<{ id: string }>();
-    if (!parent) return c.json({ success: false, error: "Parent category not found" }, 404);
+    if (!parent) return c.json(errBody("NOT_FOUND", "Categoría padre no encontrada"), 404);
   }
 
   await db
     .prepare(
       `INSERT INTO categories (id, parent_id, branch_id, name, icon, color, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -115,7 +128,7 @@ categoryRoutes.post("/", async (c) => {
       body.color ?? "#8B4513",
       body.sort_order ?? 0,
       now,
-      now
+      now,
     )
     .run();
 
@@ -140,11 +153,21 @@ categoryRoutes.put("/:id", async (c) => {
     .bind(id)
     .first<{ id: string }>();
 
-  if (!existing) return c.json({ success: false, error: "Category not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Categoría no encontrada"), 404);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  if (!canManageCategories(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para modificar categorías"), 403);
+  }
+
+  // SECURITY: prevent setting parent_id to self (would create a self-referencing
+  // cycle the tree builder cannot handle).
+  if (body.parent_id !== undefined && body.parent_id === id) {
+    return c.json(errBody("VALIDATION_ERROR", "Una categoría no puede ser su propio padre"), 400);
+  }
 
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
@@ -157,7 +180,7 @@ categoryRoutes.put("/:id", async (c) => {
   if (body.sort_order !== undefined) { fields.push("sort_order = ?"); vals.push(body.sort_order); }
   if (body.is_active !== undefined) { fields.push("is_active = ?"); vals.push(body.is_active ? 1 : 0); }
 
-  if (fields.length === 0) return c.json({ success: false, error: "No fields to update" }, 400);
+  if (fields.length === 0) return c.json(errBody("VALIDATION_ERROR", "No hay campos para actualizar"), 400);
 
   fields.push("updated_at = ?");
   vals.push(now, id);
@@ -180,11 +203,16 @@ categoryRoutes.delete("/:id", async (c) => {
     .bind(id)
     .first<{ id: string }>();
 
-  if (!existing) return c.json({ success: false, error: "Category not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Categoría no encontrada"), 404);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  const role = c.get("userRole");
+  if (role !== "admin" && role !== "owner") {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para eliminar categorías"), 403);
+  }
 
   const inUse = await db
     .prepare("SELECT id FROM products WHERE category_id = ? AND deleted_at IS NULL LIMIT 1")
@@ -192,7 +220,7 @@ categoryRoutes.delete("/:id", async (c) => {
     .first<{ id: string }>();
 
   if (inUse) {
-    return c.json({ success: false, error: "Cannot delete category: it has active products" }, 409);
+    return c.json(errBody("CONFLICT", "No se puede eliminar la categoría: tiene productos activos"), 409);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);

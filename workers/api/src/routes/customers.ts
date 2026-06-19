@@ -5,19 +5,30 @@ import { resolveUser } from "../lib/resolve-user";
 
 export const customerRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const MAX_CREDIT_LIMIT = 10_000_000;
+
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
+
+function escapeLike(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 // GET / — Listar clientes activos con paginación y búsqueda opcional
 customerRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const limit = Math.min(parseInt(c.req.query("limit") ?? "100", 10), 500);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "100", 10) || 100), 500);
+  const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
   const search = c.req.query("search");
 
   let query = "SELECT * FROM customers WHERE deleted_at IS NULL AND is_active = 1";
   const bindings: (string | number)[] = [];
 
   if (search) {
-    query += " AND (name LIKE ? OR email LIKE ? OR document_number LIKE ?)";
-    const term = `%${search}%`;
+    query += " AND (name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR document_number LIKE ? ESCAPE '\\')";
+    const term = `%${escapeLike(search)}%`;
     bindings.push(term, term, term);
   }
 
@@ -28,8 +39,8 @@ customerRoutes.get("/", async (c) => {
   const countBindings: (string | number)[] = [];
 
   if (search) {
-    countQuery += " AND (name LIKE ? OR email LIKE ? OR document_number LIKE ?)";
-    const term = `%${search}%`;
+    countQuery += " AND (name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR document_number LIKE ? ESCAPE '\\')";
+    const term = `%${escapeLike(search)}%`;
     countBindings.push(term, term, term);
   }
 
@@ -53,10 +64,10 @@ customerRoutes.get("/search", async (c) => {
   const q = c.req.query("q") ?? "";
   if (!q.trim()) return c.json({ success: true, data: [] });
 
-  const term = `%${q}%`;
+  const term = `%${escapeLike(q)}%`;
   const results = await db
     .prepare(
-      "SELECT id, name, email, phone, type, credit_limit, current_debt FROM customers WHERE deleted_at IS NULL AND is_active = 1 AND (name LIKE ? OR email LIKE ? OR document_number LIKE ?) LIMIT 10"
+      "SELECT id, name, email, phone, type, credit_limit, current_debt FROM customers WHERE deleted_at IS NULL AND is_active = 1 AND (name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR document_number LIKE ? ESCAPE '\\') LIMIT 10",
     )
     .bind(term, term, term)
     .all();
@@ -74,7 +85,7 @@ customerRoutes.get("/:id", async (c) => {
     .bind(id)
     .first();
 
-  if (!row) return c.json({ success: false, error: "Customer not found" }, 404);
+  if (!row) return c.json(errBody("NOT_FOUND", "Cliente no encontrado"), 404);
   return c.json({ success: true, data: row });
 });
 
@@ -82,7 +93,7 @@ customerRoutes.get("/:id", async (c) => {
 customerRoutes.post("/", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const db = c.env.DB;
   const body = await c.req.json<{
@@ -96,7 +107,25 @@ customerRoutes.post("/", async (c) => {
   }>();
 
   if (!body.name?.trim()) {
-    return c.json({ success: false, error: "name is required" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "name es requerido"), 400);
+  }
+
+  // SECURITY: credit_limit is a financial field — validate it. Only admin/
+  // owner/supervisor can set a non-zero credit limit so a cashier cannot
+  // grant unlimited credit to a customer they collude with.
+  if (body.credit_limit !== undefined && body.credit_limit !== null) {
+    if (
+      typeof body.credit_limit !== 'number' ||
+      !Number.isFinite(body.credit_limit) ||
+      body.credit_limit < 0 ||
+      body.credit_limit > MAX_CREDIT_LIMIT
+    ) {
+      return c.json(errBody("VALIDATION_ERROR", "credit_limit debe ser un número finito >= 0"), 400);
+    }
+    const role = c.get("userRole");
+    if (body.credit_limit > 0 && role !== "admin" && role !== "owner" && role !== "supervisor") {
+      return c.json(errBody("FORBIDDEN", "No tienes permisos para asignar límite de crédito"), 403);
+    }
   }
 
   // Map frontend type values to DB enum
@@ -109,7 +138,7 @@ customerRoutes.post("/", async (c) => {
   const dbType = typeMap[body.type ?? ""] ?? body.type ?? "consumer";
   const validTypes = ["consumer", "frequent", "wholesale", "corporate"];
   if (!validTypes.includes(dbType)) {
-    return c.json({ success: false, error: "Invalid customer type" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "Tipo de cliente inválido"), 400);
   }
 
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -117,7 +146,7 @@ customerRoutes.post("/", async (c) => {
   await db
     .prepare(
       `INSERT INTO customers (id, name, email, phone, document_number, type, credit_limit, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -127,7 +156,7 @@ customerRoutes.post("/", async (c) => {
       body.tax_id ?? null,
       dbType,
       body.credit_limit ?? 0,
-      body.notes ?? null
+      body.notes ?? null,
     )
     .run();
 
@@ -138,7 +167,7 @@ customerRoutes.post("/", async (c) => {
 customerRoutes.put("/:id", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const db = c.env.DB;
   const id = c.req.param("id");
@@ -147,7 +176,7 @@ customerRoutes.put("/:id", async (c) => {
     .prepare("SELECT id FROM customers WHERE id = ? AND deleted_at IS NULL LIMIT 1")
     .bind(id)
     .first();
-  if (!existing) return c.json({ success: false, error: "Customer not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Cliente no encontrado"), 404);
 
   const body = await c.req.json<{
     name?: string;
@@ -160,7 +189,23 @@ customerRoutes.put("/:id", async (c) => {
   }>();
 
   if (body.is_active !== undefined && body.is_active !== 0 && body.is_active !== 1) {
-    return c.json({ success: false, error: "is_active must be 0 or 1" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "is_active debe ser 0 o 1"), 400);
+  }
+
+  // SECURITY: same credit_limit guard as POST.
+  if (body.credit_limit !== undefined && body.credit_limit !== null) {
+    if (
+      typeof body.credit_limit !== 'number' ||
+      !Number.isFinite(body.credit_limit) ||
+      body.credit_limit < 0 ||
+      body.credit_limit > MAX_CREDIT_LIMIT
+    ) {
+      return c.json(errBody("VALIDATION_ERROR", "credit_limit debe ser un número finito >= 0"), 400);
+    }
+    const role = c.get("userRole");
+    if (role !== "admin" && role !== "owner" && role !== "supervisor") {
+      return c.json(errBody("FORBIDDEN", "No tienes permisos para modificar el límite de crédito"), 403);
+    }
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -168,11 +213,11 @@ customerRoutes.put("/:id", async (c) => {
   const vals: (string | number | null)[] = [now];
 
   if (body.name !== undefined) { fields.push("name = ?"); vals.push(body.name.trim()); }
-  if (body.email !== undefined) { fields.push("email = ?"); vals.push(body.email); }
-  if (body.phone !== undefined) { fields.push("phone = ?"); vals.push(body.phone); }
-  if (body.tax_id !== undefined) { fields.push("document_number = ?"); vals.push(body.tax_id); }
-  if (body.credit_limit !== undefined) { fields.push("credit_limit = ?"); vals.push(body.credit_limit); }
-  if (body.notes !== undefined) { fields.push("notes = ?"); vals.push(body.notes); }
+  if (body.email !== undefined) { fields.push("email = ?"); vals.push(body.email ?? null); }
+  if (body.phone !== undefined) { fields.push("phone = ?"); vals.push(body.phone ?? null); }
+  if (body.tax_id !== undefined) { fields.push("document_number = ?"); vals.push(body.tax_id ?? null); }
+  if (body.credit_limit !== undefined) { fields.push("credit_limit = ?"); vals.push(body.credit_limit ?? null); }
+  if (body.notes !== undefined) { fields.push("notes = ?"); vals.push(body.notes ?? null); }
   if (body.is_active !== undefined) { fields.push("is_active = ?"); vals.push(body.is_active); }
 
   if (fields.length === 1) return c.json({ success: true, data: { id } });
@@ -191,7 +236,7 @@ customerRoutes.get("/:id/history", async (c) => {
 
   const results = await db
     .prepare(
-      "SELECT id, sale_number, total, status, created_at FROM sales WHERE customer_id = ? AND status != 'voided' ORDER BY created_at DESC LIMIT ?"
+      "SELECT id, sale_number, total, status, created_at FROM sales WHERE customer_id = ? AND status != 'voided' ORDER BY created_at DESC LIMIT ?",
     )
     .bind(id, limit)
     .all();

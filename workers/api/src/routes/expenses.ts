@@ -6,6 +6,14 @@ import { resolveUser } from "../lib/resolve-user";
 export const expenseRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
+// SECURITY: cap expense amount to prevent Infinity-adjacent values from
+// poisoning financial reports.
+const MAX_EXPENSE_AMOUNT = 10_000_000;
+
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
 
 const VALID_CATEGORIES = new Set([
   "materia_prima",
@@ -64,7 +72,7 @@ expenseRoutes.get("/:id", async (c) => {
     .first();
 
   if (!row) {
-    return c.json({ success: false, error: "Expense not found" }, 404);
+    return c.json(errBody("NOT_FOUND", "Gasto no encontrado"), 404);
   }
 
   return c.json({ success: true, data: row });
@@ -85,35 +93,51 @@ expenseRoutes.post("/", async (c) => {
 
   if (!body.concept || !body.category || body.amount === undefined || !body.payment_method) {
     return c.json(
-      { success: false, error: "concept, category, amount, and payment_method are required" },
-      400
+      errBody("VALIDATION_ERROR", "concept, category, amount y payment_method son requeridos"),
+      400,
     );
   }
 
-  if (typeof body.amount !== 'number' || body.amount <= 0 || !isFinite(body.amount)) {
-    return c.json({ success: false, error: 'amount must be a positive finite number' }, 400);
+  if (typeof body.concept !== 'string' || !body.concept.trim()) {
+    return c.json(errBody("VALIDATION_ERROR", "concept es requerido"), 400);
+  }
+  if (typeof body.payment_method !== 'string' || !body.payment_method.trim()) {
+    return c.json(errBody("VALIDATION_ERROR", "payment_method es requerido"), 400);
+  }
+
+  if (
+    typeof body.amount !== 'number' ||
+    !Number.isFinite(body.amount) ||
+    body.amount <= 0 ||
+    body.amount > MAX_EXPENSE_AMOUNT
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "amount debe ser un número finito > 0 y <= 10,000,000"), 400);
   }
 
   if (!VALID_CATEGORIES.has(body.category)) {
     return c.json(
-      {
-        success: false,
-        error: `category must be one of: ${[...VALID_CATEGORIES].join(", ")}`,
-      },
-      400
+      errBody("VALIDATION_ERROR", `category debe ser uno de: ${[...VALID_CATEGORIES].join(", ")}`),
+      400,
     );
   }
 
   if (body.id !== undefined) {
     if (!/^[0-9a-f]{32}$/i.test(body.id)) {
-      return c.json({ success: false, error: "id must be a 32-character hex string (UUID without dashes)" }, 400);
+      return c.json(errBody("VALIDATION_ERROR", "id debe ser un string hexadecimal de 32 caracteres (UUID sin guiones)"), 400);
     }
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  // SECURITY: only admin/owner/supervisor can register expenses. Expenses
+  // directly affect the P&L, so cashiers must not be able to create them.
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para registrar gastos"), 403);
+  }
 
   const id = body.id ?? crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -122,18 +146,18 @@ expenseRoutes.post("/", async (c) => {
     .prepare(
       `INSERT OR IGNORE INTO expenses
          (id, branch_id, user_id, concept, category, amount, payment_method, invoice_url, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
       branchId,
       userId,
-      body.concept,
+      body.concept.trim(),
       body.category,
       body.amount,
-      body.payment_method,
+      body.payment_method.trim(),
       body.invoice_url ?? null,
-      createdAt
+      createdAt,
     )
     .run();
 

@@ -106,25 +106,51 @@ inventoryRoutes.post("/adjust", async (c) => {
   }>();
 
   if (!body.product_id) {
-    return c.json({ success: false, error: "product_id is required" }, 400);
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "product_id es requerido" } }, 400);
   }
   if (!body.movement_type || !VALID_MOVEMENT_TYPES.has(body.movement_type)) {
     return c.json(
       {
         success: false,
-        error: `movement_type must be one of: ${[...VALID_MOVEMENT_TYPES].join(", ")}`,
+        error: { code: "VALIDATION_ERROR", message: `movement_type debe ser uno de: ${[...VALID_MOVEMENT_TYPES].join(", ")}` },
       },
-      400
+      400,
     );
   }
-  if (typeof body.quantity !== 'number' || body.quantity <= 0 || !isFinite(body.quantity)) {
-    return c.json({ success: false, error: 'quantity must be a positive number' }, 400);
+  if (typeof body.quantity !== 'number' || body.quantity <= 0 || !isFinite(body.quantity) || body.quantity > 1_000_000) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "quantity debe ser un número finito > 0" } }, 400);
+  }
+  if (
+    body.unit_cost_at_time !== undefined &&
+    body.unit_cost_at_time !== null &&
+    (typeof body.unit_cost_at_time !== 'number' ||
+      !Number.isFinite(body.unit_cost_at_time) ||
+      body.unit_cost_at_time < 0 ||
+      body.unit_cost_at_time > 10_000_000)
+  ) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "unit_cost_at_time debe ser un número finito >= 0" } }, 400);
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+
+  // SECURITY: stock adjustment is a privileged operation — cashiers must not
+  // be allowed to mint or burn inventory.
+  const userRole = c.get("userRole");
+  if (
+    userRole !== "admin" &&
+    userRole !== "owner" &&
+    userRole !== "supervisor" &&
+    userRole !== "warehouse" &&
+    userRole !== "production"
+  ) {
+    return c.json(
+      { success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para ajustar inventario" } },
+      403,
+    );
+  }
 
   const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);

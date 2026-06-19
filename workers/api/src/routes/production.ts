@@ -6,6 +6,14 @@ import { resolveUser } from "../lib/resolve-user";
 export const productionRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
+// SECURITY: cap quantities to keep production math from exploding.
+const MAX_QUANTITY = 1_000_000;
+const MAX_INGREDIENTS_PER_RECIPE = 200;
+
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
 
 // ── Recipes ───────────────────────────────────────────────────────────
 
@@ -17,8 +25,8 @@ productionRoutes.get("/recipes", async (c) => {
   const isActive = c.req.query("is_active");
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
-  const limit = isNaN(rawLimit) ? 50 : rawLimit;
-  const offset = isNaN(rawOffset) ? 0 : rawOffset;
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 200);
+  const offset = Math.max(isNaN(rawOffset) ? 0 : rawOffset, 0);
 
   let query = `
     SELECT r.*, p.name as product_name, p.unit as product_unit
@@ -54,19 +62,19 @@ productionRoutes.get("/recipes/:id", async (c) => {
       `SELECT r.*, p.name as product_name, p.unit as product_unit
        FROM production_recipes r
        LEFT JOIN products p ON p.id = r.product_id
-       WHERE r.id = ? LIMIT 1`
+       WHERE r.id = ? LIMIT 1`,
     )
     .bind(id)
     .first();
 
-  if (!recipe) return c.json({ success: false, error: "Recipe not found" }, 404);
+  if (!recipe) return c.json(errBody("NOT_FOUND", "Receta no encontrada"), 404);
 
   const ingredients = await db
     .prepare(
       `SELECT ri.*, p.name as ingredient_name, p.unit as ingredient_unit, p.cost as ingredient_cost
        FROM recipe_ingredients ri
        LEFT JOIN products p ON p.id = ri.ingredient_product_id
-       WHERE ri.recipe_id = ? ORDER BY ri.sort_order ASC`
+       WHERE ri.recipe_id = ? ORDER BY ri.sort_order ASC`,
     )
     .bind(id)
     .all();
@@ -91,25 +99,52 @@ productionRoutes.post("/recipes", async (c) => {
     }[];
   }>();
 
-  if (!body.product_id) return c.json({ success: false, error: "product_id is required" }, 400);
-  if (!body.name?.trim()) return c.json({ success: false, error: "name is required" }, 400);
-  if (!body.yield_quantity || body.yield_quantity <= 0) return c.json({ success: false, error: "yield_quantity must be > 0" }, 400);
+  if (!body.product_id) return c.json(errBody("VALIDATION_ERROR", "product_id es requerido"), 400);
+  if (!body.name?.trim()) return c.json(errBody("VALIDATION_ERROR", "name es requerido"), 400);
+  if (
+    typeof body.yield_quantity !== 'number' ||
+    !Number.isFinite(body.yield_quantity) ||
+    body.yield_quantity <= 0 ||
+    body.yield_quantity > MAX_QUANTITY
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "yield_quantity debe ser un número finito > 0"), 400);
+  }
   if (!Array.isArray(body.ingredients) || body.ingredients.length === 0) {
-    return c.json({ success: false, error: "ingredients is required and must not be empty" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "ingredients es requerido y no puede estar vacío"), 400);
+  }
+  if (body.ingredients.length > MAX_INGREDIENTS_PER_RECIPE) {
+    return c.json(errBody("VALIDATION_ERROR", `Una receta no puede tener más de ${MAX_INGREDIENTS_PER_RECIPE} ingredientes`), 400);
   }
   for (const ing of body.ingredients) {
-    if (!ing.quantity || ing.quantity <= 0) {
-      return c.json({ success: false, error: "Each ingredient quantity must be > 0" }, 400);
+    if (!ing.ingredient_product_id || typeof ing.ingredient_product_id !== 'string') {
+      return c.json(errBody("VALIDATION_ERROR", "Cada ingrediente requiere ingredient_product_id"), 400);
+    }
+    if (
+      typeof ing.quantity !== 'number' ||
+      !Number.isFinite(ing.quantity) ||
+      ing.quantity <= 0 ||
+      ing.quantity > MAX_QUANTITY
+    ) {
+      return c.json(errBody("VALIDATION_ERROR", "Cada ingrediente.quantity debe ser un número finito > 0"), 400);
+    }
+    if (
+      ing.waste_percentage !== undefined &&
+      (typeof ing.waste_percentage !== 'number' ||
+        !Number.isFinite(ing.waste_percentage) ||
+        ing.waste_percentage < 0 ||
+        ing.waste_percentage > 100)
+    ) {
+      return c.json(errBody("VALIDATION_ERROR", "waste_percentage debe estar entre 0 y 100"), 400);
     }
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para crear recetas"), 403);
   }
 
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -118,13 +153,13 @@ productionRoutes.post("/recipes", async (c) => {
   const statements = [
     db.prepare(
       `INSERT INTO production_recipes (id, product_id, name, yield_quantity, preparation_instructions, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).bind(id, body.product_id, body.name.trim(), body.yield_quantity, body.preparation_instructions ?? null, now, now),
     ...body.ingredients.map((ing, idx) => {
       const ingId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
       return db.prepare(
         `INSERT INTO recipe_ingredients (id, recipe_id, ingredient_product_id, quantity, unit, waste_percentage, sort_order, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(ingId, id, ing.ingredient_product_id, ing.quantity, ing.unit, ing.waste_percentage ?? 5.0, ing.sort_order ?? idx, now);
     }),
   ];
@@ -148,19 +183,25 @@ productionRoutes.put("/recipes/:id", async (c) => {
     .prepare("SELECT id FROM production_recipes WHERE id = ? LIMIT 1")
     .bind(id)
     .first<{ id: string }>();
-  if (!existing) return c.json({ success: false, error: "Recipe not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Receta no encontrada"), 404);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para modificar recetas"), 403);
   }
 
-  if (body.yield_quantity !== undefined && body.yield_quantity <= 0) {
-    return c.json({ success: false, error: "yield_quantity must be > 0" }, 400);
+  if (
+    body.yield_quantity !== undefined &&
+    (typeof body.yield_quantity !== 'number' ||
+      !Number.isFinite(body.yield_quantity) ||
+      body.yield_quantity <= 0 ||
+      body.yield_quantity > MAX_QUANTITY)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "yield_quantity debe ser un número finito > 0"), 400);
   }
 
   const fields: string[] = [];
@@ -172,7 +213,7 @@ productionRoutes.put("/recipes/:id", async (c) => {
   if (body.preparation_instructions !== undefined) { fields.push("preparation_instructions = ?"); vals.push(body.preparation_instructions ?? null); }
   if (body.is_active !== undefined) { fields.push("is_active = ?"); vals.push(body.is_active ? 1 : 0); }
 
-  if (fields.length === 0) return c.json({ success: false, error: "No fields to update" }, 400);
+  if (fields.length === 0) return c.json(errBody("VALIDATION_ERROR", "No hay campos para actualizar"), 400);
 
   fields.push("updated_at = ?", "version = version + 1");
   vals.push(now, id);
@@ -191,8 +232,8 @@ productionRoutes.get("/batches", async (c) => {
   const recipeId = c.req.query("recipe_id");
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
-  const limit = isNaN(rawLimit) ? 50 : rawLimit;
-  const offset = isNaN(rawOffset) ? 0 : rawOffset;
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 200);
+  const offset = Math.max(isNaN(rawOffset) ? 0 : rawOffset, 0);
 
   let query = `
     SELECT pb.*, r.name as recipe_name, p.name as product_name
@@ -222,25 +263,30 @@ productionRoutes.post("/batches", async (c) => {
     notes?: string;
   }>();
 
-  if (!body.recipe_id) return c.json({ success: false, error: "recipe_id is required" }, 400);
-  if (!body.planned_quantity || body.planned_quantity <= 0) {
-    return c.json({ success: false, error: "planned_quantity must be > 0" }, 400);
+  if (!body.recipe_id) return c.json(errBody("VALIDATION_ERROR", "recipe_id es requerido"), 400);
+  if (
+    typeof body.planned_quantity !== 'number' ||
+    !Number.isFinite(body.planned_quantity) ||
+    body.planned_quantity <= 0 ||
+    body.planned_quantity > MAX_QUANTITY
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "planned_quantity debe ser un número finito > 0"), 400);
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
-  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor" && userRole !== "production") {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para planificar lotes de producción"), 403);
   }
 
   const recipe = await db
     .prepare("SELECT id FROM production_recipes WHERE id = ? AND is_active = 1 LIMIT 1")
     .bind(body.recipe_id)
     .first<{ id: string }>();
-  if (!recipe) return c.json({ success: false, error: "Recipe not found or inactive" }, 404);
+  if (!recipe) return c.json(errBody("NOT_FOUND", "Receta no encontrada o inactiva"), 404);
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -249,7 +295,7 @@ productionRoutes.post("/batches", async (c) => {
   await db
     .prepare(
       `INSERT INTO production_batches (id, recipe_id, branch_id, user_id, planned_quantity, planned_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, body.recipe_id, branchId, user.id, body.planned_quantity, now)
     .run();
@@ -267,23 +313,23 @@ productionRoutes.post("/batches/:id/start", async (c) => {
       `SELECT pb.*, r.yield_quantity as recipe_yield
        FROM production_batches pb
        LEFT JOIN production_recipes r ON r.id = pb.recipe_id
-       WHERE pb.id = ? LIMIT 1`
+       WHERE pb.id = ? LIMIT 1`,
     )
     .bind(id)
     .first<{ id: string; recipe_id: string; branch_id: string; status: string; planned_quantity: number; recipe_yield: number; user_id: string }>();
 
-  if (!batch) return c.json({ success: false, error: "Production batch not found" }, 404);
+  if (!batch) return c.json(errBody("NOT_FOUND", "Lote de producción no encontrado"), 404);
   if (batch.status !== "planned") {
-    return c.json({ success: false, error: `Batch cannot be started: current status is '${batch.status}'` }, 409);
+    return c.json(errBody("CONFLICT", `No se puede iniciar el lote: estado actual '${batch.status}'`), 409);
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
-  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor" && userRole !== "production") {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para iniciar lotes de producción"), 403);
   }
 
   const ingredients = await db
@@ -300,19 +346,25 @@ productionRoutes.post("/batches/:id/start", async (c) => {
     return [
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
-         VALUES (?, ?, ?, 'production_out', ?, 'Consumo lote producción', ?, ?)`
+         VALUES (?, ?, ?, 'production_out', ?, 'Consumo lote producción', ?, ?)`,
       ).bind(movId, ing.ingredient_product_id, batch.branch_id, totalQty, user.id, now),
       db.prepare(
         `UPDATE inventory SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
-         WHERE product_id = ? AND branch_id = ?`
+         WHERE product_id = ? AND branch_id = ?`,
       ).bind(totalQty, now, ing.ingredient_product_id, batch.branch_id),
     ];
   });
 
   consumeStatements.push(
     db.prepare("UPDATE production_batches SET status = 'in_progress', started_at = ? WHERE id = ?")
-      .bind(now, id)
+      .bind(now, id),
   );
+
+  // SECURITY: D1 batch limit is ~100 statements. Reject early instead of
+  // letting the request silently fail.
+  if (consumeStatements.length > 100) {
+    return c.json(errBody("VALIDATION_ERROR", "Receta con demasiados ingredientes para una sola operación"), 400);
+  }
 
   await db.batch(consumeStatements);
   return c.json({ success: true, data: { id, status: "in_progress", started_at: now } });
@@ -326,8 +378,22 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
     actual_quantity: 0, waste_quantity: 0, notes: undefined,
   }));
 
-  if (!body.actual_quantity || body.actual_quantity <= 0) {
-    return c.json({ success: false, error: "actual_quantity must be > 0" }, 400);
+  if (
+    typeof body.actual_quantity !== 'number' ||
+    !Number.isFinite(body.actual_quantity) ||
+    body.actual_quantity <= 0 ||
+    body.actual_quantity > MAX_QUANTITY
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "actual_quantity debe ser un número finito > 0"), 400);
+  }
+  if (
+    body.waste_quantity !== undefined &&
+    (typeof body.waste_quantity !== 'number' ||
+      !Number.isFinite(body.waste_quantity) ||
+      body.waste_quantity < 0 ||
+      body.waste_quantity > MAX_QUANTITY)
+  ) {
+    return c.json(errBody("VALIDATION_ERROR", "waste_quantity debe ser un número finito >= 0"), 400);
   }
 
   const batch = await db
@@ -335,23 +401,23 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
       `SELECT pb.*, r.product_id as output_product_id
        FROM production_batches pb
        LEFT JOIN production_recipes r ON r.id = pb.recipe_id
-       WHERE pb.id = ? LIMIT 1`
+       WHERE pb.id = ? LIMIT 1`,
     )
     .bind(id)
     .first<{ id: string; branch_id: string; status: string; output_product_id: string; user_id: string }>();
 
-  if (!batch) return c.json({ success: false, error: "Production batch not found" }, 404);
+  if (!batch) return c.json(errBody("NOT_FOUND", "Lote de producción no encontrado"), 404);
   if (batch.status !== "in_progress") {
-    return c.json({ success: false, error: `Batch cannot be completed: current status is '${batch.status}'` }, 409);
+    return c.json(errBody("CONFLICT", `No se puede completar el lote: estado actual '${batch.status}'`), 409);
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
-  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor" && userRole !== "production") {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para completar lotes de producción"), 403);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -361,15 +427,15 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
     db.prepare(
       `UPDATE production_batches
        SET status = 'completed', actual_quantity = ?, waste_quantity = ?, notes = ?, completed_at = ?
-       WHERE id = ?`
+       WHERE id = ?`,
     ).bind(body.actual_quantity, body.waste_quantity ?? 0, body.notes ?? null, now, id),
     db.prepare(
       `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
-       VALUES (?, ?, ?, 'production_in', ?, 'Producción completada', ?, ?)`
+       VALUES (?, ?, ?, 'production_in', ?, 'Producción completada', ?, ?)`,
     ).bind(movId, batch.output_product_id, batch.branch_id, body.actual_quantity, user.id, now),
     db.prepare(
       `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
-       WHERE product_id = ? AND branch_id = ?`
+       WHERE product_id = ? AND branch_id = ?`,
     ).bind(body.actual_quantity, now, batch.output_product_id, batch.branch_id),
   ];
 
@@ -387,26 +453,26 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
       `SELECT pb.id, pb.status, pb.recipe_id, pb.branch_id, pb.planned_quantity, r.yield_quantity as recipe_yield
        FROM production_batches pb
        LEFT JOIN production_recipes r ON r.id = pb.recipe_id
-       WHERE pb.id = ? LIMIT 1`
+       WHERE pb.id = ? LIMIT 1`,
     )
     .bind(id)
     .first<{ id: string; status: string; recipe_id: string; branch_id: string; planned_quantity: number; recipe_yield: number }>();
 
-  if (!batch) return c.json({ success: false, error: "Production batch not found" }, 404);
+  if (!batch) return c.json(errBody("NOT_FOUND", "Lote de producción no encontrado"), 404);
   if (batch.status === "completed") {
-    return c.json({ success: false, error: "Cannot cancel a completed batch" }, 409);
+    return c.json(errBody("CONFLICT", "No se puede cancelar un lote completado"), 409);
   }
   if (batch.status === "cancelled") {
-    return c.json({ success: false, error: "Batch is already cancelled" }, 409);
+    return c.json(errBody("CONFLICT", "El lote ya está cancelado"), 409);
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
-  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor" && userRole !== "production") {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para cancelar lotes de producción"), 403);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -426,19 +492,23 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
       return [
         db.prepare(
           `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
-           VALUES (?, ?, ?, 'production_in', ?, 'Reversión cancelación lote producción', ?, ?)`
+           VALUES (?, ?, ?, 'production_in', ?, 'Reversión cancelación lote producción', ?, ?)`,
         ).bind(movId, ing.ingredient_product_id, batch.branch_id, totalQty, user.id, now),
         db.prepare(
           `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
-           WHERE product_id = ? AND branch_id = ?`
+           WHERE product_id = ? AND branch_id = ?`,
         ).bind(totalQty, now, ing.ingredient_product_id, batch.branch_id),
       ];
     });
 
     reverseStatements.push(
       db.prepare("UPDATE production_batches SET status = 'cancelled' WHERE id = ?")
-        .bind(id)
+        .bind(id),
     );
+
+    if (reverseStatements.length > 100) {
+      return c.json(errBody("VALIDATION_ERROR", "Receta con demasiados ingredientes para revertir en una sola operación"), 400);
+    }
 
     await db.batch(reverseStatements);
   } else {

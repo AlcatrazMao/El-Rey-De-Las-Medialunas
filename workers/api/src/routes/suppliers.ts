@@ -5,6 +5,15 @@ import { resolveUser } from "../lib/resolve-user";
 
 export const supplierRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
+
+function canManageSuppliers(role: string | undefined): boolean {
+  return role === "admin" || role === "owner" || role === "supervisor";
+}
+
 // GET /
 supplierRoutes.get("/", async (c) => {
   const db = c.env.DB;
@@ -12,8 +21,8 @@ supplierRoutes.get("/", async (c) => {
   const isActive = c.req.query("is_active");
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
-  const limit = isNaN(rawLimit) ? 50 : rawLimit;
-  const offset = isNaN(rawOffset) ? 0 : rawOffset;
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 200);
+  const offset = Math.max(isNaN(rawOffset) ? 0 : rawOffset, 0);
 
   let query = "SELECT * FROM suppliers WHERE deleted_at IS NULL";
   const bindings: (string | number)[] = [];
@@ -45,7 +54,7 @@ supplierRoutes.get("/:id", async (c) => {
     .bind(id)
     .first();
 
-  if (!row) return c.json({ success: false, error: "Supplier not found" }, 404);
+  if (!row) return c.json(errBody("NOT_FOUND", "Proveedor no encontrado"), 404);
   return c.json({ success: true, data: row });
 });
 
@@ -64,12 +73,16 @@ supplierRoutes.post("/", async (c) => {
   }>();
 
   if (!body.name?.trim()) {
-    return c.json({ success: false, error: "name is required" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "name es requerido"), 400);
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  if (!canManageSuppliers(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para crear proveedores"), 403);
+  }
 
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -77,7 +90,7 @@ supplierRoutes.post("/", async (c) => {
   await db
     .prepare(
       `INSERT INTO suppliers (id, name, contact_name, email, phone, address, tax_id, payment_terms, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -90,7 +103,7 @@ supplierRoutes.post("/", async (c) => {
       body.payment_terms ?? null,
       body.notes ?? null,
       now,
-      now
+      now,
     )
     .run();
 
@@ -118,11 +131,15 @@ supplierRoutes.put("/:id", async (c) => {
     .bind(id)
     .first<{ id: string }>();
 
-  if (!existing) return c.json({ success: false, error: "Supplier not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Proveedor no encontrado"), 404);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  if (!canManageSuppliers(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para modificar proveedores"), 403);
+  }
 
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
@@ -138,7 +155,7 @@ supplierRoutes.put("/:id", async (c) => {
   if (body.notes !== undefined) { fields.push("notes = ?"); vals.push(body.notes ?? null); }
   if (body.is_active !== undefined) { fields.push("is_active = ?"); vals.push(body.is_active ? 1 : 0); }
 
-  if (fields.length === 0) return c.json({ success: false, error: "No fields to update" }, 400);
+  if (fields.length === 0) return c.json(errBody("VALIDATION_ERROR", "No hay campos para actualizar"), 400);
 
   fields.push("updated_at = ?");
   vals.push(now, id);
@@ -161,15 +178,15 @@ supplierRoutes.delete("/:id", async (c) => {
     .bind(id)
     .first<{ id: string }>();
 
-  if (!existing) return c.json({ success: false, error: "Supplier not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Proveedor no encontrado"), 404);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para eliminar proveedores"), 403);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);

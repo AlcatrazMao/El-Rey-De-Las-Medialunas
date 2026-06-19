@@ -6,6 +6,16 @@ import { resolveUser } from "../lib/resolve-user";
 export const purchaseRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
+// SECURITY: cap monetary and quantity inputs to avoid Infinity-adjacent or
+// absurd values poisoning totals.
+const MAX_QUANTITY = 1_000_000;
+const MAX_UNIT_COST = 10_000_000;
+const MAX_ITEMS_PER_ORDER = 500;
+
+const errBody = (code: string, message: string) => ({
+  success: false as const,
+  error: { code, message },
+});
 
 // GET /orders
 purchaseRoutes.get("/orders", async (c) => {
@@ -17,8 +27,8 @@ purchaseRoutes.get("/orders", async (c) => {
   const toDate = c.req.query("to_date");
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
-  const limit = isNaN(rawLimit) ? 50 : rawLimit;
-  const offset = isNaN(rawOffset) ? 0 : rawOffset;
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 200);
+  const offset = Math.max(isNaN(rawOffset) ? 0 : rawOffset, 0);
 
   let query = `
     SELECT po.*, s.name as supplier_name
@@ -49,19 +59,19 @@ purchaseRoutes.get("/orders/:id", async (c) => {
       `SELECT po.*, s.name as supplier_name
        FROM purchase_orders po
        LEFT JOIN suppliers s ON s.id = po.supplier_id
-       WHERE po.id = ? LIMIT 1`
+       WHERE po.id = ? LIMIT 1`,
     )
     .bind(id)
     .first();
 
-  if (!order) return c.json({ success: false, error: "Purchase order not found" }, 404);
+  if (!order) return c.json(errBody("NOT_FOUND", "Orden de compra no encontrada"), 404);
 
   const items = await db
     .prepare(
       `SELECT poi.*, p.name as product_name, p.unit
        FROM purchase_order_items poi
        LEFT JOIN products p ON p.id = poi.product_id
-       WHERE poi.purchase_order_id = ? ORDER BY poi.created_at ASC`
+       WHERE poi.purchase_order_id = ? ORDER BY poi.created_at ASC`,
     )
     .bind(id)
     .all();
@@ -80,25 +90,44 @@ purchaseRoutes.post("/orders", async (c) => {
     notes?: string;
   }>();
 
-  if (!body.supplier_id) return c.json({ success: false, error: "supplier_id is required" }, 400);
+  if (!body.supplier_id) return c.json(errBody("VALIDATION_ERROR", "supplier_id es requerido"), 400);
   if (!Array.isArray(body.items) || body.items.length === 0) {
-    return c.json({ success: false, error: "items is required and must not be empty" }, 400);
+    return c.json(errBody("VALIDATION_ERROR", "items es requerido y no puede estar vacío"), 400);
+  }
+  if (body.items.length > MAX_ITEMS_PER_ORDER) {
+    return c.json(errBody("VALIDATION_ERROR", `Una orden no puede tener más de ${MAX_ITEMS_PER_ORDER} items`), 400);
+  }
+
+  // SECURITY: validate every item BEFORE we hit the DB so we cannot insert
+  // garbage rows (NaN/Infinity/negative quantities) into purchase_order_items.
+  for (const item of body.items) {
+    if (!item.product_id || typeof item.product_id !== 'string') {
+      return c.json(errBody("VALIDATION_ERROR", "item.product_id es requerido"), 400);
+    }
+    const qty = Number(item.quantity);
+    if (!Number.isFinite(qty) || qty <= 0 || qty > MAX_QUANTITY) {
+      return c.json(errBody("VALIDATION_ERROR", "item.quantity debe ser un número finito > 0"), 400);
+    }
+    const cost = Number(item.unit_cost);
+    if (!Number.isFinite(cost) || cost < 0 || cost > MAX_UNIT_COST) {
+      return c.json(errBody("VALIDATION_ERROR", "item.unit_cost debe ser un número finito >= 0"), 400);
+    }
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para crear órdenes de compra"), 403);
   }
 
   const supplier = await db
     .prepare("SELECT id FROM suppliers WHERE id = ? AND deleted_at IS NULL LIMIT 1")
     .bind(body.supplier_id)
     .first<{ id: string }>();
-  if (!supplier) return c.json({ success: false, error: "Supplier not found" }, 404);
+  if (!supplier) return c.json(errBody("NOT_FOUND", "Proveedor no encontrado"), 404);
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -110,20 +139,20 @@ purchaseRoutes.post("/orders", async (c) => {
     .first<{ next: number }>();
   const orderNumber = `OC-${String(orderNumberRow?.next ?? 1).padStart(6, "0")}`;
 
-  const subtotal = body.items.reduce((acc, i) => acc + i.quantity * i.unit_cost, 0);
+  const subtotal = body.items.reduce((acc, i) => acc + Number(i.quantity) * Number(i.unit_cost), 0);
   const total = parseFloat(subtotal.toFixed(2));
 
   const statements = [
     db.prepare(
       `INSERT INTO purchase_orders (id, supplier_id, branch_id, user_id, order_number, subtotal, tax_total, total, expected_delivery_date, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
     ).bind(id, body.supplier_id, branchId, user.id, orderNumber, total, total, body.expected_delivery_date ?? null, body.notes ?? null, now, now),
     ...body.items.map(item => {
       const itemId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-      const itemTotal = parseFloat((item.quantity * item.unit_cost).toFixed(2));
+      const itemTotal = parseFloat((Number(item.quantity) * Number(item.unit_cost)).toFixed(2));
       return db.prepare(
         `INSERT INTO purchase_order_items (id, purchase_order_id, product_id, quantity, unit_cost, received_quantity, total, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
       ).bind(itemId, id, item.product_id, item.quantity, item.unit_cost, itemTotal, item.notes ?? null, now);
     }),
   ];
@@ -140,22 +169,22 @@ purchaseRoutes.put("/orders/:id", async (c) => {
 
   const VALID_STATUSES = new Set(["draft", "sent", "partially_received", "received", "cancelled"]);
   if (body.status && !VALID_STATUSES.has(body.status)) {
-    return c.json({ success: false, error: `Invalid status. Must be one of: ${[...VALID_STATUSES].join(", ")}` }, 400);
+    return c.json(errBody("VALIDATION_ERROR", `status inválido. Debe ser uno de: ${[...VALID_STATUSES].join(", ")}`), 400);
   }
 
   const existing = await db
     .prepare("SELECT id FROM purchase_orders WHERE id = ? LIMIT 1")
     .bind(id)
     .first<{ id: string }>();
-  if (!existing) return c.json({ success: false, error: "Purchase order not found" }, 404);
+  if (!existing) return c.json(errBody("NOT_FOUND", "Orden de compra no encontrada"), 404);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para modificar órdenes de compra"), 403);
   }
 
   const fields: string[] = [];
@@ -166,7 +195,7 @@ purchaseRoutes.put("/orders/:id", async (c) => {
   if (body.notes !== undefined) { fields.push("notes = ?"); vals.push(body.notes ?? null); }
   if (body.expected_delivery_date !== undefined) { fields.push("expected_delivery_date = ?"); vals.push(body.expected_delivery_date ?? null); }
 
-  if (fields.length === 0) return c.json({ success: false, error: "No fields to update" }, 400);
+  if (fields.length === 0) return c.json(errBody("VALIDATION_ERROR", "No hay campos para actualizar"), 400);
 
   fields.push("updated_at = ?");
   vals.push(now, id);
@@ -189,40 +218,58 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
     .bind(id)
     .first<{ id: string; branch_id: string; status: string }>();
 
-  if (!order) return c.json({ success: false, error: "Purchase order not found" }, 404);
+  if (!order) return c.json(errBody("NOT_FOUND", "Orden de compra no encontrada"), 404);
   if (order.status === "cancelled") {
-    return c.json({ success: false, error: "Cannot receive a cancelled purchase order" }, 409);
+    return c.json(errBody("CONFLICT", "No se puede recibir una orden cancelada"), 409);
   }
   if (order.status === "received") {
-    return c.json({ success: false, error: "Purchase order already fully received" }, 409);
+    return c.json(errBody("CONFLICT", "La orden ya fue recibida completamente"), 409);
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
-  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor" && userRole !== "warehouse") {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para recibir órdenes de compra"), 403);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   const items = body.items ?? [];
+
+  // SECURITY: validate every receive item before mutating inventory. A
+  // negative or Infinity received_quantity would corrupt stock totals.
+  for (const item of items) {
+    if (!item.product_id || typeof item.product_id !== 'string') {
+      return c.json(errBody("VALIDATION_ERROR", "item.product_id es requerido"), 400);
+    }
+    const qty = Number(item.received_quantity);
+    if (!Number.isFinite(qty) || qty <= 0 || qty > MAX_QUANTITY) {
+      return c.json(errBody("VALIDATION_ERROR", "item.received_quantity debe ser un número finito > 0"), 400);
+    }
+    if (item.unit_cost !== undefined && item.unit_cost !== null) {
+      const cost = Number(item.unit_cost);
+      if (!Number.isFinite(cost) || cost < 0 || cost > MAX_UNIT_COST) {
+        return c.json(errBody("VALIDATION_ERROR", "item.unit_cost debe ser un número finito >= 0"), 400);
+      }
+    }
+  }
 
   const receiveStatements = items.flatMap(item => {
     if (!item.product_id || !item.received_quantity || item.received_quantity <= 0) return [];
     const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
     return [
       db.prepare(
-        `UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE purchase_order_id = ? AND product_id = ?`
+        `UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE purchase_order_id = ? AND product_id = ?`,
       ).bind(item.received_quantity, id, item.product_id),
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, unit_cost_at_time, reason, user_id, created_at)
-         VALUES (?, ?, ?, 'purchase_in', ?, ?, 'Recepción OC ' || ?, ?, ?)`
+         VALUES (?, ?, ?, 'purchase_in', ?, ?, 'Recepción OC ' || ?, ?, ?)`,
       ).bind(movementId, item.product_id, order.branch_id, item.received_quantity, item.unit_cost ?? null, id, user.id, now),
       db.prepare(
         `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
-         WHERE product_id = ? AND branch_id = ?`
+         WHERE product_id = ? AND branch_id = ?`,
       ).bind(item.received_quantity, now, item.product_id, order.branch_id),
     ];
   });
@@ -245,8 +292,14 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
 
   receiveStatements.push(
     db.prepare("UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ?")
-      .bind(newStatus, now, id)
+      .bind(newStatus, now, id),
   );
+
+  // SECURITY: D1 batch limit is ~100 statements. Receiving an order with many
+  // items would otherwise silently fail or throw a generic error.
+  if (receiveStatements.length > 100) {
+    return c.json(errBody("VALIDATION_ERROR", "Demasiados items para recibir en una sola operación. Dividilo en varias."), 400);
+  }
 
   if (receiveStatements.length > 0) await db.batch(receiveStatements);
 
@@ -263,21 +316,21 @@ purchaseRoutes.post("/orders/:id/cancel", async (c) => {
     .bind(id)
     .first<{ id: string; status: string }>();
 
-  if (!order) return c.json({ success: false, error: "Purchase order not found" }, 404);
+  if (!order) return c.json(errBody("NOT_FOUND", "Orden de compra no encontrada"), 404);
   if (order.status === "received") {
-    return c.json({ success: false, error: "Cannot cancel a received purchase order" }, 409);
+    return c.json(errBody("CONFLICT", "No se puede cancelar una orden ya recibida"), 409);
   }
   if (order.status === "cancelled") {
-    return c.json({ success: false, error: "Purchase order is already cancelled" }, 409);
+    return c.json(errBody("CONFLICT", "La orden ya está cancelada"), 409);
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole");
   if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
-    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para cancelar órdenes de compra"), 403);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);

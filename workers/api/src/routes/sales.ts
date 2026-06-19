@@ -66,7 +66,7 @@ salesRoutes.get("/:id", async (c) => {
     .first();
 
   if (!sale) {
-    return c.json({ success: false, error: "Sale not found" }, 404);
+    return c.json({ success: false, error: { code: "NOT_FOUND", message: "Venta no encontrada" } }, 404);
   }
 
   const [itemsResult, paymentsResult] = await Promise.all([
@@ -121,7 +121,7 @@ salesRoutes.post("/", async (c) => {
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   // TODO: add UNIQUE constraint on (branch_id, sale_number) in a migration to prevent
@@ -137,24 +137,65 @@ salesRoutes.post("/", async (c) => {
 
   const items = body.items ?? [];
   if (items.length === 0) {
-    return c.json({ success: false, error: "A sale must have at least one item" }, 400);
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Una venta debe tener al menos un item" } }, 400);
   }
+  if (items.length > 500) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Una venta no puede tener más de 500 items" } }, 400);
+  }
+  // SECURITY: cap quantities and prices so a buggy or malicious client
+  // cannot persist Infinity-adjacent values into sales/inventory.
+  const MAX_ITEM_QUANTITY = 100_000;
+  const MAX_UNIT_PRICE = 10_000_000;
   for (const item of items) {
-    if (!item.product_id) return c.json({ success: false, error: 'item.product_id is required' }, 400);
-    if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) return c.json({ success: false, error: 'item.quantity must be a positive number' }, 400);
-    if (!Number.isFinite(Number(item.unit_price)) || Number(item.unit_price) < 0) return c.json({ success: false, error: 'item.unit_price must be >= 0' }, 400);
+    if (!item.product_id || typeof item.product_id !== 'string') return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'item.product_id es requerido' } }, 400);
+    const qty = Number(item.quantity);
+    if (!Number.isFinite(qty) || qty <= 0 || qty > MAX_ITEM_QUANTITY) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'item.quantity debe ser un número finito > 0' } }, 400);
+    const price = Number(item.unit_price);
+    if (!Number.isFinite(price) || price < 0 || price > MAX_UNIT_PRICE) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'item.unit_price debe ser un número finito >= 0' } }, 400);
+    if (item.discount !== undefined && (!Number.isFinite(Number(item.discount)) || Number(item.discount) < 0 || Number(item.discount) > MAX_UNIT_PRICE)) {
+      return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'item.discount debe ser un número finito >= 0' } }, 400);
+    }
+    if (item.tax_amount !== undefined && (!Number.isFinite(Number(item.tax_amount)) || Number(item.tax_amount) < 0 || Number(item.tax_amount) > MAX_UNIT_PRICE)) {
+      return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'item.tax_amount debe ser un número finito >= 0' } }, 400);
+    }
   }
   const payments = body.payments ?? [];
-
-  let subtotal = body.subtotal;
-  const taxTotal = body.tax_total ?? 0;
-  const discountTotal = body.discount_total ?? 0;
-
-  if (subtotal === undefined) {
-    subtotal = items.reduce((acc, item) => acc + item.unit_price * item.quantity, 0);
+  if (payments.length > 50) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'Una venta no puede tener más de 50 medios de pago' } }, 400);
+  }
+  for (const p of payments) {
+    if (!p.payment_method || typeof p.payment_method !== 'string') {
+      return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'payment.payment_method es requerido' } }, 400);
+    }
+    if (!Number.isFinite(Number(p.amount)) || Number(p.amount) < 0 || Number(p.amount) > MAX_UNIT_PRICE) {
+      return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'payment.amount debe ser un número finito >= 0' } }, 400);
+    }
   }
 
-  const total = body.total ?? subtotal - discountTotal + taxTotal;
+  // SECURITY: compute monetary totals server-side. Never trust client-provided
+  // subtotal/total — that would let a client submit "total: 0.01" for an
+  // expensive sale. We use the items+payments the client sent and re-derive
+  // every total from them.
+  const computedSubtotal = items.reduce(
+    (acc, item) => acc + Number(item.unit_price) * Number(item.quantity),
+    0,
+  );
+  const computedDiscountTotal = items.reduce(
+    (acc, item) => acc + Number(item.discount ?? 0),
+    0,
+  );
+  const computedTaxTotal = items.reduce(
+    (acc, item) => acc + Number(item.tax_amount ?? 0),
+    0,
+  );
+  const subtotal = parseFloat(computedSubtotal.toFixed(2));
+  const discountTotal = parseFloat(computedDiscountTotal.toFixed(2));
+  const taxTotal = parseFloat(computedTaxTotal.toFixed(2));
+  const total = parseFloat((subtotal - discountTotal + taxTotal).toFixed(2));
+
+  if (!Number.isFinite(total) || total < 0) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Total calculado inválido" } }, 400);
+  }
 
   const saleId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
 
@@ -213,7 +254,16 @@ salesRoutes.post("/", async (c) => {
     ).bind(paymentId, saleId, payment.payment_method, payment.amount, payment.reference ?? null, now);
   });
 
-  await db.batch([saleInsert, ...itemStatements, ...paymentStatements]);
+  // SECURITY: D1 batch limit ~100. With 3 statements per item plus payments,
+  // a single sale could exceed the limit; clip to a safe upper bound.
+  const allStatements = [saleInsert, ...itemStatements, ...paymentStatements];
+  if (allStatements.length > 100) {
+    return c.json(
+      { success: false, error: { code: "VALIDATION_ERROR", message: "La venta excede el máximo de operaciones por batch. Reduce items o pagos." } },
+      400,
+    );
+  }
+  await db.batch(allStatements);
 
   return c.json({ success: true, data: { id: saleId, sale_number: saleNumber, branch_id: branchId, created_at: now } }, 201);
 });
@@ -226,7 +276,15 @@ salesRoutes.post("/:id/void", async (c) => {
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+
+  // SECURITY: voiding a sale reverses inventory and erases the revenue from
+  // reports — restrict to supervisor and up so a single rogue cashier cannot
+  // void their own sales to cover theft.
+  const voidRole = c.get("userRole");
+  if (voidRole !== "admin" && voidRole !== "owner" && voidRole !== "supervisor") {
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para anular ventas" } }, 403);
+  }
 
   const sale = await db
     .prepare("SELECT id, status FROM sales WHERE id = ? LIMIT 1")
@@ -234,13 +292,13 @@ salesRoutes.post("/:id/void", async (c) => {
     .first<{ id: string; status: string }>();
 
   if (!sale) {
-    return c.json({ success: false, error: "Sale not found" }, 404);
+    return c.json({ success: false, error: { code: "NOT_FOUND", message: "Venta no encontrada" } }, 404);
   }
 
   if (sale.status !== "completed") {
     return c.json(
-      { success: false, error: `Sale cannot be voided: current status is '${sale.status}'` },
-      409
+      { success: false, error: { code: "CONFLICT", message: `No se puede anular la venta: estado actual '${sale.status}'` } },
+      409,
     );
   }
 
@@ -286,24 +344,30 @@ salesRoutes.post("/:id/refund", async (c) => {
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+
+  // SECURITY: same rationale as void — refunds reverse cash and inventory.
+  const refundRole = c.get("userRole");
+  if (refundRole !== "admin" && refundRole !== "owner" && refundRole !== "supervisor") {
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para reembolsar ventas" } }, 403);
+  }
 
   const sale = await db
     .prepare(
       `SELECT s.*, u.name AS cashier_name
        FROM sales s
        LEFT JOIN users u ON u.id = s.user_id
-       WHERE s.id = ? LIMIT 1`
+       WHERE s.id = ? LIMIT 1`,
     )
     .bind(id)
     .first<{ id: string; status: string; branch_id: string }>();
 
-  if (!sale) return c.json({ success: false, error: "Sale not found" }, 404);
+  if (!sale) return c.json({ success: false, error: { code: "NOT_FOUND", message: "Venta no encontrada" } }, 404);
   if (sale.status === "voided") {
-    return c.json({ success: false, error: "Sale already voided" }, 400);
+    return c.json({ success: false, error: { code: "CONFLICT", message: "La venta ya fue anulada" } }, 409);
   }
   if (sale.status === "refunded") {
-    return c.json({ success: false, error: "Sale already refunded" }, 400);
+    return c.json({ success: false, error: { code: "CONFLICT", message: "La venta ya fue reembolsada" } }, 409);
   }
 
   const saleItems = await db
@@ -343,17 +407,17 @@ salesRoutes.post("/:id/refund", async (c) => {
       const label = req.sale_item_id ?? req.product_id ?? "(unknown)";
       if (!matched) {
         return c.json(
-          { success: false, error: `Item ${label} is not part of this sale` },
-          400
+          { success: false, error: { code: "VALIDATION_ERROR", message: `El item ${label} no pertenece a esta venta` } },
+          400,
         );
       }
-      if (req.quantity <= 0 || req.quantity > matched.quantity) {
+      if (!Number.isFinite(Number(req.quantity)) || req.quantity <= 0 || req.quantity > matched.quantity) {
         return c.json(
           {
             success: false,
-            error: `Refund quantity for ${label} must be > 0 and <= ${matched.quantity}`,
+            error: { code: "VALIDATION_ERROR", message: `La cantidad a reembolsar para ${label} debe ser un número > 0 y <= ${matched.quantity}` },
           },
-          400
+          400,
         );
       }
       toRefund.push({
@@ -414,7 +478,7 @@ salesRoutes.get("/:id/receipt", async (c) => {
   const id = c.req.param("id");
   const format = c.req.query("format") ?? "json";
   if (format !== "json" && format !== "html") {
-    return c.json({ success: false, error: 'format must be "json" or "html"' }, 400);
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'format debe ser "json" o "html"' } }, 400);
   }
 
   const sale = await db
@@ -445,7 +509,7 @@ salesRoutes.get("/:id/receipt", async (c) => {
       customer_phone: string | null;
     }>();
 
-  if (!sale) return c.json({ success: false, error: "Sale not found" }, 404);
+  if (!sale) return c.json({ success: false, error: { code: "NOT_FOUND", message: "Venta no encontrada" } }, 404);
 
   const [itemsResult, paymentsResult, branch] = await Promise.all([
     db

@@ -4,11 +4,12 @@ import { createMiddleware } from "hono/factory";
 import type { Env, Variables } from "../types/bindings";
 import { verifyJWT } from "../utils/jwt";
 
+// Public routes that bypass JWT auth. Keep this list MINIMAL and exact —
+// using prefix match below means anything starting with these strings skips auth.
 const PUBLIC_ROUTES = [
   "/api/v1/health",
   "/api/v1/auth/login",
   "/api/v1/auth/refresh",
-  "/api/v1/auth/validate",
 ];
 
 interface DecodedToken {

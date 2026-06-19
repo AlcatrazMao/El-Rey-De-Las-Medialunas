@@ -119,6 +119,14 @@ authRoutes.post("/login", async (c) => {
       return c.json({ success: false, error: { code: "UNAUTHORIZED", message: "Token inválido o expirado" } }, 401);
     }
 
+    // Reset rate limit on successful Firebase verification so legitimate users
+    // are not penalised by past failed attempts.
+    try {
+      await c.env.SESSIONS.delete(rateLimitKey);
+    } catch (err) {
+      console.warn('[auth] failed to reset login rate limit:', err);
+    }
+
     const uid = verified.uid;
 
     let user: UserRow | null = null;
@@ -181,7 +189,8 @@ authRoutes.post("/login", async (c) => {
       },
     });
   } catch (err: unknown) {
-    return c.json({ success: false, error: { code: "INTERNAL_ERROR", message: err instanceof Error ? err.message : String(err) } }, 500);
+    console.error('[auth] login error:', err);
+    return c.json({ success: false, error: { code: "INTERNAL_ERROR", message: "Error interno del servidor" } }, 500);
   }
 });
 
@@ -215,7 +224,8 @@ authRoutes.post("/refresh", async (c) => {
 
     return c.json({ success: true, data: { tokens } });
   } catch (err: unknown) {
-    return c.json({ success: false, error: { code: "INTERNAL_ERROR", message: err instanceof Error ? err.message : String(err) } }, 500);
+    console.error('[auth] refresh error:', err);
+    return c.json({ success: false, error: { code: "INTERNAL_ERROR", message: "Error interno del servidor" } }, 500);
   }
 });
 
@@ -246,7 +256,8 @@ authRoutes.post("/logout", async (c) => {
 
     return c.json({ success: true });
   } catch (err: unknown) {
-    return c.json({ success: false, error: { code: "INTERNAL_ERROR", message: err instanceof Error ? err.message : String(err) } }, 500);
+    console.error('[auth] logout error:', err);
+    return c.json({ success: false, error: { code: "INTERNAL_ERROR", message: "Error interno del servidor" } }, 500);
   }
 });
 

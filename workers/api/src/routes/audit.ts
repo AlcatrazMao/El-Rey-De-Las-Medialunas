@@ -5,7 +5,17 @@ import type { Env, Variables } from "../types/bindings";
 export const auditRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // GET / — paginated audit log with filters
+// SECURITY: audit log contains user_id, ip_address, user_agent, and entity_ids
+// across the whole system. Only admin/owner can read it.
 auditRoutes.get("/", async (c) => {
+  const role = c.get("userRole");
+  if (role !== "admin" && role !== "owner") {
+    return c.json(
+      { success: false, error: { code: "FORBIDDEN", message: "Solo administradores pueden ver el log de auditoría" } },
+      403,
+    );
+  }
+
   const db = c.env.DB;
   const userId = c.req.query("user_id");
   const entityType = c.req.query("entity_type");

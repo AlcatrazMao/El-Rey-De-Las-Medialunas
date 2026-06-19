@@ -18,10 +18,10 @@ syncRoutes.get("/pull", async (c) => {
   const BRANCH_RE = /^[a-zA-Z0-9_-]{1,64}$/;
   const ISO_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
   if (!BRANCH_RE.test(rawBranchId)) {
-    return c.json({ success: false, error: "Invalid branch_id" }, 400);
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "branch_id inválido" } }, 400);
   }
   if (rawSince !== "" && !ISO_RE.test(rawSince)) {
-    return c.json({ success: false, error: "Invalid last_sync_timestamp" }, 400);
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "last_sync_timestamp inválido" } }, 400);
   }
 
   const branchId = rawBranchId;
@@ -123,10 +123,27 @@ syncRoutes.post("/push", async (c) => {
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const operations = body.operations ?? [];
+
+  // SECURITY: cap the batch size to prevent a single client from queueing
+  // thousands of statements against D1 in one request (DoS surface and
+  // D1 batch limit of ~100 statements). Clients should chunk pushes.
+  const MAX_OPERATIONS_PER_PUSH = 200;
+  if (operations.length > MAX_OPERATIONS_PER_PUSH) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "VALIDATION_ERROR",
+          message: `Demasiadas operaciones en una sola sincronización (máx ${MAX_OPERATIONS_PER_PUSH})`,
+        },
+      },
+      400,
+    );
+  }
   let processed = 0;
   let failed = 0;
   // Bug 4 — MEDIUM: collect error details so the client knows what failed
@@ -138,7 +155,11 @@ syncRoutes.post("/push", async (c) => {
       processed++;
     } catch (e) {
       failed++;
-      errors.push(`${op.client_id}: ${e instanceof Error ? e.message : String(e)}`);
+      // SECURITY: do not echo internal error messages back to the client —
+      // they can include SQL errors with column names. Log server-side
+      // and report a stable code to the client.
+      console.error(`[sync/push] op ${op.client_id} (${op.entity_type}) failed:`, e);
+      errors.push(`${op.client_id}: APPLY_FAILED`);
     }
   }
 

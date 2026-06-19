@@ -34,7 +34,7 @@ branchRoutes.get("/:id", async (c) => {
     .bind(id)
     .first();
 
-  if (!row) return c.json({ success: false, error: "Branch not found" }, 404);
+  if (!row) return c.json({ success: false, error: { code: "NOT_FOUND", message: "Sucursal no encontrada" } }, 404);
   return c.json({ success: true, data: row });
 });
 
@@ -52,18 +52,24 @@ branchRoutes.post("/", async (c) => {
     closing_time?: string;
   }>();
 
-  if (!body.name?.trim()) return c.json({ success: false, error: "name is required" }, 400);
-  if (!body.code?.trim()) return c.json({ success: false, error: "code is required" }, 400);
+  if (!body.name?.trim()) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "name es requerido" } }, 400);
+  if (!body.code?.trim()) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "code es requerido" } }, 400);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+
+  // Only admin/owner can create branches (high-impact operation)
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para crear sucursales" } }, 403);
+  }
 
   const existing = await db
     .prepare("SELECT id FROM branches WHERE code = ? AND deleted_at IS NULL LIMIT 1")
     .bind(body.code.trim().toUpperCase())
     .first<{ id: string }>();
-  if (existing) return c.json({ success: false, error: "Branch code already exists" }, 409);
+  if (existing) return c.json({ success: false, error: { code: "CONFLICT", message: "Ya existe una sucursal con ese código" } }, 409);
 
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -110,11 +116,17 @@ branchRoutes.put("/:id", async (c) => {
     .prepare("SELECT id FROM branches WHERE id = ? AND deleted_at IS NULL LIMIT 1")
     .bind(id)
     .first<{ id: string }>();
-  if (!existing) return c.json({ success: false, error: "Branch not found" }, 404);
+  if (!existing) return c.json({ success: false, error: { code: "NOT_FOUND", message: "Sucursal no encontrada" } }, 404);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+
+  // SECURITY: only admin/owner can modify branches.
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para modificar sucursales" } }, 403);
+  }
 
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
@@ -129,7 +141,7 @@ branchRoutes.put("/:id", async (c) => {
   if (body.closing_time !== undefined) { fields.push("closing_time = ?"); vals.push(body.closing_time); }
   if (body.is_active !== undefined) { fields.push("is_active = ?"); vals.push(body.is_active ? 1 : 0); }
 
-  if (fields.length === 0) return c.json({ success: false, error: "No fields to update" }, 400);
+  if (fields.length === 0) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "No hay campos para actualizar" } }, 400);
 
   fields.push("updated_at = ?");
   vals.push(now, id);
@@ -147,17 +159,23 @@ branchRoutes.delete("/:id", async (c) => {
     .prepare("SELECT id FROM branches WHERE id = ? AND deleted_at IS NULL LIMIT 1")
     .bind(id)
     .first<{ id: string }>();
-  if (!existing) return c.json({ success: false, error: "Branch not found" }, 404);
+  if (!existing) return c.json({ success: false, error: { code: "NOT_FOUND", message: "Sucursal no encontrada" } }, 404);
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+
+  // SECURITY: only admin/owner can delete branches.
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para eliminar sucursales" } }, 403);
+  }
 
   const activeCount = await db
     .prepare("SELECT COUNT(*) as cnt FROM branches WHERE deleted_at IS NULL AND is_active = 1")
     .first<{ cnt: number }>();
   if ((activeCount?.cnt ?? 0) <= 1) {
-    return c.json({ success: false, error: "Cannot delete the last active branch" }, 409);
+    return c.json({ success: false, error: { code: "CONFLICT", message: "No se puede eliminar la última sucursal activa" } }, 409);
   }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
