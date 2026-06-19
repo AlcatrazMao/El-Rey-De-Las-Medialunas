@@ -1283,7 +1283,7 @@ export const POSView: React.FC = () => {
           ) : (
             <>
               <CreditCard className="h-4.5 w-4.5" />
-              <span>COBRAR Y AUTORIZAR {formatCurrency(cartTotal)}</span>
+              <span>COBRAR {formatCurrency(cartTotal)}</span>
             </>
           )}
         </button>
