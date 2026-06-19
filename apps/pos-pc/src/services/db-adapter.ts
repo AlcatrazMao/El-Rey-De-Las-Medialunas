@@ -147,8 +147,7 @@ export const dbAdapter: DbClientInterface = {
           await db.inventory.put(camel as never);
         },
         get: async (id) => {
-          const all = await db.inventory.toArray();
-          return all.find((i) => i.productId === id) ?? undefined;
+          return await db.inventory.where('productId').equals(id).first() ?? undefined;
         },
         delete: async (id) => {
           await db.inventory.where("productId").equals(id).delete();

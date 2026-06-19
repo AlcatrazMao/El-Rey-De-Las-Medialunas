@@ -10,8 +10,10 @@ supplierRoutes.get("/", async (c) => {
   const db = c.env.DB;
   const search = c.req.query("search");
   const isActive = c.req.query("is_active");
-  const limit = parseInt(c.req.query("limit") ?? "50", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
+  const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = isNaN(rawLimit) ? 50 : rawLimit;
+  const offset = isNaN(rawOffset) ? 0 : rawOffset;
 
   let query = "SELECT * FROM suppliers WHERE deleted_at IS NULL";
   const bindings: (string | number)[] = [];
@@ -164,6 +166,11 @@ supplierRoutes.delete("/:id", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   await db

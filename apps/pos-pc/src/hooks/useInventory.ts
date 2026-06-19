@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
-import { fetchProductsFromD1 } from '../services/d1-sync';
+import { fetchProductsFromD1, syncProductToD1 } from '../services/d1-sync';
 import type { Ingredient, Product, PaymentGateway } from '../types';
 import { safeSetItem } from '../utils/safeStorage';
 
@@ -88,6 +88,15 @@ export function useInventory(notify: NotifyFn) {
       code,
     };
     setProducts(prev => [...prev, productInstance]);
+    syncProductToD1({
+      id: prodId,
+      name: productInstance.name,
+      code: productInstance.code,
+      price: productInstance.price,
+      cost: productInstance.cost ?? 0,
+      minStock: productInstance.minStock ?? 5,
+      category: productInstance.category,
+    }).catch(() => {});
     notify(
       '🥐 Nuevo Producto',
       `Se agregó "${productInstance.name}" al catálogo de panadería.`,

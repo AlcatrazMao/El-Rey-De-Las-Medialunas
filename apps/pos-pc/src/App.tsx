@@ -133,7 +133,9 @@ function ERPLayout() {
 
   const renderActiveView = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard />;
+      case 'dashboard':
+        if (activeUser.role === 'cajero') return <POSView />;
+        return <Dashboard />;
       case 'pos': return <POSView />;
       case 'caja': return <CashSessionView />;
       case 'inventory': return <InventoryView />;

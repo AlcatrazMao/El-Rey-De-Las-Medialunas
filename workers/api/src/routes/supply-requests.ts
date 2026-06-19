@@ -76,8 +76,8 @@ supplyRequestRoutes.post("/", async (c) => {
       400
     );
   }
-  if (body.quantity === undefined || body.quantity === null || body.quantity < 0) {
-    return c.json({ success: false, error: 'quantity es requerido y debe ser >= 0' }, 400);
+  if (body.quantity === undefined || body.quantity === null || body.quantity <= 0) {
+    return c.json({ success: false, error: 'quantity es requerido y debe ser > 0' }, 400);
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
@@ -88,7 +88,7 @@ supplyRequestRoutes.post("/", async (c) => {
   const id = body.id ?? crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
-  await db
+  const insertResult = await db
     .prepare(
       `INSERT OR IGNORE INTO supply_requests
          (id, branch_id, user_id, type, item_id, item_name, quantity, unit, reason, requested_by, status, created_at, updated_at)
@@ -109,6 +109,10 @@ supplyRequestRoutes.post("/", async (c) => {
       now
     )
     .run();
+
+  if (!insertResult.meta?.changes) {
+    return c.json({ success: true, data: { id, already_existed: true } }, 200);
+  }
 
   return c.json({ success: true, data: { id } }, 201);
 });
@@ -132,6 +136,11 @@ supplyRequestRoutes.put("/:id", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
+  const userRole = c.get("userRole");
+  if (userRole !== 'admin' && userRole !== 'owner' && userRole !== 'supervisor') {
+    return c.json({ success: false, error: 'Forbidden: insufficient role' }, 403);
+  }
 
   const existing = await db
     .prepare("SELECT id FROM supply_requests WHERE id = ? LIMIT 1")

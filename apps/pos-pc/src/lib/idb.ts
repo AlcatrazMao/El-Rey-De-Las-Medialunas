@@ -143,11 +143,25 @@ export const batchStore = {
 
   async markSynced(id: string): Promise<void> {
     const db = await openDB();
-    const store = tx(db, STORE_BATCHES, 'readwrite');
-    const existing = (await request(store.get(id))) as IDBBatch | undefined;
-    if (!existing) return;
-    existing.synced = true;
-    await request(store.put(existing));
+    // Bug fix: IDB transactions auto-commit when the event loop yields after an
+    // await. Issuing get() then put() with an await between them throws
+    // TransactionInactiveError. We must issue both requests synchronously inside
+    // the same transaction via callbacks, or use separate transactions.
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_BATCHES, 'readwrite');
+      const store = txn.objectStore(STORE_BATCHES);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBBatch | undefined;
+        if (!existing) return; // txn will auto-commit with no writes
+        existing.synced = true;
+        store.put(existing); // fire synchronously; txn.oncomplete confirms commit
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
   },
 
   async getUnsynced(): Promise<IDBBatch[]> {
@@ -172,20 +186,42 @@ export const salesQueueStore = {
 
   async markSynced(id: string): Promise<void> {
     const db = await openDB();
-    const store = tx(db, STORE_SALES_QUEUE, 'readwrite');
-    const existing = (await request(store.get(id))) as IDBSaleQueueItem | undefined;
-    if (!existing) return;
-    existing.synced = true;
-    await request(store.put(existing));
+    // Bug fix: same TransactionInactiveError pattern as batchStore.markSynced.
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_SALES_QUEUE, 'readwrite');
+      const store = txn.objectStore(STORE_SALES_QUEUE);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBSaleQueueItem | undefined;
+        if (!existing) return;
+        existing.synced = true;
+        store.put(existing);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
   },
 
   async incrementRetries(id: string): Promise<void> {
     const db = await openDB();
-    const store = tx(db, STORE_SALES_QUEUE, 'readwrite');
-    const existing = (await request(store.get(id))) as IDBSaleQueueItem | undefined;
-    if (!existing) return;
-    existing.retries += 1;
-    await request(store.put(existing));
+    // Bug fix: same TransactionInactiveError pattern as markSynced.
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_SALES_QUEUE, 'readwrite');
+      const store = txn.objectStore(STORE_SALES_QUEUE);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBSaleQueueItem | undefined;
+        if (!existing) return;
+        existing.retries += 1;
+        store.put(existing);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
   },
 
   async getAll(): Promise<IDBSaleQueueItem[]> {
@@ -195,10 +231,28 @@ export const salesQueueStore = {
 
   async deleteOlderThan(cutoff: string): Promise<number> {
     const db = await openDB();
-    const store = tx(db, STORE_SALES_QUEUE, 'readwrite');
-    const all = (await request(store.getAll())) as IDBSaleQueueItem[];
+    // Bug fix: original code did getAll() then delete() on the same txn with an
+    // await between, causing TransactionInactiveError. Split into two txns:
+    // a readonly read (auto-commits safely) and a readwrite delete batch.
+    const all = await new Promise<IDBSaleQueueItem[]>((resolve, reject) => {
+      const txn = db.transaction(STORE_SALES_QUEUE, 'readonly');
+      const req = txn.objectStore(STORE_SALES_QUEUE).getAll();
+      req.onsuccess = () => resolve(req.result as IDBSaleQueueItem[]);
+      req.onerror = () => reject(req.error);
+      txn.onerror = () => reject(txn.error);
+    });
     const toDelete = all.filter(i => i.synced && i.createdAt < cutoff);
-    await Promise.all(toDelete.map(i => request(store.delete(i.id))));
+    if (toDelete.length === 0) return 0;
+    await new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_SALES_QUEUE, 'readwrite');
+      const store = txn.objectStore(STORE_SALES_QUEUE);
+      // Fire all deletes synchronously, then wait for txn.oncomplete to ensure
+      // the commit (not just individual request success) actually succeeded.
+      toDelete.forEach(i => store.delete(i.id));
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
     return toDelete.length;
   },
 };
@@ -216,11 +270,22 @@ export const offerStore = {
 
   async markSynced(id: string): Promise<void> {
     const db = await openDB();
-    const store = tx(db, STORE_OFFERS, 'readwrite');
-    const existing = (await request(store.get(id))) as IDBOffer | undefined;
-    if (!existing) return;
-    existing.synced = true;
-    await request(store.put(existing));
+    // Bug fix: same TransactionInactiveError pattern as batchStore.markSynced.
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_OFFERS, 'readwrite');
+      const store = txn.objectStore(STORE_OFFERS);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBOffer | undefined;
+        if (!existing) return;
+        existing.synced = true;
+        store.put(existing);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
   },
 
   async getUnsynced(): Promise<IDBOffer[]> {

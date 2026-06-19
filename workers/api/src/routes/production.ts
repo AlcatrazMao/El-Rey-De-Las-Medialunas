@@ -15,8 +15,10 @@ productionRoutes.get("/recipes", async (c) => {
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
   const search = c.req.query("search");
   const isActive = c.req.query("is_active");
-  const limit = parseInt(c.req.query("limit") ?? "50", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
+  const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = isNaN(rawLimit) ? 50 : rawLimit;
+  const offset = isNaN(rawOffset) ? 0 : rawOffset;
 
   let query = `
     SELECT r.*, p.name as product_name, p.unit as product_unit
@@ -95,10 +97,20 @@ productionRoutes.post("/recipes", async (c) => {
   if (!Array.isArray(body.ingredients) || body.ingredients.length === 0) {
     return c.json({ success: false, error: "ingredients is required and must not be empty" }, 400);
   }
+  for (const ing of body.ingredients) {
+    if (!ing.quantity || ing.quantity <= 0) {
+      return c.json({ success: false, error: "Each ingredient quantity must be > 0" }, 400);
+    }
+  }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
 
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -142,6 +154,15 @@ productionRoutes.put("/recipes/:id", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
+  if (body.yield_quantity !== undefined && body.yield_quantity <= 0) {
+    return c.json({ success: false, error: "yield_quantity must be > 0" }, 400);
+  }
+
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -168,8 +189,10 @@ productionRoutes.get("/batches", async (c) => {
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
   const status = c.req.query("status");
   const recipeId = c.req.query("recipe_id");
-  const limit = parseInt(c.req.query("limit") ?? "50", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
+  const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = isNaN(rawLimit) ? 50 : rawLimit;
+  const offset = isNaN(rawOffset) ? 0 : rawOffset;
 
   let query = `
     SELECT pb.*, r.name as recipe_name, p.name as product_name
@@ -207,6 +230,11 @@ productionRoutes.post("/batches", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
 
   const recipe = await db
     .prepare("SELECT id FROM production_recipes WHERE id = ? AND is_active = 1 LIMIT 1")
@@ -252,6 +280,11 @@ productionRoutes.post("/batches/:id/start", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
 
   const ingredients = await db
     .prepare("SELECT * FROM recipe_ingredients WHERE recipe_id = ?")
@@ -316,6 +349,11 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   const movId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
 
@@ -345,9 +383,14 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
   const id = c.req.param("id");
 
   const batch = await db
-    .prepare("SELECT id, status FROM production_batches WHERE id = ? LIMIT 1")
+    .prepare(
+      `SELECT pb.id, pb.status, pb.recipe_id, pb.branch_id, pb.planned_quantity, r.yield_quantity as recipe_yield
+       FROM production_batches pb
+       LEFT JOIN production_recipes r ON r.id = pb.recipe_id
+       WHERE pb.id = ? LIMIT 1`
+    )
     .bind(id)
-    .first<{ id: string; status: string }>();
+    .first<{ id: string; status: string; recipe_id: string; branch_id: string; planned_quantity: number; recipe_yield: number }>();
 
   if (!batch) return c.json({ success: false, error: "Production batch not found" }, 404);
   if (batch.status === "completed") {
@@ -361,11 +404,49 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
-  await db
-    .prepare("UPDATE production_batches SET status = 'cancelled' WHERE id = ?")
-    .bind(id)
-    .run();
+
+  if (batch.status === "in_progress") {
+    // Reverse the ingredient consumption that was applied when the batch started
+    const ingredients = await db
+      .prepare("SELECT * FROM recipe_ingredients WHERE recipe_id = ?")
+      .bind(batch.recipe_id)
+      .all<{ ingredient_product_id: string; quantity: number; waste_percentage: number }>();
+
+    const batchMultiplier = batch.planned_quantity / (batch.recipe_yield || 1);
+
+    const reverseStatements = (ingredients.results ?? []).flatMap(ing => {
+      const totalQty = parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4));
+      const movId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+      return [
+        db.prepare(
+          `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+           VALUES (?, ?, ?, 'production_in', ?, 'Reversión cancelación lote producción', ?, ?)`
+        ).bind(movId, ing.ingredient_product_id, batch.branch_id, totalQty, user.id, now),
+        db.prepare(
+          `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+           WHERE product_id = ? AND branch_id = ?`
+        ).bind(totalQty, now, ing.ingredient_product_id, batch.branch_id),
+      ];
+    });
+
+    reverseStatements.push(
+      db.prepare("UPDATE production_batches SET status = 'cancelled' WHERE id = ?")
+        .bind(id)
+    );
+
+    await db.batch(reverseStatements);
+  } else {
+    await db
+      .prepare("UPDATE production_batches SET status = 'cancelled' WHERE id = ?")
+      .bind(id)
+      .run();
+  }
 
   return c.json({ success: true, data: { id, status: "cancelled", updated_at: now } });
 });

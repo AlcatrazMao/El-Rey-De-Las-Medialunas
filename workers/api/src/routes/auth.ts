@@ -5,8 +5,6 @@ import { signJWT } from "../utils/jwt";
 
 export const authRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const loginLimits = new Map<string, { count: number; reset: number }>();
-
 const ACCESS_TOKEN_TTL_SECONDS = 900;
 const REFRESH_TOKEN_TTL_SECONDS = 28800;
 
@@ -45,26 +43,26 @@ async function verifyFirebaseIdToken(idToken: string, env: Env): Promise<{ uid: 
   const firebaseUid = payload.user_id ?? payload.uid ?? payload.sub;
   if (!firebaseUid) return null;
 
-  if (env.FIREBASE_API_KEY) {
-    const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken }),
-      },
-    );
-
-    if (!res.ok) return null;
-
-    const data = await res.json<{ users?: Array<{ localId: string; email?: string; disabled?: boolean }> }>();
-    const fbUser = data.users?.[0];
-    if (!fbUser?.localId || fbUser.disabled) return null;
-
-    return { uid: fbUser.localId, email: fbUser.email };
+  if (!env.FIREBASE_API_KEY) {
+    throw new Error('FIREBASE_API_KEY not configured — cannot verify token');
   }
 
-  return { uid: firebaseUid, email: payload.email };
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    },
+  );
+
+  if (!res.ok) return null;
+
+  const data = await res.json<{ users?: Array<{ localId: string; email?: string; disabled?: boolean }> }>();
+  const fbUser = data.users?.[0];
+  if (!fbUser?.localId || fbUser.disabled) return null;
+
+  return { uid: fbUser.localId, email: fbUser.email };
 }
 
 async function issueTokens(
@@ -109,13 +107,12 @@ authRoutes.post("/login", async (c) => {
     if (!idToken) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "idToken required" } }, 400);
 
     const ip = c.req.header("CF-Connecting-IP") || "unknown";
-    const now = Date.now();
-    const limit = loginLimits.get(ip);
-    if (limit && now < limit.reset && limit.count >= 10) {
+    const rateLimitKey = `rate_limit:login:${ip}`;
+    const attempts = parseInt(await c.env.SESSIONS.get(rateLimitKey) ?? '0', 10);
+    if (attempts >= 5) {
       return c.json({ success: false, error: { code: "RATE_LIMITED", message: "Demasiados intentos" } }, 429);
     }
-    if (!limit || now > limit.reset) loginLimits.set(ip, { count: 1, reset: now + 60000 });
-    else limit.count++;
+    await c.env.SESSIONS.put(rateLimitKey, String(attempts + 1), { expirationTtl: 900 });
 
     const verified = await verifyFirebaseIdToken(idToken, c.env);
     if (!verified) {
@@ -177,13 +174,24 @@ authRoutes.post("/refresh", async (c) => {
     }
 
     const key = `rt:${refresh_token}`;
+
+    // Check revocation blocklist first (defends against in-flight concurrent reuse)
+    const revoked = await c.env.SESSIONS.get(`revoked:${refresh_token}`);
+    if (revoked) {
+      return c.json({ success: false, error: { code: "UNAUTHORIZED", message: "Refresh token inválido o expirado" } }, 401);
+    }
+
     const stored = await c.env.SESSIONS.get(key, "json") as RefreshSession | null;
     if (!stored) {
       return c.json({ success: false, error: { code: "UNAUTHORIZED", message: "Refresh token inválido o expirado" } }, 401);
     }
 
+    // Delete BEFORE issuing new tokens to minimize TOCTOU window
     await c.env.SESSIONS.delete(key);
+    // Add to short-lived revocation blocklist so concurrent in-flight requests are rejected
+    await c.env.SESSIONS.put(`revoked:${refresh_token}`, '1', { expirationTtl: 60 });
 
+    // Now issue new tokens
     const tokens = await issueTokens(c.env, { id: stored.userId, email: stored.email, role: stored.role });
 
     return c.json({ success: true, data: { tokens } });
@@ -270,6 +278,10 @@ authRoutes.put("/preferences", async (c) => {
 
   if (!Array.isArray(body.custom_panels)) {
     return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "custom_panels debe ser un array" } }, 400);
+  }
+
+  if (body.custom_panels.length > 20 || body.custom_panels.some((p) => typeof p !== "string" || p.length > 100)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "custom_panels excede límites permitidos" } }, 400);
   }
 
   await c.env.DB.prepare(

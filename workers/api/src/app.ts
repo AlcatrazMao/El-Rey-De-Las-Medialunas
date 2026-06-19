@@ -5,6 +5,7 @@ import { corsMiddleware } from "./middleware/cors";
 import { errorHandler } from "./middleware/error-handler";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { validate } from "./middleware/validate";
+import { adminRoutes } from "./routes/admin";
 import { auditRoutes } from "./routes/audit";
 import { uploadRoutes } from "./routes/uploads";
 import { authRoutes } from "./routes/auth";
@@ -52,6 +53,7 @@ app.route("/api/v1/expenses", expenseRoutes);
 app.route("/api/v1/upload", uploadRoutes);
 app.route("/api/v2/batches", batchRoutes);
 app.route("/api/v2/offers", offerRoutes);
+app.route("/api/v1/admin", adminRoutes);
 
 app.get("/api/v1/health", (c) => {
   return c.json({

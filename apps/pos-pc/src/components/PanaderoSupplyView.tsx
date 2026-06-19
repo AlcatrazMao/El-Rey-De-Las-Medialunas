@@ -53,7 +53,9 @@ export const PanaderoSupplyView: React.FC = () => {
       return;
     }
 
-    if (ingredientQty <= 0) {
+    const qty = Math.floor(ingredientQty);
+
+    if (qty <= 0) {
       addSystemNotification('⚠️ Cantidad Inválida', 'La cantidad del insumo debe ser superior a 0.', 'error');
       return;
     }
@@ -63,10 +65,10 @@ export const PanaderoSupplyView: React.FC = () => {
       return;
     }
 
-    requestSupply('ingredient', selectedIngredientId, ingredientQty, ingredientReason);
+    requestSupply('ingredient', selectedIngredientId, qty, ingredientReason);
     setIngredientReason('Reposición ordinaria de materiales de panadería.');
     setIngredientQty(10);
-    addSystemNotification('🚚 Solicitud Enviada', 'Se registró tu solicitud de insumos correctamente.', 'success');
+    // Notification is handled inside requestSupply (useSupplyRequests hook)
   };
 
   const handleProductSubmit = (e: React.FormEvent) => {
@@ -77,7 +79,9 @@ export const PanaderoSupplyView: React.FC = () => {
       return;
     }
 
-    if (productQty <= 0) {
+    const qty = Math.floor(productQty);
+
+    if (qty <= 0) {
       addSystemNotification('⚠️ Cantidad Inválida', 'La cantidad del lote de panadería debe ser superior a 0.', 'error');
       return;
     }
@@ -87,10 +91,10 @@ export const PanaderoSupplyView: React.FC = () => {
       return;
     }
 
-    requestSupply('product', selectedProductId, productQty, productReason);
+    requestSupply('product', selectedProductId, qty, productReason);
     setProductReason('Lote caliente listo en bandeja de traslado.');
     setProductQty(50);
-    addSystemNotification('🔥 Solicitud Enviada', 'Se registró el pedido de aprobación de traslado.', 'success');
+    // Notification is handled inside requestSupply (useSupplyRequests hook)
   };
 
   return (
@@ -174,6 +178,7 @@ export const PanaderoSupplyView: React.FC = () => {
                     id="input-supply-ing-qty"
                     type="number"
                     min="1"
+                    step="1"
                     value={ingredientQty}
                     onChange={(e) => setIngredientQty(Number(e.target.value))}
                     className="w-full bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-750 p-2.5 rounded-xl text-zinc-800 dark:text-zinc-150 focus:outline-none focus:border-amber-500"
@@ -235,6 +240,7 @@ export const PanaderoSupplyView: React.FC = () => {
                     id="input-supply-prod-qty"
                     type="number"
                     min="1"
+                    step="1"
                     value={productQty}
                     onChange={(e) => setProductQty(Number(e.target.value))}
                     className="w-full bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-750 p-2.5 rounded-xl text-zinc-800 dark:text-zinc-150 focus:outline-none focus:border-amber-500"

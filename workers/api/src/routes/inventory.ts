@@ -24,8 +24,10 @@ const VALID_MOVEMENT_TYPES = new Set([
 inventoryRoutes.get("/", async (c) => {
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
-  const limit = parseInt(c.req.query("limit") ?? "200", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
+  const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 500);
+  const offset = Math.max(isNaN(rawOffset) ? 0 : rawOffset, 0);
 
   const results = await db
     .prepare(
@@ -51,7 +53,8 @@ inventoryRoutes.get("/low-stock", async (c) => {
       `SELECT i.*, p.name as product_name, p.unit, p.min_stock as product_min_stock
        FROM inventory i
        JOIN products p ON i.product_id = p.id
-       WHERE i.current_quantity <= i.min_stock AND i.branch_id = ?`
+       WHERE i.current_quantity <= i.min_stock AND i.branch_id = ?
+       LIMIT 100`
     )
     .bind(branchId)
     .all();
@@ -64,8 +67,10 @@ inventoryRoutes.get("/movements", async (c) => {
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
   const productId = c.req.query("product_id");
-  const limit = parseInt(c.req.query("limit") ?? "100", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawLimitMov = parseInt(c.req.query("limit") ?? "50", 10);
+  const rawOffsetMov = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(isNaN(rawLimitMov) ? 50 : rawLimitMov, 1), 500);
+  const offset = Math.max(isNaN(rawOffsetMov) ? 0 : rawOffsetMov, 0);
 
   let query =
     "SELECT * FROM stock_movements WHERE branch_id = ?";
@@ -112,8 +117,8 @@ inventoryRoutes.post("/adjust", async (c) => {
       400
     );
   }
-  if (body.quantity === undefined || body.quantity === null) {
-    return c.json({ success: false, error: "quantity is required" }, 400);
+  if (typeof body.quantity !== 'number' || body.quantity <= 0 || !isFinite(body.quantity)) {
+    return c.json({ success: false, error: 'quantity must be a positive number' }, 400);
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
@@ -148,24 +153,21 @@ inventoryRoutes.post("/adjust", async (c) => {
     ? body.quantity
     : -body.quantity;
 
-  const updated = await db
-    .prepare(
-      `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
-       WHERE product_id = ? AND branch_id = ?`
-    )
-    .bind(delta, createdAt, body.product_id, branchId)
-    .run();
-
-  if ((updated.meta?.changes ?? 0) === 0) {
-    const invId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-    await db
+  const invId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+  await db.batch([
+    db
       .prepare(
-        `INSERT INTO inventory (id, product_id, branch_id, current_quantity, updated_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO inventory (id, product_id, branch_id, current_quantity, updated_at)
+         VALUES (?, ?, ?, 0, ?)`
       )
-      .bind(invId, body.product_id, branchId, delta, createdAt)
-      .run();
-  }
+      .bind(invId, body.product_id, branchId, createdAt),
+    db
+      .prepare(
+        `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+         WHERE product_id = ? AND branch_id = ?`
+      )
+      .bind(delta, createdAt, body.product_id, branchId),
+  ]);
 
   return c.json({ success: true, data: { id: movementId } }, 201);
 });

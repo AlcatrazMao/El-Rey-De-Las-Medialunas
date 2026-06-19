@@ -37,8 +37,9 @@ expenseRoutes.get("/", async (c) => {
     bindings.push(fromDate);
   }
   if (toDate) {
+    const toDateStr = toDate.includes(' ') ? toDate : `${toDate} 23:59:59`;
     query += " AND created_at <= ?";
-    bindings.push(toDate);
+    bindings.push(toDateStr);
   }
 
   query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
@@ -89,6 +90,10 @@ expenseRoutes.post("/", async (c) => {
     );
   }
 
+  if (typeof body.amount !== 'number' || body.amount <= 0 || !isFinite(body.amount)) {
+    return c.json({ success: false, error: 'amount must be a positive finite number' }, 400);
+  }
+
   if (!VALID_CATEGORIES.has(body.category)) {
     return c.json(
       {
@@ -97,6 +102,12 @@ expenseRoutes.post("/", async (c) => {
       },
       400
     );
+  }
+
+  if (body.id !== undefined) {
+    if (!/^[0-9a-f]{32}$/i.test(body.id)) {
+      return c.json({ success: false, error: "id must be a 32-character hex string (UUID without dashes)" }, 400);
+    }
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;

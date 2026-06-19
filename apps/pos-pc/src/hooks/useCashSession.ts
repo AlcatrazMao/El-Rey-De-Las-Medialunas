@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-import { syncCashSessionToD1, syncCashSessionCloseToD1 } from '../services/d1-sync';
+import { syncCashSessionToD1, syncCashSessionCloseToD1, fetchCashSessionsFromD1 } from '../services/d1-sync';
 import type { CashSession } from '../types';
 import { formatCurrency } from '../utils/format';
 import { safeSetItem, safeRemoveItem } from '../utils/safeStorage';
@@ -39,6 +39,55 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
       return [];
     }
   });
+
+  const [sessionOffset, setSessionOffset] = useState(30);
+  const [hasMoreSessions, setHasMoreSessions] = useState(true);
+
+  useEffect(() => {
+    const session = currentCashSession;
+    if (session !== null) {
+      const openedDate = new Date(session.openedAt);
+      const today = new Date();
+      const isFromPreviousDay =
+        openedDate.getFullYear() !== today.getFullYear() ||
+        openedDate.getMonth() !== today.getMonth() ||
+        openedDate.getDate() !== today.getDate();
+      if (isFromPreviousDay) {
+        const closedAtDate = new Date(session.openedAt);
+        closedAtDate.setHours(23, 59, 59, 999);
+        const closedAt = closedAtDate.toISOString();
+        const finishedSession: CashSession = {
+          ...session,
+          status: 'closed',
+          closedAt,
+          closedBy: session.openedBy,
+          realAmount: session.expectedAmount,
+          discrepancy: 0,
+          note: (session.note ? session.note + ' | Cierre automático: turno no rendido.' : 'Cierre automático: turno no rendido.'),
+        };
+        setCashSessionsHistory(prev => [finishedSession, ...prev]);
+        setCurrentCashSession(null);
+        notify('🔒 Cierre automático', 'El turno anterior no fue rendido. Se cerró automáticamente al iniciar el día.', 'warning');
+        syncCashSessionCloseToD1(finishedSession.id, finishedSession.expectedAmount, finishedSession.expectedAmount, finishedSession.note).catch(() => {});
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetchCashSessionsFromD1(30, 0).then((d1Sessions) => {
+      if (d1Sessions.length < 30) setHasMoreSessions(false);
+      if (d1Sessions.length === 0) return;
+      setCashSessionsHistory(prev => {
+        const localIds = new Set(prev.map(s => s.id));
+        const newSessions = d1Sessions.filter(s => !localIds.has(s.id));
+        if (newSessions.length === 0) return prev;
+        return [...prev, ...newSessions].sort(
+          (a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()
+        );
+      });
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (currentCashSession) {
@@ -120,6 +169,22 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
     onCashClose?.();
   };
 
+  const loadMoreSessions = (): void => {
+    fetchCashSessionsFromD1(30, sessionOffset).then((d1Sessions) => {
+      if (d1Sessions.length < 30) setHasMoreSessions(false);
+      if (d1Sessions.length === 0) return;
+      setCashSessionsHistory(prev => {
+        const localIds = new Set(prev.map(s => s.id));
+        const newSessions = d1Sessions.filter(s => !localIds.has(s.id));
+        if (newSessions.length === 0) return prev;
+        return [...prev, ...newSessions].sort(
+          (a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()
+        );
+      });
+      setSessionOffset(prev => prev + 30);
+    }).catch(() => {});
+  };
+
   return {
     currentCashSession,
     setCurrentCashSession,
@@ -127,5 +192,7 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
     setCashSessionsHistory,
     openCashSession,
     closeCashSession,
+    loadMoreSessions,
+    hasMoreSessions,
   };
 }

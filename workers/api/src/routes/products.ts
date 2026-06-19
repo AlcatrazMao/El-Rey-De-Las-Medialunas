@@ -5,6 +5,10 @@ import { resolveUser } from "../lib/resolve-user";
 
 export const productRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+function escapeLike(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
 // GET /
@@ -23,9 +27,9 @@ productRoutes.get("/", async (c) => {
   const countBindings: (string | number)[] = [branchId];
 
   if (search) {
-    const like = `%${search}%`;
-    query += " AND (name LIKE ? OR code LIKE ?)";
-    countQuery += " AND (name LIKE ? OR code LIKE ?)";
+    const like = `%${escapeLike(search)}%`;
+    query += " AND (name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\')";
+    countQuery += " AND (name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\')";
     bindings.push(like, like);
     countBindings.push(like, like);
   }
@@ -65,9 +69,9 @@ productRoutes.get("/search", async (c) => {
   const countBindings: (string | number)[] = [branchId];
 
   if (q) {
-    const like = `%${q}%`;
-    query += " AND (name LIKE ? OR code LIKE ?)";
-    countQuery += " AND (name LIKE ? OR code LIKE ?)";
+    const like = `%${escapeLike(q)}%`;
+    query += " AND (name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\')";
+    countQuery += " AND (name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\')";
     bindings.push(like, like);
     countBindings.push(like, like);
   }

@@ -64,7 +64,10 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
   const [activeUserId, setActiveUserId] = useState<string>(
     () => localStorage.getItem('pan_erp_active_user_id') || firebaseUser.uid
   );
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const role = (firestoreRole || 'panadero') as UserRole;
+    return role === 'cajero' ? 'pos' : 'dashboard';
+  });
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
 
   const invoiceSeqRef = useRef<number>(
@@ -93,7 +96,6 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
     if (found) {
       setActiveUserId(found.id);
       if (role === 'cajero') setActiveTab('pos');
-      else if (role === 'panadero') setActiveTab('inventory');
       else setActiveTab('dashboard');
     }
   };

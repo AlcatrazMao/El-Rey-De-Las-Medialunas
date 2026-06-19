@@ -2,12 +2,12 @@ import { Globe, ShieldCheck, KeyRound, Check, HelpCircle, EyeOff } from 'lucide-
 import * as React from 'react';
 
 import { useApp } from '../AppContext';
-import { getSettings } from '../hooks/useSettings';
+import { useSettings } from '../hooks/useSettings';
 
 export const IntegrationsView: React.FC = () => {
   const { gateways, toggleGateway, setActiveTab } = useApp();
-
-  const savedCredentials = getSettings().gatewayCredentials;
+  const { settings } = useSettings();
+  const savedCredentials = settings.gatewayCredentials;
   const hasCredentials = (gatewayId: string) =>
     savedCredentials.some(gc => gc.gatewayId === gatewayId && gc.publicKey.trim() !== '');
 

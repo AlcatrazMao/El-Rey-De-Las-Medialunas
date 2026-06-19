@@ -143,13 +143,19 @@ export const CustomersView: React.FC = () => {
       description: `Estado cambiado a ${newStatus === 'active' ? 'Activo' : 'Inactivo'}`,
       user: 'Sistema'
     };
-    saveCustomers(customers.map(c =>
+    const newList = customers.map(c =>
       c.id === customer.id ? { ...c, status: newStatus as Customer['status'], timeline: [entry, ...c.timeline] } : c
-    ));
+    );
+    saveCustomers(newList);
+    const refreshed = newList.find(c => c.id === customer.id);
+    if (refreshed) setSelectedCustomer(refreshed);
   };
 
   const customerSales = selectedCustomer
-    ? sales.filter(s => s.customerId === selectedCustomer.id || s.customerName === selectedCustomer.name)
+    ? sales.filter(s =>
+        s.customerId === selectedCustomer.id ||
+        (!s.customerId && s.customerName === selectedCustomer.name)
+      )
     : [];
 
   const filteredCustomers = customers.filter(c =>

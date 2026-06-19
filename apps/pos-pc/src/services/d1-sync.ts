@@ -1,5 +1,5 @@
 import { getSettings } from "../hooks/useSettings";
-import type { Sale, Product, CategoryType } from "../types";
+import type { Sale, Product, CategoryType, CashSession as LocalCashSession } from "../types";
 
 import { getApi } from "./api";
 import { dbAdapter } from "./db-adapter";
@@ -96,13 +96,21 @@ export async function syncStockMovementToD1(movement: {
   quantity: number;
   reason: string;
 }): Promise<void> {
-  await getApi().inventory.createMovement({
-    product_id: movement.product_id,
-    branch_id: movement.branch_id || getSettings().business.branchId,
-    movement_type: movement.movement_type,
-    quantity: movement.quantity,
-    reason: movement.reason,
-  });
+  try {
+    await getApi().inventory.createMovement({
+      product_id: movement.product_id,
+      branch_id: movement.branch_id || getSettings().business.branchId,
+      movement_type: movement.movement_type,
+      quantity: movement.quantity,
+      reason: movement.reason,
+    });
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue('stock_movement', movement as Record<string, unknown>);
+    } else {
+      throw err;
+    }
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- D1 inventory shape may not match local type
@@ -130,7 +138,7 @@ export async function syncCustomerToD1(customer: any): Promise<void> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- coerce server shape to local type
 export async function fetchCustomersFromD1(): Promise<any[]> {
-  const response = await getApi().customers.getAll({ limit: 200 });
+  const response = await getApi().customers.getAll({ limit: 50 });
   return response.data ?? [];
 }
 
@@ -184,6 +192,26 @@ export async function syncCashSessionCloseToD1(
     } else {
       throw err;
     }
+  }
+}
+
+export async function fetchCashSessionsFromD1(limit = 30, offset = 0): Promise<LocalCashSession[]> {
+  try {
+    const sessions = await getApi().cash.getSessions({ status: 'closed', limit, offset });
+    return (sessions ?? []).map((s): LocalCashSession => ({
+      id: s.id,
+      openedAt: s.opened_at,
+      closedAt: s.closed_at ?? undefined,
+      openedBy: s.user_id,
+      initialAmount: s.opening_amount,
+      expectedAmount: s.expected_amount ?? s.opening_amount,
+      realAmount: s.closing_amount ?? undefined,
+      discrepancy: s.difference ?? undefined,
+      note: s.notes ?? '',
+      status: s.status === 'closed' ? 'closed' : 'open',
+    }));
+  } catch {
+    return [];
   }
 }
 
@@ -270,6 +298,56 @@ export async function syncExpenseToD1(expense: {
 
 // ── Products (pull from D1 → merge into local state) ─────────────────
 
+export async function syncProductToD1(product: {
+  id: string;
+  name: string;
+  code: string;
+  price: number;
+  cost: number;
+  minStock: number;
+  category: string;
+}): Promise<void> {
+  const branchId = getSettings().business.branchId;
+  const ivaRate = getSettings().fiscal.ivaRate;
+
+  let category_id = '';
+  try {
+    const categories = await getApi().categories.getAll(branchId, undefined, true);
+    const cats = (Array.isArray(categories) ? categories : []) as Array<{ id: unknown; name: unknown }>;
+    const match = cats.find(c => String(c.name ?? '').toLowerCase() === product.category.toLowerCase());
+    if (match) category_id = String(match.id ?? '');
+  } catch {
+    // silently skip category resolution
+  }
+
+  if (!category_id) return;
+
+  const payload = {
+    code: product.code,
+    name: product.name,
+    branch_id: branchId,
+    category_id,
+    unit: 'unit' as const,
+    price: product.price,
+    cost: product.cost,
+    tax_rate: ivaRate,
+    min_stock: product.minStock,
+    max_stock: product.minStock * 10,
+    track_inventory: true,
+    is_producible: true,
+    is_raw_material: false,
+    is_active: true,
+  };
+
+  try {
+    await getApi().products.create(payload);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue('product', { id: product.id, ...payload });
+    }
+  }
+}
+
 const VALID_CATEGORIES = new Set<CategoryType>(['panes', 'facturas', 'pasteleria', 'bebidas', 'salados']);
 
 function normalizeCategoryName(name: string | undefined | null): CategoryType {
@@ -288,7 +366,7 @@ export async function fetchProductsFromD1(
   branchId?: string,
 ): Promise<Product[]> {
   const [productsRes, categoriesRes] = await Promise.all([
-    getApi().products.getAll(branchId ? { branch_id: branchId, limit: 500 } : { limit: 500 }),
+    getApi().products.getAll(branchId ? { branch_id: branchId, limit: 200 } : { limit: 200 }),
     getApi().categories.getAll(branchId, undefined, true),
   ]);
 

@@ -54,7 +54,7 @@ export const AccountingView: React.FC = () => {
   };
 
   // Financial calculations from completed bills
-  const successfulSales = sales.filter(s => s.paymentStatus === 'completed');
+  const successfulSales = sales.filter(s => s.paymentStatus === 'completed' && !s.invoiceNumber?.startsWith('VOID-'));
   const totalRevenue = successfulSales.reduce((acc, s) => acc + s.total, 0);
   
   const totalCOGS = successfulSales.reduce((acc, s) => {

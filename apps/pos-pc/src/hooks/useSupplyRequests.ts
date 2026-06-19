@@ -109,7 +109,11 @@ export function useSupplyRequests({
       unit: request.unit,
       reason: request.reason,
       requestedBy: request.requestedBy,
-    }).catch(() => {});
+    }).catch(() => notify(
+      '⚠️ Sync fallido',
+      'La solicitud se guardó localmente pero no se sincronizó con el servidor.',
+      'warning',
+    ));
     notify(
       '🌾 Solicitud de Abastecimiento',
       `Nueva solicitud para ${quantity} ${unit} de "${itemName}": ${reason}`,
@@ -118,19 +122,33 @@ export function useSupplyRequests({
   };
 
   const rejectSupplyRequest = (requestId: string, adminMemo: string): void => {
-    setSupplyRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== requestId || r.status !== 'pending') return r;
-        const req: SupplyRequest = { ...r, status: 'rejected', adminMemo };
-        notify(
-          '❌ Abastecimiento Desestimado',
-          `Se rechazó la solicitud para "${req.itemName}". Comentario: ${adminMemo}`,
-          'error',
-        );
-        return req;
-      }),
+    // Compute updated list synchronously so we can check whether anything changed
+    // before deciding to call D1 (avoids spurious remote updates for unknown IDs).
+    let wasUpdated = false;
+    const updatedRequests = supplyRequests.map((r) => {
+      if (r.id !== requestId || r.status !== 'pending') return r;
+      wasUpdated = true;
+      return { ...r, status: 'rejected' as const, adminMemo };
+    });
+
+    if (!wasUpdated) return;
+
+    setSupplyRequests(updatedRequests);
+
+    const rejectedReq = updatedRequests.find((r) => r.id === requestId)!;
+    notify(
+      '❌ Abastecimiento Desestimado',
+      `Se rechazó la solicitud para "${rejectedReq.itemName}". Comentario: ${adminMemo}`,
+      'error',
     );
-    updateSupplyRequestStatusInD1(requestId, 'rejected', adminMemo).catch(() => {});
+
+    updateSupplyRequestStatusInD1(requestId, 'rejected', adminMemo).catch(() => {
+      notify(
+        '⚠️ Sync fallido',
+        'El rechazo se guardó localmente pero no se sincronizó con el servidor.',
+        'warning',
+      );
+    });
   };
 
   return {

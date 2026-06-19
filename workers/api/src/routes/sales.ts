@@ -141,8 +141,8 @@ salesRoutes.post("/", async (c) => {
   }
   for (const item of items) {
     if (!item.product_id) return c.json({ success: false, error: 'item.product_id is required' }, 400);
-    if (Number(item.quantity) <= 0) return c.json({ success: false, error: 'item.quantity must be > 0' }, 400);
-    if (Number(item.unit_price) < 0) return c.json({ success: false, error: 'item.unit_price must be >= 0' }, 400);
+    if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) return c.json({ success: false, error: 'item.quantity must be a positive number' }, 400);
+    if (!Number.isFinite(Number(item.unit_price)) || Number(item.unit_price) < 0) return c.json({ success: false, error: 'item.unit_price must be >= 0' }, 400);
   }
   const payments = body.payments ?? [];
 
@@ -158,7 +158,7 @@ salesRoutes.post("/", async (c) => {
 
   const saleId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
 
-  await db
+  const saleInsert = db
     .prepare(
       `INSERT INTO sales (id, client_id, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?, ?)`
@@ -176,8 +176,7 @@ salesRoutes.post("/", async (c) => {
       total,
       body.notes ?? null,
       now
-    )
-    .run();
+    );
 
   const itemStatements = items.flatMap(item => {
     const itemId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -214,8 +213,7 @@ salesRoutes.post("/", async (c) => {
     ).bind(paymentId, saleId, payment.payment_method, payment.amount, payment.reference ?? null, now);
   });
 
-  const allStatements = [...itemStatements, ...paymentStatements];
-  if (allStatements.length > 0) await db.batch(allStatements);
+  await db.batch([saleInsert, ...itemStatements, ...paymentStatements]);
 
   return c.json({ success: true, data: { id: saleId, sale_number: saleNumber, branch_id: branchId, created_at: now } }, 201);
 });

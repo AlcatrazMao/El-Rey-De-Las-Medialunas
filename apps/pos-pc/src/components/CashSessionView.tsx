@@ -20,7 +20,9 @@ export const CashSessionView: React.FC = () => {
     cashSessionsHistory,
     openCashSession,
     closeCashSession,
-    activeUser
+    activeUser,
+    loadMoreSessions,
+    hasMoreSessions,
   } = useApp();
 
   const { settings } = useSettings();
@@ -344,6 +346,7 @@ export const CashSessionView: React.FC = () => {
                 </p>
               </div>
             ) : (
+              <>
               <div className="space-y-3.5 max-h-[580px] overflow-y-auto pr-1">
                 {cashSessionsHistory.map((sess) => {
                   const hasDiscrepancy = sess.discrepancy && Math.abs(sess.discrepancy) > 0.01;
@@ -351,7 +354,7 @@ export const CashSessionView: React.FC = () => {
                   const isPositive = sess.discrepancy && sess.discrepancy > 0;
 
                   return (
-                    <div 
+                    <div
                       key={sess.id}
                       className="bg-gray-50/50 dark:bg-zinc-950/20 border border-gray-150/70 dark:border-zinc-850 p-4 rounded-2xl hover:border-amber-500/20 transition-all space-y-3"
                     >
@@ -367,8 +370,8 @@ export const CashSessionView: React.FC = () => {
                         </div>
 
                         <span className={`text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wide self-start sm:self-auto ${
-                          isExact 
-                            ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-400 border border-emerald-500/15' 
+                          isExact
+                            ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-400 border border-emerald-500/15'
                             : isPositive
                             ? 'bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/15'
                             : 'bg-red-505/15 text-red-800 dark:text-red-400 border border-red-500/15'
@@ -403,6 +406,17 @@ export const CashSessionView: React.FC = () => {
                   );
                 })}
               </div>
+              {hasMoreSessions && (
+                <div className="pt-3 text-center border-t border-gray-100 dark:border-zinc-800 mt-3">
+                  <button
+                    onClick={loadMoreSessions}
+                    className="text-xs font-extrabold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                  >
+                    Cargar más turnos →
+                  </button>
+                </div>
+              )}
+              </>
             )}
           </div>
         </div>

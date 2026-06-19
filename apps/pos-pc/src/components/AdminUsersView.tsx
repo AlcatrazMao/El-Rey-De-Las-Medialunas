@@ -15,6 +15,10 @@ export const AdminUsersView: React.FC = () => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'ADMIN_READY') {
         const token = sessionStorage.getItem('access_token');
+        if (!token) {
+          setIframeError(true);
+          return;
+        }
         iframeRef.current?.contentWindow?.postMessage(
           { type: 'AUTH_TOKEN', token },
           ADMIN_URL

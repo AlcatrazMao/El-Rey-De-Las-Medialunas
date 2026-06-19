@@ -24,13 +24,20 @@ customerRoutes.get("/", async (c) => {
   query += " ORDER BY name ASC LIMIT ? OFFSET ?";
   bindings.push(limit, offset);
 
+  let countQuery = "SELECT COUNT(*) as total FROM customers WHERE deleted_at IS NULL AND is_active = 1";
+  const countBindings: (string | number)[] = [];
+
+  if (search) {
+    countQuery += " AND (name LIKE ? OR email LIKE ? OR document_number LIKE ?)";
+    const term = `%${search}%`;
+    countBindings.push(term, term, term);
+  }
+
   const [results, countRow] = await Promise.all([
     db.prepare(query).bind(...bindings).all(),
-    db
-      .prepare(
-        "SELECT COUNT(*) as total FROM customers WHERE deleted_at IS NULL AND is_active = 1"
-      )
-      .first<{ total: number }>(),
+    countBindings.length > 0
+      ? db.prepare(countQuery).bind(...countBindings).first<{ total: number }>()
+      : db.prepare(countQuery).first<{ total: number }>(),
   ]);
 
   return c.json({
@@ -63,7 +70,7 @@ customerRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
 
   const row = await db
-    .prepare("SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL LIMIT 1")
+    .prepare("SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL AND is_active = 1 LIMIT 1")
     .bind(id)
     .first();
 
@@ -180,7 +187,7 @@ customerRoutes.put("/:id", async (c) => {
 customerRoutes.get("/:id/history", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
-  const limit = parseInt(c.req.query("limit") ?? "50", 10);
+  const limit = Math.min(Math.max(parseInt(c.req.query("limit") ?? "50", 10), 1), 200);
 
   const results = await db
     .prepare(

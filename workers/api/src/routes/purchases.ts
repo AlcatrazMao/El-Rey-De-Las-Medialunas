@@ -15,8 +15,10 @@ purchaseRoutes.get("/orders", async (c) => {
   const status = c.req.query("status");
   const fromDate = c.req.query("from_date");
   const toDate = c.req.query("to_date");
-  const limit = parseInt(c.req.query("limit") ?? "50", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
+  const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = isNaN(rawLimit) ? 50 : rawLimit;
+  const offset = isNaN(rawOffset) ? 0 : rawOffset;
 
   let query = `
     SELECT po.*, s.name as supplier_name
@@ -87,6 +89,11 @@ purchaseRoutes.post("/orders", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const supplier = await db
     .prepare("SELECT id FROM suppliers WHERE id = ? AND deleted_at IS NULL LIMIT 1")
     .bind(body.supplier_id)
@@ -146,6 +153,11 @@ purchaseRoutes.put("/orders/:id", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const fields: string[] = [];
   const vals: (string | null)[] = [];
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -189,6 +201,11 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   const items = body.items ?? [];
 
@@ -212,12 +229,12 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
 
   // Determine final status: received vs partially_received
   const allItems = await db
-    .prepare("SELECT quantity, received_quantity FROM purchase_order_items WHERE purchase_order_id = ?")
+    .prepare("SELECT product_id, quantity, received_quantity FROM purchase_order_items WHERE purchase_order_id = ?")
     .bind(id)
-    .all<{ quantity: number; received_quantity: number }>();
+    .all<{ product_id: string; quantity: number; received_quantity: number }>();
 
   const simulatedItems = (allItems.results ?? []).map(row => {
-    const incoming = items.find(i => i.product_id);
+    const incoming = items.find(i => i.product_id === row.product_id);
     return incoming
       ? { quantity: row.quantity, received: row.received_quantity + incoming.received_quantity }
       : { quantity: row.quantity, received: row.received_quantity };
@@ -257,6 +274,11 @@ purchaseRoutes.post("/orders/:id/cancel", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   await db

@@ -91,6 +91,7 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
   });
   const [history, setHistory] = useState<IDBOffer[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
   const showToast = useCallback((t: Toast) => {
@@ -167,7 +168,14 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
   };
 
   const handleConfirmCreate = async (batch: BatchInput) => {
-    const offerId = `offer_${Date.now().toString(36)}`;
+    // Bug C: validate discount range before hitting the API
+    if (createForm.discountPercent < 1 || createForm.discountPercent > 100) {
+      showToast({ type: 'error', message: 'El descuento debe estar entre 1% y 100%.' });
+      return;
+    }
+
+    setSubmitting(true);
+    const localId = `offer_${Date.now().toString(36)}`;
     const payload = {
       name: createForm.name.trim(),
       discount_percent: createForm.discountPercent,
@@ -180,19 +188,29 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
     };
 
     let synced = false;
+    // Bug A: capture server-assigned ID from response body
+    let serverId = localId;
     try {
       const res = await fetchWithAuth(`${API_URL}/api/v2/offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (res.ok) synced = true;
+      if (res.ok) {
+        synced = true;
+        try {
+          const body = (await res.json()) as { id?: string } | null;
+          if (body?.id) serverId = body.id;
+        } catch { /* response had no body — keep localId */ }
+      }
     } catch {
       synced = false;
+    } finally {
+      setSubmitting(false);
     }
 
     const localOffer: IDBOffer = {
-      id: offerId,
+      id: serverId,
       name: payload.name,
       discountPercent: payload.discount_percent,
       batchIds: payload.batch_ids,
@@ -409,10 +427,10 @@ export const OffersView: React.FC<Props> = ({ batches }) => {
                             <button
                               type="button"
                               onClick={() => handleConfirmCreate(batch)}
-                              disabled={!createForm.name.trim()}
+                              disabled={!createForm.name.trim() || submitting}
                               className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
                             >
-                              Confirmar
+                              {submitting ? 'Guardando…' : 'Confirmar'}
                             </button>
                             <button
                               type="button"

@@ -23,7 +23,7 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS,
 } from './initialData';
-import { syncSaleToD1, updateSupplyRequestStatusInD1 } from './services/d1-sync';
+import { syncSaleToD1, updateSupplyRequestStatusInD1, syncStockMovementToD1 } from './services/d1-sync';
 import { formatCurrency } from './utils/format';
 import type {
   Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway,
@@ -45,7 +45,7 @@ interface AppContextType {
   setActiveUserRole: (role: UserRole) => void;
   setActiveTab: (tab: string) => void;
   setBatches: React.Dispatch<React.SetStateAction<ProductBatch[]>>;
-  addSale: (items: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail?: boolean) => { success: boolean; invoice?: Sale; error?: string };
+  addSale: (items: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail?: boolean, discountPercent?: number, priceListDiscountPercent?: number) => { success: boolean; invoice?: Sale; error?: string };
   addExpense: (expense: Omit<Expense, 'id' | 'date'>) => void;
   addIngredient: (ingredient: Omit<Ingredient, 'id'>) => void;
   updateIngredientStock: (id: string, newStock: number) => void;
@@ -66,6 +66,8 @@ interface AppContextType {
   rejectSupplyRequest: (requestId: string, adminMemo: string) => void;
   openCashSession: (initialAmount: number, note?: string) => void;
   closeCashSession: (realAmount: number, note?: string) => void;
+  loadMoreSessions: () => void;
+  hasMoreSessions: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -102,7 +104,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only effect; hook refs are stable
   }, []);
 
-  const addSale = (cartItems: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail: boolean = false) => {
+  const addSale = (cartItems: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail: boolean = false, discountPercent = 0, priceListDiscountPercent = 0) => {
     if (cartItems.length === 0) return { success: false, error: 'La venta está vacía.' };
 
     // Bug 8 fix: capture settings once — avoids repeated getSettings() calls throughout the function
@@ -110,7 +112,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     const ivaRate = settings.fiscal.ivaRate;
 
     if (paymentMethod === 'tarjeta' || paymentMethod === 'mercado_pago' || paymentMethod === 'paypal') {
-      const gMap: Record<Sale['paymentMethod'], string> = { tarjeta: 'gate_stripe', mercado_pago: 'gate_mp', paypal: 'gate_paypal', efectivo: '' };
+      const gMap: Record<Sale['paymentMethod'], string> = { tarjeta: 'gate_stripe', mercado_pago: 'gate_mp', paypal: 'gate_paypal', efectivo: '', transferencia: '' };
       const gate = inv.gateways.find(g => g.id === gMap[paymentMethod]);
       if (gate && gate.status === 'inactive') {
         const errMsg = `La pasarela de pago para ${gate.name} está inactiva. Habilítala desde Configuración.`;
@@ -186,7 +188,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     }
 
     const subtotalTotal = saleLineItems.reduce((acc, curr) => acc + curr.subtotal, 0);
-    const calculatedTax = parseFloat((subtotalTotal - subtotalTotal / (1 + ivaRate)).toFixed(2));
+    const discountAmount = discountPercent > 0 ? parseFloat((subtotalTotal * discountPercent / 100).toFixed(2)) : 0;
+    const afterDiscountTotal = parseFloat((subtotalTotal - discountAmount).toFixed(2));
+    // Price list adjustment: positive = discount (reduction), negative = markup (addition)
+    const priceListAdjustmentAmount = priceListDiscountPercent !== 0
+      ? parseFloat((afterDiscountTotal * priceListDiscountPercent / 100).toFixed(2))
+      : 0;
+    const afterPriceListTotal = parseFloat((afterDiscountTotal - priceListAdjustmentAmount).toFixed(2));
+    const pmConfig = settings.paymentMethods?.find((m: { id: string }) => m.id === paymentMethod);
+    const surchargePercent = (pmConfig as { surchargePercent?: number } | undefined)?.surchargePercent ?? 0;
+    const surchargeAmount = surchargePercent > 0 ? parseFloat((afterPriceListTotal * surchargePercent / 100).toFixed(2)) : 0;
+    const finalTotal = parseFloat((afterPriceListTotal + surchargeAmount).toFixed(2));
+    const finalTax = parseFloat((finalTotal - finalTotal / (1 + ivaRate)).toFixed(2));
 
     const dateToday = new Date();
 
@@ -202,10 +215,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
     const newSaleInstance: Sale = {
       id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, invoiceNumber, date: dateToday.toISOString(),
-      items: saleLineItems, total: parseFloat(subtotalTotal.toFixed(2)), tax: calculatedTax,
+      items: saleLineItems, total: finalTotal, tax: finalTax,
       paymentMethod, paymentStatus: 'completed', operatorRole, operatorName,
       customerName: customName || 'Consumidor Final', customerDoc: customDoc,
       customerId: customerId || undefined,
+      discountPercent: discountPercent > 0 ? discountPercent : undefined,
+      discountAmount: discountAmount > 0 ? discountAmount : undefined,
+      surchargePercent: surchargePercent > 0 ? surchargePercent : undefined,
+      surchargeAmount: surchargeAmount > 0 ? surchargeAmount : undefined,
     };
 
     bch.setBatches(prevBatches => {
@@ -268,7 +285,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         tax_amount: (i.subtotal - i.subtotal / (1 + ivaRate)),
       })),
       payments: [{ payment_method: paymentMethod === 'efectivo' ? 'cash' : paymentMethod, amount: newSaleInstance.total }],
-      subtotal: parseFloat((newSaleInstance.total / (1 + ivaRate)).toFixed(2)),
+      subtotal: subtotalTotal,
+      discount_total: discountAmount,
       tax_total: newSaleInstance.tax,
       total: newSaleInstance.total,
       customer_id: newSaleInstance.customerId ?? null,
@@ -335,6 +353,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     bch.setBatches(updatedBatches);
     inv.setProducts(updatedProducts);
 
+    // sync product stock update and batch withdrawal to D1
+    syncStockMovementToD1({
+      product_id: req.productId,
+      branch_id: getSettings().business.branchId,
+      movement_type: 'withdrawal',
+      quantity: -req.quantity,
+      reason: `Baja aprobada: ${req.reason}`,
+    }).catch(() => {});
+
     notif.addSystemNotification('✅ Solicitud de Baja Aprobada', `Se aprobó retirar del local ${req.quantity} u. de "${req.productName}". Detalle: ${adminMemo}`, 'success');
   };
 
@@ -360,6 +387,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         expiryDate: new Date(freshElab.getTime() + 3 * 86400000).toISOString().split('T')[0],
         status: 'active' as const, withdrawalMode: 'manual' as const,
       }, ...prev]);
+
+      // sync the new batch to D1 as a stock movement (inbound)
+      syncStockMovementToD1({
+        product_id: req.itemId,
+        branch_id: getSettings().business.branchId,
+        movement_type: 'purchase',
+        quantity: req.quantity,
+        reason: `Pedido aprobado: ${req.reason}`,
+      }).catch(() => {});
     }
     notif.addSystemNotification('✅ Abastecimiento Aprobado', `Se autorizó reposición de ${approved.quantity} ${approved.unit} para "${approved.itemName}". Detalle admin: ${adminMemo}`, 'success');
   };
@@ -409,6 +445,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     requestSupply: sup.requestSupply, approveSupplyRequest,
     rejectSupplyRequest: sup.rejectSupplyRequest,
     openCashSession: cash.openCashSession, closeCashSession: cash.closeCashSession,
+    loadMoreSessions: cash.loadMoreSessions, hasMoreSessions: cash.hasMoreSessions,
   };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };

@@ -59,6 +59,21 @@ export interface Promotion {
   active: boolean;
 }
 
+export interface PaymentMethodConfig {
+  id: 'efectivo' | 'tarjeta' | 'mercado_pago' | 'paypal' | 'transferencia';
+  label: string;
+  icon: string;
+  enabled: boolean;
+  surchargePercent: number;
+  linkedPriceListId?: string;
+  promotionsEnabled: boolean;
+}
+
+export interface DiscountConfig {
+  availablePercents: number[];
+  allowManualDiscount: boolean;
+}
+
 export interface AppSettings {
   business: BusinessSettings;
   fiscal: FiscalSettings;
@@ -68,9 +83,11 @@ export interface AppSettings {
   priceLists: PriceList[];
   promotions: Promotion[];
   sync: SyncSettings;
+  paymentMethods: PaymentMethodConfig[];
+  discountConfig: DiscountConfig;
 }
 
-type ObjectSections = Omit<AppSettings, 'gatewayCredentials' | 'priceLists' | 'promotions'>;
+type ObjectSections = Omit<AppSettings, 'gatewayCredentials' | 'priceLists' | 'promotions' | 'paymentMethods' | 'discountConfig'>;
 
 const SETTINGS_KEY = 'erp_settings';
 
@@ -108,6 +125,17 @@ const DEFAULT_SETTINGS: AppSettings = {
     cleanupDays: 7,
     autoSyncOnClose: true,
   },
+  paymentMethods: [
+    { id: 'efectivo', label: 'Efectivo', icon: '💵', enabled: true, surchargePercent: 0, promotionsEnabled: true },
+    { id: 'tarjeta', label: 'Tarjeta (Stripe)', icon: '💳', enabled: true, surchargePercent: 3, promotionsEnabled: true },
+    { id: 'mercado_pago', label: 'Mercado Pago', icon: '🤝', enabled: true, surchargePercent: 5, promotionsEnabled: true },
+    { id: 'paypal', label: 'PayPal', icon: '🌐', enabled: true, surchargePercent: 3.9, promotionsEnabled: true },
+    { id: 'transferencia', label: 'Transferencia', icon: '🏦', enabled: true, surchargePercent: 0, promotionsEnabled: true },
+  ],
+  discountConfig: {
+    availablePercents: [5, 10, 15, 20, 25, 30],
+    allowManualDiscount: false,
+  },
 };
 
 export function getSettings(): AppSettings {
@@ -120,10 +148,12 @@ export function getSettings(): AppSettings {
       fiscal: { ...DEFAULT_SETTINGS.fiscal, ...parsed.fiscal },
       cash: { ...DEFAULT_SETTINGS.cash, ...parsed.cash },
       inventory: { ...DEFAULT_SETTINGS.inventory, ...parsed.inventory },
-      gatewayCredentials: parsed.gatewayCredentials ?? DEFAULT_SETTINGS.gatewayCredentials,
-      priceLists: parsed.priceLists ?? DEFAULT_SETTINGS.priceLists,
-      promotions: parsed.promotions ?? DEFAULT_SETTINGS.promotions,
+      gatewayCredentials: parsed.gatewayCredentials ?? [...DEFAULT_SETTINGS.gatewayCredentials],
+      priceLists: parsed.priceLists ?? [...DEFAULT_SETTINGS.priceLists],
+      promotions: parsed.promotions ?? [...DEFAULT_SETTINGS.promotions],
       sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
+      paymentMethods: parsed.paymentMethods ?? [...DEFAULT_SETTINGS.paymentMethods],
+      discountConfig: parsed.discountConfig ?? { ...DEFAULT_SETTINGS.discountConfig, availablePercents: [...DEFAULT_SETTINGS.discountConfig.availablePercents] },
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -133,7 +163,11 @@ export function getSettings(): AppSettings {
 function persistSettings(s: AppSettings): void {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
-  } catch { /* storage full or unavailable */ }
+  } catch (e) {
+    console.error('[Settings] Failed to persist settings to localStorage:', e);
+    // Re-throw so callers can show user feedback
+    throw e;
+  }
 }
 
 export function useSettings() {
@@ -177,5 +211,21 @@ export function useSettings() {
     });
   }
 
-  return { settings, updateSection, setGatewayCredentials, setPriceLists, setPromotions };
+  function setPaymentMethods(paymentMethods: PaymentMethodConfig[]): void {
+    setSettings(prev => {
+      const updated: AppSettings = { ...prev, paymentMethods };
+      persistSettings(updated);
+      return updated;
+    });
+  }
+
+  function setDiscountConfig(discountConfig: DiscountConfig): void {
+    setSettings(prev => {
+      const updated: AppSettings = { ...prev, discountConfig };
+      persistSettings(updated);
+      return updated;
+    });
+  }
+
+  return { settings, updateSection, setGatewayCredentials, setPriceLists, setPromotions, setPaymentMethods, setDiscountConfig };
 }

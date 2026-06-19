@@ -34,6 +34,7 @@ export const InventoryView: React.FC = () => {
     addSystemNotification,
     setActiveTab,
     batches = [],
+    setBatches,
     withdrawalRequests = [],
     approveWithdrawalRequest,
     rejectWithdrawalRequest,
@@ -617,14 +618,16 @@ export const InventoryView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60 font-semibold text-gray-800 dark:text-zinc-200">
-                    {getPrioritizedExpiryProducts().length === 0 ? (
+                    {(() => {
+                      const expiryProducts = getPrioritizedExpiryProducts();
+                      return expiryProducts.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="text-center py-12 text-zinc-400 font-bold">
                           No hay productos elaborados registrados con control de caducidad.
                         </td>
                       </tr>
                     ) : (
-                      getPrioritizedExpiryProducts()
+                      expiryProducts
                         .filter(prod => prod.name.toLowerCase().includes(searchQuery.toLowerCase()))
                         .map(prod => {
                           const daysLeft = getProductExpiryDays(prod);
@@ -677,12 +680,20 @@ export const InventoryView: React.FC = () => {
                                       <button
                                         onClick={() => {
                                           const discountedPrice = prod.price * 0.5;
+                                          // FEFO: find the batch with the nearest expiry and deduct 1 from it
+                                          const activeBatchesForProd = batches.filter(b => b.productId === prod.id && b.status === 'active' && b.stock > 0);
+                                          if (activeBatchesForProd.length > 0) {
+                                            const fefoB = [...activeBatchesForProd].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0];
+                                            setBatches(prev => prev.map(b => b.id === fefoB.id ? { ...b, stock: Math.max(0, b.stock - 1) } : b));
+                                          } else {
+                                            setBatches(prev => prev.map(b => b.productId === prod.id ? { ...b, stock: 0 } : b));
+                                          }
+                                          updateProductStock(prod.id, Math.max(0, prod.stock - 1));
                                           addSystemNotification(
                                             '💰 Liquidación 50%',
                                             `Venta Promo -50%: ${prod.name} relevado a ${formatCurrency(discountedPrice)} por fecha límite.`,
                                             'success'
                                           );
-                                          updateProductStock(prod.id, Math.max(0, prod.stock - 1));
                                         }}
                                         className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-[9px] font-extrabold cursor-pointer transition-transform duration-100 transform active:scale-95 shadow-xs"
                                         title="Simula una orden de venta rápida a mitad de precio"
@@ -697,6 +708,8 @@ export const InventoryView: React.FC = () => {
                                             const oldest = [...productBatches].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0];
                                             requestBatchWithdrawal(oldest.id, oldest.stock, 'Merma por vencimiento de caducidad — solicitud generada automáticamente.');
                                           } else {
+                                            // Zero out any remaining batches for this product to keep state in sync
+                                            setBatches(prev => prev.map(b => b.productId === prod.id ? { ...b, stock: 0 } : b));
                                             updateProductStock(prod.id, 0);
                                             addSystemNotification('🗑️ Merma Descontada', `Se registraron ${prod.stock} u. de merma desperdiciada para "${prod.name}".`, 'warning');
                                           }
@@ -733,7 +746,8 @@ export const InventoryView: React.FC = () => {
                             </tr>
                           );
                         })
-                    )}
+                    );
+                    })()}
                   </tbody>
                 </table>
               </div>

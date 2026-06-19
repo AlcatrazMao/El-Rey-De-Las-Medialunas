@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import type { Env, Variables } from "../types/bindings";
+import { resolveUser } from "../lib/resolve-user";
 
 export const reportRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -15,6 +16,14 @@ function dateRange(c: { req: { query: (k: string) => string | undefined } }) {
 
 // GET /sales/summary
 reportRoutes.get("/sales/summary", async (c) => {
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const db = c.env.DB;
   const { branchId, from, to } = dateRange(c);
 
@@ -53,6 +62,14 @@ reportRoutes.get("/sales/summary", async (c) => {
 
 // GET /sales/by-hour
 reportRoutes.get("/sales/by-hour", async (c) => {
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const db = c.env.DB;
   const { branchId, from, to } = dateRange(c);
 
@@ -79,9 +96,18 @@ reportRoutes.get("/sales/by-hour", async (c) => {
 
 // GET /sales/by-product
 reportRoutes.get("/sales/by-product", async (c) => {
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const db = c.env.DB;
   const { branchId, from, to } = dateRange(c);
-  const limit = parseInt(c.req.query("limit") ?? "20", 10);
+  const rawLimit = parseInt(c.req.query("limit") ?? "20", 10);
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 20 : rawLimit, 1), 100);
 
   const results = await db.prepare(
     `SELECT
@@ -106,6 +132,14 @@ reportRoutes.get("/sales/by-product", async (c) => {
 
 // GET /sales/by-category
 reportRoutes.get("/sales/by-category", async (c) => {
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const db = c.env.DB;
   const { branchId, from, to } = dateRange(c);
 
@@ -130,6 +164,14 @@ reportRoutes.get("/sales/by-category", async (c) => {
 
 // GET /inventory/valuation
 reportRoutes.get("/inventory/valuation", async (c) => {
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
 
@@ -174,6 +216,14 @@ reportRoutes.get("/inventory/valuation", async (c) => {
 
 // GET /cash/summary
 reportRoutes.get("/cash/summary", async (c) => {
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: "Forbidden: insufficient role" }, 403);
+  }
+
   const db = c.env.DB;
   const { branchId, from, to } = dateRange(c);
 

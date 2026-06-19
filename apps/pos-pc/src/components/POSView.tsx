@@ -42,6 +42,7 @@ export const POSView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<Sale['paymentMethod']>('efectivo');
+  const [selectedDiscount, setSelectedDiscount] = useState<number>(0);
   const [customerName, setCustomerName] = useState('');
   const [customerDoc, setCustomerDoc] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -328,6 +329,7 @@ export const POSView: React.FC = () => {
             <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60 font-semibold text-gray-855 dark:text-zinc-200">
               {productsList.map(prod => {
                 const isLowStock = prod.stock <= (prod.minStock || 5);
+                const isNegativeStock = prod.stock < 0;
                 const exp = getExpiryStatus(prod.elaborationDate, prod.durabilityDays);
                 const cartItem = cart.find(item => item.product.id === prod.id);
                 const quantityInCart = cartItem ? cartItem.quantity : 0;
@@ -336,8 +338,8 @@ export const POSView: React.FC = () => {
                   <tr
                     key={prod.id}
                     className={`hover:bg-amber-50/5 dark:hover:bg-amber-955/2 transition-colors ${
-                      quantityInCart > 0 
-                        ? 'bg-amber-50/10 dark:bg-amber-950/10' 
+                      quantityInCart > 0
+                        ? 'bg-amber-50/10 dark:bg-amber-950/10'
                         : ''
                     }`}
                   >
@@ -362,11 +364,13 @@ export const POSView: React.FC = () => {
                     <td className="py-3 px-4 text-center hidden sm:table-cell">
                       <div className="flex flex-col items-center justify-center gap-1 select-none">
                         <span className={`inline-block text-[10px] font-black px-2.5 py-0.5 rounded-full ${
-                          isLowStock 
-                            ? 'bg-red-100 text-red-700 dark:bg-red-950/30' 
+                          isNegativeStock
+                            ? 'bg-red-600 text-white'
+                            : isLowStock
+                            ? 'bg-red-100 text-red-700 dark:bg-red-950/30'
                             : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/10'
                         }`}>
-                          {prod.stock} u.
+                          {isNegativeStock ? `⚠️ ${prod.stock}` : `${prod.stock} u.`}
                         </span>
                         
                         {prod.durabilityDays ? (
@@ -550,10 +554,26 @@ export const POSView: React.FC = () => {
   };
 
   // Calculate prices — precios con IVA incluido, se extrae: tax = total - total/(1+rate)
+  const posSettings = getSettings();
   const cartSubtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const cartIvaRate = getSettings().fiscal.ivaRate;
-  const cartTax = parseFloat((cartSubtotal - cartSubtotal / (1 + cartIvaRate)).toFixed(2));
-  const cartTotal = cartSubtotal;
+  const cartIvaRate = posSettings.fiscal.ivaRate;
+  const discountAmount = selectedDiscount > 0 ? parseFloat((cartSubtotal * selectedDiscount / 100).toFixed(2)) : 0;
+  const afterDiscount = parseFloat((cartSubtotal - discountAmount).toFixed(2));
+  // Active price list: linked to the selected payment method (single payment mode only)
+  const pmConfig = posSettings.paymentMethods?.find(m => m.id === paymentMethod);
+  const activePriceList = pmConfig?.linkedPriceListId
+    ? (posSettings.priceLists.find(pl => pl.id === pmConfig.linkedPriceListId) ?? null)
+    : null;
+  // Price list adjustment: positive discountPercent = discount, negative = markup
+  const priceListDiscountPercent = activePriceList?.discountPercent ?? 0;
+  const priceListAdjustmentAmount = priceListDiscountPercent !== 0
+    ? parseFloat((afterDiscount * priceListDiscountPercent / 100).toFixed(2))
+    : 0;
+  const afterPriceList = parseFloat((afterDiscount - priceListAdjustmentAmount).toFixed(2));
+  const surchargePercent = pmConfig?.surchargePercent ?? 0;
+  const surchargeAmount = surchargePercent > 0 ? parseFloat((afterPriceList * surchargePercent / 100).toFixed(2)) : 0;
+  const cartTotal = parseFloat((afterPriceList + surchargeAmount).toFixed(2));
+  const cartTax = parseFloat((cartTotal - cartTotal / (1 + cartIvaRate)).toFixed(2));
 
   // Create new customer from mini-modal
   const handleCreateCustomer = () => {
@@ -595,7 +615,8 @@ export const POSView: React.FC = () => {
       efectivo: 'Caja Local',
       tarjeta: 'Stripe API Gateway',
       mercado_pago: 'Mercado Pago Express',
-      paypal: 'PayPal Checkout'
+      paypal: 'PayPal Checkout',
+      transferencia: 'Transferencia Bancaria',
     };
 
     // Simulated cloud delay for high visual impact
@@ -612,7 +633,9 @@ export const POSView: React.FC = () => {
           customerName,
           selectedCustomerId || undefined,
           selectedSellerId || undefined,
-          simulateFailedPayment
+          simulateFailedPayment,
+          selectedDiscount,
+          priceListDiscountPercent
         );
 
         setIsProcessingPayment(false);
@@ -629,6 +652,7 @@ export const POSView: React.FC = () => {
           setCustomerName('');
           setSelectedCustomerId(null);
           setCustomerSearch('');
+          setSelectedDiscount(0);
         } else if (result.invoice) {
           // Failure simulation record was created but transaction rejected
           setLatestInvoice(result.invoice);
@@ -638,6 +662,7 @@ export const POSView: React.FC = () => {
           setCustomerName('');
           setSelectedCustomerId(null);
           setCustomerSearch('');
+          setSelectedDiscount(0);
         } else {
           // Business validations failed (e.g. stock issue)
           // eslint-disable-next-line no-alert -- fallback for critical validation errors
@@ -756,6 +781,7 @@ export const POSView: React.FC = () => {
             filteredProducts.map(prod => {
               const inStock = prod.stock > 0;
               const lowStock = prod.stock <= prod.minStock;
+              const negativeStock = prod.stock < 0;
 
               return (
                 <button
@@ -763,7 +789,9 @@ export const POSView: React.FC = () => {
                   id={`btn-pos-prod-${prod.id}`}
                   onClick={() => addToCart(prod)}
                   className={`relative flex flex-col justify-between text-left p-4 rounded-3xl border transition-all duration-300 transform active:scale-97 cursor-pointer hover:-translate-y-1 ${
-                    !inStock
+                    negativeStock
+                      ? 'bg-gray-100 dark:bg-zinc-950/20 border-gray-300 dark:border-zinc-800 opacity-60'
+                      : !inStock
                       ? 'bg-gray-100 dark:bg-zinc-950/20 border-gray-300 dark:border-zinc-800 opacity-60'
                       : lowStock
                       ? 'bg-amber-50/40 dark:bg-amber-950/10 border-amber-200 dark:border-amber-900/60 hover:bg-amber-50/70'
@@ -779,13 +807,14 @@ export const POSView: React.FC = () => {
                     {/* Item Stock badge */}
                     <div className="flex items-center gap-1.5 mb-2">
                       <span className={`inline-block w-20 text-center py-0.5 rounded-full text-[9px] font-extrabold ${
+                        negativeStock ? 'bg-red-600 text-white' :
                         !inStock
                           ? 'bg-red-100 text-red-700 dark:bg-red-950/30'
                           : lowStock
                           ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 font-bold'
                           : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 font-bold'
                       }`}>
-                        {!inStock ? 'SIN STOCK' : `${prod.stock} UNID`}
+                        {negativeStock ? `⚠️ ${prod.stock}` : !inStock ? 'SIN STOCK' : `${prod.stock} UNID`}
                       </span>
                     </div>
 
@@ -990,11 +1019,33 @@ export const POSView: React.FC = () => {
         {/* Pricing Subtotals block */}
         <div className="bg-gray-50 dark:bg-zinc-950 p-4 rounded-xl border border-gray-100 dark:border-zinc-800 mb-4 space-y-2">
           <div className="flex justify-between text-xs text-gray-500">
+            <span>Subtotal:</span>
+            <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
+          </div>
+          {discountAmount > 0 && (
+            <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+              <span>Descuento ({selectedDiscount}%):</span>
+              <span>- {formatCurrency(discountAmount)}</span>
+            </div>
+          )}
+          {activePriceList && priceListAdjustmentAmount !== 0 && (
+            <div className={`flex justify-between text-xs font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+              <span>Lista: {activePriceList.name} ({priceListDiscountPercent > 0 ? `-${priceListDiscountPercent}` : `+${Math.abs(priceListDiscountPercent)}`}%):</span>
+              <span>{priceListDiscountPercent > 0 ? `- ${formatCurrency(priceListAdjustmentAmount)}` : `+ ${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
+            </div>
+          )}
+          {surchargeAmount > 0 && (
+            <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-bold">
+              <span>Recargo ({surchargePercent}%):</span>
+              <span>+ {formatCurrency(surchargeAmount)}</span>
+            </div>
+          )}
+          <div className="flex justify-between text-xs text-gray-500">
             <span>Neto Gravado (Facturación):</span>
-            <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal - cartTax)}</span>
+            <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartTotal - cartTax)}</span>
           </div>
           <div className="flex justify-between text-xs text-gray-500">
-            <span>IVA Factura (21.00%):</span>
+            <span>IVA Factura ({(cartIvaRate * 100).toFixed(0)}%):</span>
             <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartTax)}</span>
           </div>
           <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
@@ -1008,50 +1059,47 @@ export const POSView: React.FC = () => {
         <div className="mb-4">
           <label className="block text-[10px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Método de Cobro (Integrado)</label>
           <div className="grid grid-cols-2 gap-2">
-            {[
-              { id: 'efectivo', label: 'Efectivo', icon: '💵', gateName: null },
-              { id: 'tarjeta', label: 'Tarjeta (Stripe)', icon: '💳', gateName: 'Strip' },
-              { id: 'mercado_pago', label: 'Mercado Pago', icon: '🤝', gateName: 'Mercado Pago' },
-              { id: 'paypal', label: 'PayPal Checkout', icon: '🌐', gateName: 'PayPal' }
-            ].map((pm) => {
-              const matchesSelected = paymentMethod === pm.id;
-              
-              // If it has a gateway name, let's look up its state inside the AppContext
-              let isGatewayActive = true;
-              if (pm.id === 'tarjeta') {
-                const stripeGate = gateways.find(g => g.id === 'gate_stripe');
-                isGatewayActive = stripeGate ? stripeGate.status === 'active' : true;
-              } else if (pm.id === 'mercado_pago') {
-                const mpGate = gateways.find(g => g.id === 'gate_mp');
-                isGatewayActive = mpGate ? mpGate.status === 'active' : true;
-              } else if (pm.id === 'paypal') {
-                const ppGate = gateways.find(g => g.id === 'gate_paypal');
-                isGatewayActive = ppGate ? ppGate.status === 'active' : true;
-              }
-
-              return (
-                <button
-                  key={pm.id}
-                  id={`btn-pm-choice-${pm.id}`}
-                  onClick={() => setPaymentMethod(pm.id as Sale['paymentMethod'])}
-                  disabled={!isGatewayActive}
-                  className={`p-2.5 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
-                    matchesSelected
-                      ? 'bg-amber-100 hover:bg-amber-100/90 text-amber-900 border-amber-400'
-                      : !isGatewayActive
-                      ? 'bg-gray-100 dark:bg-zinc-950/20 text-gray-400 dark:text-zinc-650 border-gray-200 dark:border-zinc-800 opacity-40 cursor-not-allowed'
-                      : 'bg-white dark:bg-zinc-850 hover:bg-gray-50 dark:hover:bg-zinc-800 text-gray-700 dark:text-zinc-300 border-gray-200 dark:border-zinc-800'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate flex items-center gap-1.5 shrink-0">
-                      <span>{pm.icon}</span> <span>{pm.label}</span>
-                    </p>
-                    {!isGatewayActive && <span className="text-[8px] text-amber-600 block leading-tight">Inactiva</span>}
-                  </div>
-                </button>
-              );
-            })}
+            {getSettings().paymentMethods
+              .filter((pm) => pm.enabled)
+              .map((pm) => {
+                const matchesSelected = paymentMethod === pm.id;
+                let isGatewayActive = true;
+                if (pm.id === 'tarjeta') {
+                  const g = gateways.find(g => g.id === 'gate_stripe');
+                  isGatewayActive = g ? g.status === 'active' : true;
+                } else if (pm.id === 'mercado_pago') {
+                  const g = gateways.find(g => g.id === 'gate_mp');
+                  isGatewayActive = g ? g.status === 'active' : true;
+                } else if (pm.id === 'paypal') {
+                  const g = gateways.find(g => g.id === 'gate_paypal');
+                  isGatewayActive = g ? g.status === 'active' : true;
+                }
+                return (
+                  <button
+                    key={pm.id}
+                    id={`btn-pm-choice-${pm.id}`}
+                    onClick={() => setPaymentMethod(pm.id as Sale['paymentMethod'])}
+                    disabled={!isGatewayActive}
+                    className={`p-2.5 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
+                      matchesSelected
+                        ? 'bg-amber-100 hover:bg-amber-100/90 text-amber-900 border-amber-400'
+                        : !isGatewayActive
+                        ? 'bg-gray-100 dark:bg-zinc-950/20 text-gray-400 dark:text-zinc-650 border-gray-200 dark:border-zinc-800 opacity-40 cursor-not-allowed'
+                        : 'bg-white dark:bg-zinc-850 hover:bg-gray-50 dark:hover:bg-zinc-800 text-gray-700 dark:text-zinc-300 border-gray-200 dark:border-zinc-800'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate flex items-center gap-1.5 shrink-0">
+                        <span>{pm.icon}</span> <span>{pm.label}</span>
+                      </p>
+                      {pm.surchargePercent > 0 && (
+                        <span className="text-[8px] text-amber-600 dark:text-amber-400 block leading-tight">+{pm.surchargePercent}% recargo</span>
+                      )}
+                      {!isGatewayActive && <span className="text-[8px] text-amber-600 block leading-tight">Inactiva</span>}
+                    </div>
+                  </button>
+                );
+              })}
           </div>
 
           {/* Trigger to simulate failed bank authorization */}
@@ -1070,6 +1118,40 @@ export const POSView: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Descuento */}
+        {getSettings().discountConfig?.availablePercents?.length > 0 && (
+          <div className="mb-4">
+            <label className="block text-[10px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Descuento</label>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSelectedDiscount(0)}
+                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${
+                  selectedDiscount === 0
+                    ? 'bg-gray-800 dark:bg-zinc-200 text-white dark:text-zinc-900 border-transparent'
+                    : 'bg-white dark:bg-zinc-850 text-gray-600 dark:text-zinc-400 border-gray-200 dark:border-zinc-700 hover:bg-gray-50'
+                }`}
+              >
+                Sin desc.
+              </button>
+              {getSettings().discountConfig.availablePercents.map(pct => (
+                <button
+                  key={pct}
+                  type="button"
+                  onClick={() => setSelectedDiscount(pct)}
+                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${
+                    selectedDiscount === pct
+                      ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
+                      : 'bg-white dark:bg-zinc-850 text-gray-600 dark:text-zinc-400 border-gray-200 dark:border-zinc-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
+                  }`}
+                >
+                  -{pct}%
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Submit Big checkout trigger button */}
         <button
@@ -1223,8 +1305,8 @@ export const POSView: React.FC = () => {
 
       {/* SELECTION MODAL: 🥖 Selección de Panificados */}
       {showSelectionModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-gray-150 dark:border-zinc-800 max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in" onClick={() => setShowSelectionModal(false)}>
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-gray-150 dark:border-zinc-800 max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
             
             {/* Header */}
             <div className="p-4 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 flex items-center justify-between">
@@ -1254,7 +1336,6 @@ export const POSView: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-xl py-3 pl-10 pr-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-800 dark:text-zinc-100 font-semibold"
-                  autoFocus
                 />
                 <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-gray-400" />
                 {searchQuery && (

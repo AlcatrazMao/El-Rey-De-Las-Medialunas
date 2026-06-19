@@ -1,4 +1,4 @@
-import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check, Tag, Percent, RefreshCw } from 'lucide-react';
+import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check, Tag, Percent, RefreshCw, AlertCircle, ShieldAlert } from 'lucide-react';
 import * as React from 'react';
 import { useState, useEffect } from 'react';
 
@@ -13,8 +13,9 @@ import { PriceListSettings as PriceListSettingsPanel } from '../settings/PriceLi
 import { PrinterSettings as PrinterSettingsPanel } from '../settings/PrinterSettings';
 import { PromotionsSettings as PromotionsSettingsPanel } from '../settings/PromotionsSettings';
 import { SyncSettings as SyncSettingsPanel } from '../settings/SyncSettings';
+import { DangerZoneSettings as DangerZoneSettingsPanel } from '../settings/DangerZoneSettings';
 
-type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'pricelists' | 'promotions' | 'printer' | 'sync';
+type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'pricelists' | 'promotions' | 'printer' | 'sync' | 'danger';
 
 interface TabItem {
   id: TabId;
@@ -32,14 +33,17 @@ const TABS: TabItem[] = [
   { id: 'promotions', label: 'Promociones', icon: <Percent className="h-4 w-4" /> },
   { id: 'printer', label: 'Impresora', icon: <Printer className="h-4 w-4" /> },
   { id: 'sync', label: 'Sincronización', icon: <RefreshCw className="h-4 w-4" /> },
+  { id: 'danger', label: 'Sistema', icon: <ShieldAlert className="h-4 w-4" /> },
 ];
 
 export const SettingsView: React.FC = () => {
-  const { settings, updateSection, setGatewayCredentials, setPriceLists, setPromotions } = useSettings();
+  const { settings, updateSection, setGatewayCredentials, setPriceLists, setPromotions, setPaymentMethods, setDiscountConfig } = useSettings();
   const [activeTab, setActiveTab] = useState<TabId>('business');
   const [savedToast, setSavedToast] = useState(false);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
 
   const showSavedToast = () => setSavedToast(true);
+  const showErrorToast = (msg: string) => setErrorToast(msg);
 
   useEffect(() => {
     if (!savedToast) return;
@@ -47,22 +51,41 @@ export const SettingsView: React.FC = () => {
     return () => clearTimeout(t);
   }, [savedToast]);
 
+  useEffect(() => {
+    if (!errorToast) return;
+    const t = setTimeout(() => setErrorToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [errorToast]);
+
+  const safeRun = (fn: () => void) => {
+    try {
+      fn();
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : 'Error desconocido';
+      showErrorToast(`No se pudo guardar la configuración: ${detail}`);
+    }
+  };
+
   const handleUpdateBusiness = (_section: 'business', values: Partial<BusinessSettings>) =>
-    updateSection('business', values);
+    safeRun(() => updateSection('business', values));
   const handleUpdateFiscal = (_section: 'fiscal', values: Partial<FiscalSettings>) =>
-    updateSection('fiscal', values);
+    safeRun(() => updateSection('fiscal', values));
   const handleUpdateCash = (_section: 'cash', values: Partial<CashSettings>) =>
-    updateSection('cash', values);
+    safeRun(() => updateSection('cash', values));
   const handleUpdateInventory = (_section: 'inventory', values: Partial<InventorySettings>) =>
-    updateSection('inventory', values);
+    safeRun(() => updateSection('inventory', values));
   const handleUpdateSync = (_section: 'sync', values: Partial<SyncSettings>) =>
-    updateSection('sync', values);
+    safeRun(() => updateSection('sync', values));
   const handleUpdatePayment = (credentials: GatewayCredential[]) =>
-    setGatewayCredentials(credentials);
+    safeRun(() => setGatewayCredentials(credentials));
   const handleUpdatePriceLists = (priceLists: PriceList[]) =>
-    setPriceLists(priceLists);
+    safeRun(() => setPriceLists(priceLists));
   const handleUpdatePromotions = (promotions: Promotion[]) =>
-    setPromotions(promotions);
+    safeRun(() => setPromotions(promotions));
+  const handleSetPaymentMethods = (paymentMethods: Parameters<typeof setPaymentMethods>[0]) =>
+    safeRun(() => setPaymentMethods(paymentMethods));
+  const handleSetDiscountConfig = (discountConfig: Parameters<typeof setDiscountConfig>[0]) =>
+    safeRun(() => setDiscountConfig(discountConfig));
 
   const renderPanel = () => {
     switch (activeTab) {
@@ -75,7 +98,15 @@ export const SettingsView: React.FC = () => {
       case 'inventory':
         return <InventorySettingsPanel settings={settings} onUpdate={handleUpdateInventory} onSaved={showSavedToast} />;
       case 'payment':
-        return <PaymentSettingsPanel settings={settings} onUpdate={handleUpdatePayment} onSaved={showSavedToast} />;
+        return (
+          <PaymentSettingsPanel
+            settings={settings}
+            onUpdate={handleUpdatePayment}
+            onSaved={showSavedToast}
+            setPaymentMethods={handleSetPaymentMethods}
+            setDiscountConfig={handleSetDiscountConfig}
+          />
+        );
       case 'pricelists':
         return <PriceListSettingsPanel settings={settings} onUpdate={handleUpdatePriceLists} onSaved={showSavedToast} />;
       case 'promotions':
@@ -84,6 +115,8 @@ export const SettingsView: React.FC = () => {
         return <PrinterSettingsPanel />;
       case 'sync':
         return <SyncSettingsPanel settings={settings} onUpdate={handleUpdateSync} onSaved={showSavedToast} />;
+      case 'danger':
+        return <DangerZoneSettingsPanel />;
     }
   };
 
@@ -99,10 +132,17 @@ export const SettingsView: React.FC = () => {
           </p>
         </div>
 
-        {savedToast && (
+        {savedToast && !errorToast && (
           <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold px-4 py-2.5 rounded-xl self-start sm:self-auto animate-fade-in">
             <Check className="h-3.5 w-3.5" />
             Configuración guardada
+          </div>
+        )}
+
+        {errorToast && (
+          <div className="flex items-center gap-2 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs font-bold px-4 py-2.5 rounded-xl self-start sm:self-auto animate-fade-in">
+            <AlertCircle className="h-3.5 w-3.5" />
+            {errorToast}
           </div>
         )}
       </div>
@@ -112,17 +152,22 @@ export const SettingsView: React.FC = () => {
           <nav className="flex lg:flex-col gap-1 flex-wrap overflow-x-auto scrollbar-none">
             {TABS.map(tab => {
               const isActive = activeTab === tab.id;
+              const isDanger = tab.id === 'danger';
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer text-left w-full ${
                     isActive
-                      ? 'bg-amber-500 text-white shadow-sm'
-                      : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'
+                      ? isDanger
+                        ? 'bg-red-600 text-white shadow-sm'
+                        : 'bg-amber-500 text-white shadow-sm'
+                      : isDanger
+                        ? 'text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50/60 dark:hover:bg-red-950/20'
+                        : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'
                   }`}
                 >
-                  <span className={isActive ? 'text-white' : 'text-amber-500'}>{tab.icon}</span>
+                  <span className={isActive ? 'text-white' : isDanger ? 'text-red-500' : 'text-amber-500'}>{tab.icon}</span>
                   {tab.label}
                 </button>
               );

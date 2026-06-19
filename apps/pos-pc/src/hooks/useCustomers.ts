@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 
 import { syncCustomerToD1, fetchCustomersFromD1 } from '../services/d1-sync';
+import { getApi } from '../services/api';
 import type { Customer } from '../types';
 import { safeSetItem } from '../utils/safeStorage';
 
@@ -60,6 +61,15 @@ export function useCustomers(notify: NotifyFn) {
     setCustomers(prev =>
       prev.map(c => (c.id === id ? { ...c, ...data, updated_at: new Date().toISOString() } : c))
     );
+    getApi().customers.update(id, {
+      name: data.name,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      type: data.type as any ?? undefined,
+      credit_limit: data.credit_limit ?? undefined,
+      is_active: data.status === 'active',
+    }).catch(() => {});
   };
 
   const loadCustomersFromD1 = () => {

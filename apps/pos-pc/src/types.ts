@@ -45,13 +45,18 @@ export interface Sale {
   items: SaleItem[];
   total: number;
   tax: number;
-  paymentMethod: 'efectivo' | 'tarjeta' | 'mercado_pago' | 'paypal';
+  paymentMethod: 'efectivo' | 'tarjeta' | 'mercado_pago' | 'paypal' | 'transferencia';
   paymentStatus: 'completed' | 'failed' | 'pending' | 'voided';
   operatorRole: string;
   operatorName: string;
   customerName?: string;
   customerDoc?: string;
   customerId?: string;
+  sellerId?: string;
+  discountPercent?: number;
+  discountAmount?: number;
+  surchargePercent?: number;
+  surchargeAmount?: number;
 }
 
 export interface Customer {

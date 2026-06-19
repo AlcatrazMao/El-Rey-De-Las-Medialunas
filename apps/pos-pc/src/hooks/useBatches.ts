@@ -115,6 +115,8 @@ export function useBatches({ notify, products }: UseBatchesParams) {
       // Step 1: compute which batches expired and build the new requests array,
       // then apply both setters sequentially (never nested).
       setBatches((prevBatches) => {
+        // Bug C fix: derive expiredAutoBatches inside the updater so it always
+        // uses the latest state and never closes over a stale snapshot.
         const expiredAutoBatches = prevBatches.filter(
           (b) =>
             b.withdrawalMode === 'automatic' &&
@@ -134,7 +136,6 @@ export function useBatches({ notify, products }: UseBatchesParams) {
             expiredAutoBatches.forEach((b) => {
               const exists = updated.some((r) => r.batchId === b.id && r.status === 'pending');
               if (!exists) {
-                // Bug 2 fix: resolve productName via ref instead of hardcoded 'Bakery Item'
                 const productName =
                   productsRef.current.find((p) => p.id === b.productId)?.name ?? 'Producto';
                 updated.unshift({
@@ -161,7 +162,11 @@ export function useBatches({ notify, products }: UseBatchesParams) {
           });
         }, 0);
 
-        return prevBatches;
+        // Bug A fix: return updated batches with expired ones marked as 'expired'
+        // instead of returning prevBatches unchanged.
+        return prevBatches.map((b) =>
+          expiredAutoBatches.some((e) => e.id === b.id) ? { ...b, status: 'expired' } : b,
+        );
       });
     };
 
@@ -199,6 +204,9 @@ export function useBatches({ notify, products }: UseBatchesParams) {
       date: new Date().toISOString(),
     };
     setWithdrawalRequests((prev) => [request, ...prev]);
+    // TODO(Bug B): sync withdrawal request to D1. No dedicated sync function exists
+    // in d1-sync.ts yet. Add `syncWithdrawalRequestToD1` there and call it here
+    // once implemented, similar to how useSupplyRequests calls syncSupplyRequestToD1.
     notify(
       '🔔 Solicitud de Baja Registrada',
       `Se solicitó retirar ${quantity} u. del lote ${batch.batchNumber} de "${request.productName}".`,

@@ -43,7 +43,17 @@ export function addAutoNote(title: string, content: string, category: StickyNote
     created: new Date().toISOString(),
     priority,
   };
+  // Try live dispatch first
   window.dispatchEvent(new CustomEvent<StickyNote>(ADD_NOTE_EVENT, { detail: note }));
+
+  // Also persist to a queue in localStorage so notes survive if view isn't mounted
+  try {
+    const queue = JSON.parse(localStorage.getItem('pan_erp_notes_queue') ?? '[]');
+    queue.push({ title, content, category, priority, queuedAt: new Date().toISOString() });
+    localStorage.setItem('pan_erp_notes_queue', JSON.stringify(queue));
+  } catch {
+    // ignore quota errors
+  }
 }
 
 const defaultNotes: StickyNote[] = [
@@ -63,8 +73,21 @@ export function useStickyNotes() {
     } catch { return defaultNotes; }
   });
 
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+      } catch {
+        // quota exceeded — silently skip
+      }
+    }, 500); // 500ms debounce
+
+    return () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+    };
   }, [notes]);
 
   // Recibe notas del evento ADD_NOTE_EVENT con los datos en detail,
@@ -81,6 +104,39 @@ export function useStickyNotes() {
     window.addEventListener(ADD_NOTE_EVENT, onAdd);
     return () => window.removeEventListener(ADD_NOTE_EVENT, onAdd);
   }, []);
+
+  // Drain the queue of notes that were dispatched while this view was unmounted
+  useEffect(() => {
+    try {
+      const queue = JSON.parse(localStorage.getItem('pan_erp_notes_queue') ?? '[]');
+      if (queue.length > 0) {
+        localStorage.removeItem('pan_erp_notes_queue');
+        queue.forEach((item: { title: string; content: string; category: StickyNote['category']; priority: StickyNote['priority'] }) => {
+          setNotes(prev => {
+            const newNote: StickyNote = {
+              id: `auto_q_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              x: 40 + prev.length * 20,
+              y: 40 + prev.length * 20,
+              width: 260,
+              height: 180,
+              title: item.title,
+              content: item.content,
+              color: COLORS[item.category],
+              category: item.category,
+              status: 'active',
+              created: new Date().toISOString(),
+              priority: item.priority,
+            };
+            if (prev.some(n => n.title === newNote.title && n.content === newNote.content)) return prev;
+            return [newNote, ...prev];
+          });
+        });
+      }
+    } catch {
+      // ignore
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // only on mount
 
   const addNote = useCallback((note: Partial<StickyNote> = {}) => {
     const newNote: StickyNote = {

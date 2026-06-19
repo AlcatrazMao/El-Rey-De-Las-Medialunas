@@ -12,8 +12,10 @@ cashRoutes.get("/sessions", async (c) => {
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
   const status = c.req.query("status");
-  const limit = parseInt(c.req.query("limit") ?? "20", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawLimit = parseInt(c.req.query("limit") ?? "30", 10);
+  const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 30 : rawLimit, 1), 100);
+  const offset = Math.max(isNaN(rawOffset) ? 0 : rawOffset, 0);
 
   let query = "SELECT * FROM cash_sessions WHERE branch_id = ?";
   const bindings: (string | number)[] = [branchId];
@@ -118,6 +120,10 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
   if (!session) {
     return c.json({ success: false, error: "Open session not found" }, 404);
   }
+
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
+  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
 
   const closingAmount = body.closing_amount;
   const expectedAmount = body.expected_amount ?? null;

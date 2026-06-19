@@ -9,7 +9,7 @@ import {
   Trash2
 } from 'lucide-react';
 import * as React from 'react'
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 import { useApp } from '../AppContext';
 import { getSettings } from '../hooks/useSettings';
@@ -30,11 +30,14 @@ export const SalesHistoryView: React.FC = () => {
     setBatches
   } = useApp();
 
+  const PAGE_SIZE = 30;
+
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<'todos' | Sale['paymentMethod']>('todos');
   const [statusFilter, setStatusFilter] = useState<'todos' | Sale['paymentStatus']>('todos');
   const [sortCol, setSortCol] = useState<'date' | 'total' | 'invoice'>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
   
   // Dialog to view ticket detail
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
@@ -106,6 +109,13 @@ export const SalesHistoryView: React.FC = () => {
     if (sortCol === 'total') return dir * (b.total - a.total);
     return dir * a.invoiceNumber.localeCompare(b.invoiceNumber);
   });
+
+  // Pagination
+  useEffect(() => { setCurrentPage(1); }, [filteredSales.length]);
+  const totalPages = Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE));
+  const paginatedSales = filteredSales.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const rangeStart = filteredSales.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredSales.length);
 
   return (
     <div className="space-y-6 transition-all duration-300">
@@ -179,17 +189,17 @@ export const SalesHistoryView: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-gray-50 dark:bg-zinc-950 text-[10px] font-bold text-gray-500 uppercase tracking-wider select-none border-b border-gray-100 dark:border-zinc-800">
               <tr>
-                <th className="py-4 px-5 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('invoice'); setSortDir(sortCol === 'invoice' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc'); }}>
+                <th className="py-4 px-5 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('invoice'); setSortDir(sortCol === 'invoice' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc'); setCurrentPage(1); }}>
                   Factura {sortCol === 'invoice' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                 </th>
-                <th className="py-4 px-5 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('date'); setSortDir(sortCol === 'date' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc'); }}>
+                <th className="py-4 px-5 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('date'); setSortDir(sortCol === 'date' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc'); setCurrentPage(1); }}>
                   Fecha {sortCol === 'date' ? (sortDir === 'asc' ? '▲' : '▼') : '▼'}
                 </th>
                 <th className="py-4 px-5">Operador</th>
                 <th className="py-4 px-5">Cliente</th>
                 <th className="py-4 px-5">Artículos</th>
                 <th className="py-4 px-5 text-center">Pago</th>
-                <th className="py-4 px-5 text-right cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('total'); setSortDir(sortCol === 'total' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc'); }}>
+                <th className="py-4 px-5 text-right cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('total'); setSortDir(sortCol === 'total' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc'); setCurrentPage(1); }}>
                   Total {sortCol === 'total' ? (sortDir === 'asc' ? '▲' : '▼') : '▼'}
                 </th>
                 <th className="py-4 px-5 text-center">Acciones</th>
@@ -205,7 +215,7 @@ export const SalesHistoryView: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredSales.map(sale => {
+                paginatedSales.map(sale => {
                   const isSuccess = sale.paymentStatus === 'completed';
                   const isVoided = sale.invoiceNumber.startsWith('VOID-');
 
@@ -261,7 +271,17 @@ export const SalesHistoryView: React.FC = () => {
 
                       {/* Total */}
                       <td className="py-4 px-5 text-right font-mono font-extrabold text-sm text-gray-900 dark:text-zinc-50 font-sans">
-                        {formatCurrency(sale.total)}
+                        <div className="flex flex-col items-end gap-0.5">
+                          {formatCurrency(sale.total)}
+                          {sale.discountPercent && sale.discountPercent > 0 && (
+                            <span
+                              title={`Descuento aplicado: -${sale.discountPercent}% (- ${formatCurrency(sale.discountAmount ?? 0)})`}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-[9px] font-extrabold border border-emerald-200 dark:border-emerald-800/40"
+                            >
+                              🏷️ -{sale.discountPercent}%
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Invoice management row */}
@@ -316,6 +336,34 @@ export const SalesHistoryView: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* PAGINATION FOOTER */}
+        {filteredSales.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-5 py-3 border-t border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950">
+            <span className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400">
+              Mostrando {rangeStart}–{rangeEnd} de {filteredSales.length} ventas
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-850 text-xs font-bold text-gray-700 dark:text-zinc-200 hover:bg-gray-100 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                ← Anterior
+              </button>
+              <span className="text-xs font-bold text-gray-600 dark:text-zinc-300 px-1 select-none">
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-850 text-xs font-bold text-gray-700 dark:text-zinc-200 hover:bg-gray-100 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                Siguiente →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* FLOATING DIALOG TICKET DETAIL */}
@@ -384,6 +432,18 @@ export const SalesHistoryView: React.FC = () => {
                   <span>{`IVA Tasa Gral (${(getSettings().fiscal.ivaRate * 100).toFixed(0)}%):`}</span>
                   <span>{formatCurrency(selectedSale.tax)}</span>
                 </div>
+                {selectedSale.discountPercent && selectedSale.discountPercent > 0 && (
+                  <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                    <span>Descuento ({selectedSale.discountPercent}%):</span>
+                    <span>- {formatCurrency(selectedSale.discountAmount ?? 0)}</span>
+                  </div>
+                )}
+                {selectedSale.surchargePercent && selectedSale.surchargePercent > 0 && (
+                  <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-bold">
+                    <span>Recargo ({selectedSale.surchargePercent}%):</span>
+                    <span>+ {formatCurrency(selectedSale.surchargeAmount ?? 0)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-base font-extrabold text-gray-850 dark:text-zinc-50 border-t pt-1.5 border-amber-200">
                   <span>TOTAL COMPROBANTE:</span>
                   <span>{formatCurrency(selectedSale.total)}</span>

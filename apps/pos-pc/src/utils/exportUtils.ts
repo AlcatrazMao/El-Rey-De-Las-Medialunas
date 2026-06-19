@@ -181,6 +181,16 @@ export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 
             <td>IVA (21.00%):</td>
             <td class="text-right">$${sale.tax.toFixed(2)}</td>
           </tr>
+          ${sale.discountAmount && sale.discountAmount > 0 ? `
+          <tr>
+            <td>Descuento (-${sale.discountPercent ?? 0}%):</td>
+            <td class="text-right">- $${sale.discountAmount.toFixed(2)}</td>
+          </tr>` : ''}
+          ${sale.surchargeAmount && sale.surchargeAmount > 0 ? `
+          <tr>
+            <td>Recargo (+${sale.surchargePercent ?? 0}%):</td>
+            <td class="text-right">+ $${sale.surchargeAmount.toFixed(2)}</td>
+          </tr>` : ''}
           <tr class="total-row">
             <td style="padding-top: 8px;">TOTAL:</td>
             <td class="text-right" style="padding-top: 8px;">$${sale.total.toFixed(2)}</td>

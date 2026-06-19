@@ -21,7 +21,7 @@ export function authMiddleware() {
   return createMiddleware<{ Bindings: Env; Variables: Variables }>(async (c, next) => {
     const path = new URL(c.req.url).pathname;
 
-    if (PUBLIC_ROUTES.some((route) => path.startsWith(route))) {
+    if (PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + '/'))) {
       await next();
       return;
     }
