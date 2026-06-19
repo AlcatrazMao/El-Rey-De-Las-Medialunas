@@ -67,6 +67,7 @@ interface AppContextType {
   rejectSupplyRequest: (requestId: string, adminMemo: string) => void;
   openCashSession: (initialAmount: number, note?: string) => void;
   closeCashSession: (realAmount: number, note?: string) => void;
+  closeHistoricalSession: (sessionId: string, realAmount: number, note?: string) => void;
   loadMoreSessions: () => void;
   hasMoreSessions: boolean;
 }
@@ -482,6 +483,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     requestSupply: sup.requestSupply, approveSupplyRequest,
     rejectSupplyRequest: sup.rejectSupplyRequest,
     openCashSession: cash.openCashSession, closeCashSession: cash.closeCashSession,
+    closeHistoricalSession: cash.closeHistoricalSession,
     loadMoreSessions: cash.loadMoreSessions, hasMoreSessions: cash.hasMoreSessions,
   };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

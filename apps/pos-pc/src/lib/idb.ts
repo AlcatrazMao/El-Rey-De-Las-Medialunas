@@ -1,3 +1,5 @@
+import type { SyncErrorCategory, SyncErrorStatus } from '../types';
+
 export interface IDBBatch {
   id: string;
   productId: string;
@@ -39,11 +41,27 @@ export interface IDBOffer {
   synced: boolean;
 }
 
+// sync-error-console: persistent log of failed sale syncs
+export interface IDBSyncError {
+  id?: number; // auto-increment
+  sale_id: string;
+  category: SyncErrorCategory;
+  message: string;
+  payload: string;            // JSON-stringified sale payload
+  attempts: number;
+  next_retry_at: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  status: SyncErrorStatus;
+}
+
 const DB_NAME = 'el-rey-idb';
-const DB_VERSION = 1;
+// Bumped from 1 → 2 to add the `sync_errors` object store.
+const DB_VERSION = 2;
 const STORE_BATCHES = 'batches';
 const STORE_SALES_QUEUE = 'sales_queue';
 const STORE_OFFERS = 'offers';
+const STORE_SYNC_ERRORS = 'sync_errors';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -78,6 +96,13 @@ export function openDB(): Promise<IDBDatabase> {
         if (!db.objectStoreNames.contains(STORE_OFFERS)) {
           const s = db.createObjectStore(STORE_OFFERS, { keyPath: 'id' });
           s.createIndex('status', 'status', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_SYNC_ERRORS)) {
+          const s = db.createObjectStore(STORE_SYNC_ERRORS, { keyPath: 'id', autoIncrement: true });
+          s.createIndex('sale_id', 'sale_id', { unique: false });
+          s.createIndex('category', 'category', { unique: false });
+          s.createIndex('resolved_at', 'resolved_at', { unique: false });
+          s.createIndex('next_retry_at', 'next_retry_at', { unique: false });
         }
       } catch (e) {
         // Bug 5 fix: reject the promise so callers don't hang forever
@@ -292,5 +317,131 @@ export const offerStore = {
     const db = await openDB();
     const all = (await request(tx(db, STORE_OFFERS, 'readonly').getAll())) as IDBOffer[];
     return all.filter(o => !o.synced);
+  },
+};
+
+// ── sync_errors store ────────────────────────────────────────────────────
+// Persistent ledger of D1 sale-sync failures. Used by:
+//   • useSyncEngine — schedules backoff retries
+//   • SyncErrorConsole — admin-only UI to inspect/edit/retry
+//   • SyncLed — drives the yellow/red status indicator
+export const syncErrorStore = {
+  async add(err: Omit<IDBSyncError, 'id'>): Promise<number> {
+    const db = await openDB();
+    const id = await request(
+      tx(db, STORE_SYNC_ERRORS, 'readwrite').add(err as IDBSyncError),
+    );
+    return Number(id);
+  },
+
+  async put(err: IDBSyncError): Promise<void> {
+    const db = await openDB();
+    await request(tx(db, STORE_SYNC_ERRORS, 'readwrite').put(err));
+  },
+
+  async getAll(): Promise<IDBSyncError[]> {
+    const db = await openDB();
+    return (await request(tx(db, STORE_SYNC_ERRORS, 'readonly').getAll())) as IDBSyncError[];
+  },
+
+  async getPending(): Promise<IDBSyncError[]> {
+    const all = await this.getAll();
+    return all.filter(e => e.resolved_at === null);
+  },
+
+  async getPendingByCategory(category: IDBSyncError['category']): Promise<IDBSyncError[]> {
+    const all = await this.getAll();
+    return all.filter(e => e.resolved_at === null && e.category === category);
+  },
+
+  async findBySaleId(saleId: string): Promise<IDBSyncError | undefined> {
+    const all = await this.getAll();
+    return all.find(e => e.sale_id === saleId && e.resolved_at === null);
+  },
+
+  async get(id: number): Promise<IDBSyncError | undefined> {
+    const db = await openDB();
+    return (await request(tx(db, STORE_SYNC_ERRORS, 'readonly').get(id))) as IDBSyncError | undefined;
+  },
+
+  async markResolved(id: number): Promise<void> {
+    const db = await openDB();
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_SYNC_ERRORS, 'readwrite');
+      const store = txn.objectStore(STORE_SYNC_ERRORS);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBSyncError | undefined;
+        if (!existing) return;
+        existing.resolved_at = new Date().toISOString();
+        existing.status = 'resolved';
+        store.put(existing);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
+  },
+
+  async resetForRetry(id: number): Promise<void> {
+    const db = await openDB();
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_SYNC_ERRORS, 'readwrite');
+      const store = txn.objectStore(STORE_SYNC_ERRORS);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBSyncError | undefined;
+        if (!existing) return;
+        existing.attempts = 0;
+        existing.next_retry_at = new Date().toISOString();
+        existing.status = 'pending';
+        store.put(existing);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
+  },
+
+  async updatePayload(id: number, payload: string): Promise<void> {
+    const db = await openDB();
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_SYNC_ERRORS, 'readwrite');
+      const store = txn.objectStore(STORE_SYNC_ERRORS);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBSyncError | undefined;
+        if (!existing) return;
+        existing.payload = payload;
+        store.put(existing);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
+  },
+
+  async incrementAttempt(id: number, nextRetryAt: string | null, status: SyncErrorStatus): Promise<void> {
+    const db = await openDB();
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_SYNC_ERRORS, 'readwrite');
+      const store = txn.objectStore(STORE_SYNC_ERRORS);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBSyncError | undefined;
+        if (!existing) return;
+        existing.attempts += 1;
+        existing.next_retry_at = nextRetryAt;
+        existing.status = status;
+        store.put(existing);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
   },
 };

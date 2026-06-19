@@ -1,11 +1,74 @@
 import { getSettings } from "../hooks/useSettings";
-import type { Sale, Product, CategoryType, CashSession as LocalCashSession } from "../types";
+import { syncErrorStore } from "../lib/idb";
+import type { Sale, Product, CategoryType, CashSession as LocalCashSession, SyncErrorCategory } from "../types";
 
 import { getApi } from "./api";
 import { dbAdapter } from "./db-adapter";
 
 function isNetworkError(err: unknown): boolean {
   return err instanceof TypeError && /fetch|network|failed/i.test((err as TypeError).message);
+}
+
+// ── Backoff & classification (sync-error-console) ────────────────────────
+export const BACKOFF_BASE_MS = 5_000;
+export const BACKOFF_MAX_MS = 300_000;
+
+/**
+ * Próximo timestamp ISO en el que se debe reintentar.
+ * delay = min(BASE * 2^attempts + jitter, MAX). El jitter (0–1000 ms) evita
+ * "thundering herd" cuando el server vuelve online y N clientes reintentan
+ * simultáneamente.
+ */
+export function calcNextRetry(attempts: number): string {
+  const jitter = Math.floor(Math.random() * 1_000);
+  const delay = Math.min(BACKOFF_BASE_MS * Math.pow(2, attempts) + jitter, BACKOFF_MAX_MS);
+  return new Date(Date.now() + delay).toISOString();
+}
+
+/**
+ * Clasifica un error de sync en una de las 4 categorías.
+ *   - network: offline / fetch TypeError → reintentable automáticamente
+ *   - auth: 401/403 → requiere refresh de token + reintento
+ *   - validation: 400/422 → payload inválido, requiere edición manual
+ *   - server: cualquier otra cosa → reintentable con cautela
+ */
+export function classifyError(err: unknown, response?: Response): SyncErrorCategory {
+  if (!navigator.onLine || (err instanceof TypeError && /fetch|network|failed/i.test((err as Error).message))) {
+    return 'network';
+  }
+  if (response?.status === 401 || response?.status === 403) return 'auth';
+  if (response?.status === 400 || response?.status === 422) return 'validation';
+  return 'server';
+}
+
+/**
+ * Persiste un fallo de sync en IndexedDB. Si ya existe un registro pendiente
+ * para esta venta (mismo sale_id, resolved_at=null), lo deja como está — no
+ * duplicamos. El motor de retries se encarga de actualizarlo.
+ */
+export async function persistSyncError(params: {
+  saleId: string;
+  category: SyncErrorCategory;
+  message: string;
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  const existing = await syncErrorStore.findBySaleId(params.saleId);
+  if (existing) {
+    // Ya hay un registro abierto para esta venta. No duplicamos; el scheduler
+    // del useSyncEngine va a empujar el reintento.
+    return;
+  }
+  await syncErrorStore.add({
+    sale_id: params.saleId,
+    category: params.category,
+    message: params.message,
+    payload: JSON.stringify(params.payload),
+    attempts: 0,
+    next_retry_at: calcNextRetry(0),
+    created_at: new Date().toISOString(),
+    resolved_at: null,
+    status: 'pending',
+  });
 }
 
 async function enqueue(entity_type: string, data: Record<string, unknown>): Promise<void> {
@@ -71,9 +134,28 @@ export async function syncSaleToD1(sale: Sale): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- payload super-set del tipo CreateSaleRequest oficial
     await getApi().sales.create(payload as any);
   } catch (err) {
-    if (isNetworkError(err)) {
-      // Encolamos para reintento; cuando vuelva la red el SyncEngine lo manda
-      // con el mismo idempotency_key y el backend deduplica.
+    // Extraemos response del error si el api-client lo expone (típicamente
+    // como propiedad `response` en HttpError-like).
+    const maybeResponse =
+      err && typeof err === "object" && "response" in (err as Record<string, unknown>)
+        ? ((err as { response?: Response }).response)
+        : undefined;
+    const category = classifyError(err, maybeResponse);
+    const message = err instanceof Error ? err.message : String(err);
+
+    // Persistimos el error para que la consola admin lo vea y el scheduler
+    // de retries lo procese (network → auto-retry; validation/auth → manual).
+    await persistSyncError({
+      saleId: sale.id,
+      category,
+      message,
+      payload,
+    });
+
+    if (category === "network") {
+      // Compat: seguimos encolando en sales_queue para que el SyncEngine
+      // legacy también lo retome al volver online. El idempotency_key del
+      // backend deduplica si ambos paths terminan empujando.
       await enqueue("sale", payload);
       return;
     }
@@ -218,7 +300,9 @@ export async function syncCashSessionCloseToD1(
 
 export async function fetchCashSessionsFromD1(limit = 30, offset = 0): Promise<LocalCashSession[]> {
   try {
-    const sessions = await getApi().cash.getSessions({ status: 'closed', limit, offset });
+    // Traemos todas las sesiones (abiertas y cerradas) para que las sesiones
+    // abiertas de días anteriores aparezcan en el historial y puedan cerrarse manualmente.
+    const sessions = await getApi().cash.getSessions({ limit, offset });
     return (sessions ?? []).map((s): LocalCashSession => ({
       id: s.id,
       openedAt: s.opened_at,

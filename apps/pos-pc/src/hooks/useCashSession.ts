@@ -169,6 +169,38 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
     onCashClose?.();
   };
 
+  // Cierra una sesión abierta que aparece en el historial (no es la sesión corriente).
+  // Caso de uso: sesión de un día anterior que nunca se cerró y ahora se muestra en el historial.
+  const closeHistoricalSession = (sessionId: string, realAmount: number, note?: string): void => {
+    const session = cashSessionsHistory.find(s => s.id === sessionId && s.status === 'open');
+    if (!session) return;
+    const activeUser = getActiveUser();
+    const expected = session.expectedAmount;
+    const discrepancy = realAmount - expected;
+    const finishedSession: CashSession = {
+      ...session,
+      closedAt: new Date().toISOString(),
+      closedBy: activeUser.name,
+      realAmount,
+      discrepancy,
+      status: 'closed',
+      note: note || session.note,
+    };
+    setCashSessionsHistory(prev => prev.map(s => s.id === sessionId ? finishedSession : s));
+    notify(
+      '🔒 Sesión histórica cerrada',
+      `Sesión anterior cerrada. Esperado: ${formatCurrency(expected)}, Real: ${formatCurrency(realAmount)}, Discrepancia: ${formatCurrency(discrepancy)}`,
+      Math.abs(discrepancy) < 0.01 ? 'success' : 'warning',
+    );
+    syncCashSessionCloseToD1(sessionId, realAmount, expected, note).catch(() =>
+      notify(
+        '⚠️ Sync fallido',
+        'El cierre se guardó localmente pero no se sincronizó con el servidor.',
+        'warning',
+      ),
+    );
+  };
+
   const loadMoreSessions = (): void => {
     fetchCashSessionsFromD1(30, sessionOffset).then((d1Sessions) => {
       if (d1Sessions.length < 30) setHasMoreSessions(false);
@@ -192,6 +224,7 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
     setCashSessionsHistory,
     openCashSession,
     closeCashSession,
+    closeHistoricalSession,
     loadMoreSessions,
     hasMoreSessions,
   };

@@ -20,6 +20,7 @@ export const CashSessionView: React.FC = () => {
     cashSessionsHistory,
     openCashSession,
     closeCashSession,
+    closeHistoricalSession,
     activeUser,
     loadMoreSessions,
     hasMoreSessions,
@@ -35,6 +36,18 @@ export const CashSessionView: React.FC = () => {
   const [closingAmount, setClosingAmount] = useState<number>(0);
   const [closingNote, setClosingNote] = useState<string>(settings.cash.defaultClosingNote);
   const [showConfirmClose, setShowConfirmClose] = useState(false);
+
+  // Cierre de sesiones históricas abiertas (días anteriores)
+  const [closingHistoricalId, setClosingHistoricalId] = useState<string | null>(null);
+  const [historicalClosingAmount, setHistoricalClosingAmount] = useState<number>(0);
+  const [historicalClosingNote, setHistoricalClosingNote] = useState<string>('');
+
+  const handleCloseHistorical = (sessionId: string) => {
+    closeHistoricalSession(sessionId, historicalClosingAmount, historicalClosingNote || undefined);
+    setClosingHistoricalId(null);
+    setHistoricalClosingAmount(0);
+    setHistoricalClosingNote('');
+  };
 
   const handleOpen = (e: React.FormEvent) => {
     e.preventDefault();
@@ -349,6 +362,7 @@ export const CashSessionView: React.FC = () => {
               <>
               <div className="space-y-3.5 max-h-[580px] overflow-y-auto pr-1">
                 {cashSessionsHistory.map((sess) => {
+                  const isOpen = sess.status === 'open';
                   const hasDiscrepancy = sess.discrepancy && Math.abs(sess.discrepancy) > 0.01;
                   const isExact = !hasDiscrepancy;
                   const isPositive = sess.discrepancy && sess.discrepancy > 0;
@@ -356,7 +370,11 @@ export const CashSessionView: React.FC = () => {
                   return (
                     <div
                       key={sess.id}
-                      className="bg-gray-50/50 dark:bg-zinc-950/20 border border-gray-150/70 dark:border-zinc-850 p-4 rounded-2xl hover:border-amber-500/20 transition-all space-y-3"
+                      className={`border p-4 rounded-2xl transition-all space-y-3 ${
+                        isOpen
+                          ? 'bg-orange-50/50 dark:bg-orange-950/10 border-orange-400/40 dark:border-orange-700/40'
+                          : 'bg-gray-50/50 dark:bg-zinc-950/20 border-gray-150/70 dark:border-zinc-850 hover:border-amber-500/20'
+                      }`}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
@@ -369,15 +387,21 @@ export const CashSessionView: React.FC = () => {
                           </span>
                         </div>
 
-                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wide self-start sm:self-auto ${
-                          isExact
-                            ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-400 border border-emerald-500/15'
-                            : isPositive
-                            ? 'bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/15'
-                            : 'bg-red-505/15 text-red-800 dark:text-red-400 border border-red-500/15'
-                        }`}>
-                          {isExact ? 'Exacto ✓' : isPositive ? `Sobrante: +${formatCurrency(sess.discrepancy || 0)}` : `Faltante: -${formatCurrency(Math.abs(sess.discrepancy || 0))}`}
-                        </span>
+                        {isOpen ? (
+                          <span className="text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wide self-start sm:self-auto bg-orange-500/15 text-orange-800 dark:text-orange-400 border border-orange-500/30 animate-pulse">
+                            ⚠ Abierta sin cerrar
+                          </span>
+                        ) : (
+                          <span className={`text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wide self-start sm:self-auto ${
+                            isExact
+                              ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-400 border border-emerald-500/15'
+                              : isPositive
+                              ? 'bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/15'
+                              : 'bg-red-505/15 text-red-800 dark:text-red-400 border border-red-500/15'
+                          }`}>
+                            {isExact ? 'Exacto ✓' : isPositive ? `Sobrante: +${formatCurrency(sess.discrepancy || 0)}` : `Faltante: -${formatCurrency(Math.abs(sess.discrepancy || 0))}`}
+                          </span>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px] bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/80 p-3 rounded-xl select-none">
@@ -402,6 +426,61 @@ export const CashSessionView: React.FC = () => {
                       <div className="bg-white/40 dark:bg-zinc-900/40 p-2.5 rounded-lg border border-gray-150/40 dark:border-zinc-850 text-[10.5px] italic text-gray-500 dark:text-zinc-400">
                         "{sess.note || 'Sin observaciones registradas para este arqueo.'}"
                       </div>
+
+                      {/* Formulario de cierre para sesiones abiertas del historial */}
+                      {isOpen && (
+                        <div className="border-t border-orange-300/30 dark:border-orange-700/30 pt-3 space-y-2">
+                          {closingHistoricalId === sess.id ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <div className="relative flex-1">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-extrabold text-xs">$</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={historicalClosingAmount === 0 ? '' : historicalClosingAmount}
+                                    onChange={(e) => setHistoricalClosingAmount(parseFloat(e.target.value) || 0)}
+                                    className="w-full bg-white dark:bg-zinc-900 border border-orange-300 dark:border-orange-700/50 rounded-xl p-2 pl-7 text-xs font-extrabold text-gray-800 dark:text-zinc-100 outline-none focus:border-orange-500"
+                                    placeholder="Monto real en caja"
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  value={historicalClosingNote}
+                                  onChange={(e) => setHistoricalClosingNote(e.target.value)}
+                                  className="flex-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl p-2 text-xs text-gray-700 dark:text-zinc-300 outline-none focus:border-orange-400"
+                                  placeholder="Motivo (opcional)"
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCloseHistorical(sess.id)}
+                                  className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors"
+                                >
+                                  🔒 Confirmar cierre de sesión
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setClosingHistoricalId(null); setHistoricalClosingAmount(0); setHistoricalClosingNote(''); }}
+                                  className="py-2 px-3 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 text-gray-500 dark:text-zinc-300 rounded-xl text-[10px] font-extrabold cursor-pointer"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setClosingHistoricalId(sess.id); setHistoricalClosingAmount(sess.expectedAmount); }}
+                              className="w-full py-2 bg-orange-100 hover:bg-orange-200 dark:bg-orange-900/20 dark:hover:bg-orange-900/40 text-orange-800 dark:text-orange-300 border border-orange-300/50 dark:border-orange-700/40 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors"
+                            >
+                              🔒 Cerrar sesión pendiente
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

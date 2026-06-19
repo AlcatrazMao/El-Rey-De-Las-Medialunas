@@ -89,16 +89,38 @@ cashRoutes.post("/sessions/open", async (c) => {
 
   const existing = await db
     .prepare(
-      "SELECT id FROM cash_sessions WHERE branch_id = ? AND status = 'open' LIMIT 1"
+      "SELECT id, opened_at, opening_amount FROM cash_sessions WHERE branch_id = ? AND status = 'open' LIMIT 1"
     )
     .bind(branchId)
-    .first<{ id: string }>();
+    .first<{ id: string; opened_at: string; opening_amount: number }>();
 
+  let autoClosed = false;
   if (existing) {
-    return c.json(
-      { success: false, error: { code: "CONFLICT", message: "Ya hay una sesión de caja abierta para esta sucursal" } },
-      409
-    );
+    // Si la sesión abierta es de un día anterior, cerrarla automáticamente
+    const isFromPreviousDay = await db
+      .prepare("SELECT 1 AS is_old FROM cash_sessions WHERE id = ? AND DATE(opened_at) < DATE('now')")
+      .bind(existing.id)
+      .first<{ is_old: number }>();
+
+    if (!isFromPreviousDay) {
+      return c.json(
+        { success: false, error: { code: "CONFLICT", message: "Ya hay una sesión de caja abierta para esta sucursal" } },
+        409
+      );
+    }
+
+    // Cerrar automáticamente la sesión del día anterior
+    const autoClosedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+    await db
+      .prepare(
+        `UPDATE cash_sessions
+         SET closing_amount = opening_amount, expected_amount = opening_amount, difference = 0,
+             status = 'closed', notes = 'Cerrada automáticamente por apertura de nueva sesión', closed_at = ?
+         WHERE id = ?`
+      )
+      .bind(autoClosedAt, existing.id)
+      .run();
+    autoClosed = true;
   }
 
   const id =
@@ -114,7 +136,7 @@ cashRoutes.post("/sessions/open", async (c) => {
     .bind(id, branchId, userId, body.opening_amount, body.notes ?? null, openedAt)
     .run();
 
-  return c.json({ success: true, data: { id, opened_at: openedAt } }, 201);
+  return c.json({ success: true, data: { id, opened_at: openedAt, auto_closed_previous: autoClosed } }, 201);
 });
 
 // POST /sessions/:id/close

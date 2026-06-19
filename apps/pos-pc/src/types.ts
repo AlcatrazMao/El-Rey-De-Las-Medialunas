@@ -212,4 +212,31 @@ export interface CashSession {
   status: 'open' | 'closed';
 }
 
+// ── Sync errors / status (sync-error-console) ────────────────────────────
+export type SyncErrorCategory = 'network' | 'validation' | 'auth' | 'server';
+export type SyncErrorStatus = 'pending' | 'retrying' | 'permanent_fail' | 'resolved';
+
+export interface SyncError {
+  id?: number;
+  sale_id: string;
+  category: SyncErrorCategory;
+  message: string;
+  payload: string;           // JSON string del sale payload
+  attempts: number;
+  next_retry_at: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  status: SyncErrorStatus;
+}
+
+export type SyncLedState = 'synced' | 'error' | 'offline';
+
+export interface SyncStatus {
+  ledState: SyncLedState;
+  pendingErrorCount: number;
+  isSyncing: boolean;
+  isOnline: boolean;
+  lastSync: Date | null;
+}
+
 
