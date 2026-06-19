@@ -103,7 +103,9 @@ export async function verifyFirebaseToken(token: string, env: Env): Promise<Deco
     try {
       const cached = await env.CACHE.get(cacheKey, "json") as DecodedToken | null;
       if (cached) return cached;
-    } catch { /* cache miss, continue */ }
+    } catch (err) {
+      console.warn('[auth-middleware] cache read failed for firebase token:', err);
+    }
 
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
@@ -128,7 +130,9 @@ export async function verifyFirebaseToken(token: string, env: Env): Promise<Deco
       if (ttl > 0) {
         try {
           await env.CACHE.put(cacheKey, JSON.stringify(decoded), { expirationTtl: ttl });
-        } catch { /* non-critical */ }
+        } catch (err) {
+          console.warn('[auth-middleware] cache write failed for firebase token:', err);
+        }
       }
     }
 

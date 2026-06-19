@@ -67,18 +67,13 @@ export interface LoginRequest {
   branch_id: string;
 }
 
-export interface LoginData {
-  tokens: AuthTokens;
-  user: User;
-}
-
-export interface LoginResponse extends ApiResponse<LoginData> {}
+export interface LoginResponse extends ApiResponse<{ tokens: AuthTokens; user: User }> {}
 
 export interface RefreshTokenRequest {
   refresh_token: string;
 }
 
-export interface RefreshTokenResponse extends ApiResponse<AuthTokens> {}
+export interface RefreshTokenResponse extends ApiResponse<{ tokens: AuthTokens }> {}
 
 export interface ValidateTokenRequest {
   access_token: string;

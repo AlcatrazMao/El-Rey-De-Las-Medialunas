@@ -104,7 +104,7 @@ async function issueTokens(
 authRoutes.post("/login", async (c) => {
   try {
     const { idToken } = await c.req.json<{ idToken: string }>();
-    if (!idToken) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "idToken required" } }, 400);
+    if (!idToken) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "idToken requerido" } }, 400);
 
     const ip = c.req.header("CF-Connecting-IP") || "unknown";
     const rateLimitKey = `rate_limit:login:${ip}`;
@@ -124,8 +124,21 @@ authRoutes.post("/login", async (c) => {
     let user: UserRow | null = null;
     try {
       const cached = await c.env.CACHE.get(`user:${uid}`, "json");
-      if (cached) user = cached as UserRow;
-    } catch { /* cache miss */ }
+      if (
+        cached &&
+        typeof cached === "object" &&
+        typeof (cached as Partial<UserRow>).id === "string" &&
+        typeof (cached as Partial<UserRow>).firebase_uid === "string" &&
+        typeof (cached as Partial<UserRow>).email === "string" &&
+        typeof (cached as Partial<UserRow>).role === "string"
+      ) {
+        user = cached as UserRow;
+      } else if (cached) {
+        console.warn('[auth] cached user payload failed shape validation, treating as cache miss');
+      }
+    } catch (err) {
+      console.warn('[auth] cache read failed for user lookup:', err);
+    }
 
     if (!user) {
       user = await c.env.DB.prepare(
@@ -138,21 +151,27 @@ authRoutes.post("/login", async (c) => {
 
       try {
         await c.env.CACHE.put(`user:${uid}`, JSON.stringify(user), { expirationTtl: 3600 });
-      } catch { /* non-critical */ }
+      } catch (err) {
+        console.warn('[auth] cache write failed for user:', err);
+      }
     }
 
     try {
       await c.env.DB.prepare(
         "INSERT INTO audit_log (id, user_id, action, entity_type, entity_id, ip_address, created_at) VALUES (?, ?, 'auth.login', 'users', ?, ?, datetime('now'))",
       ).bind(crypto.randomUUID(), user.id, user.id, ip).run();
-    } catch { /* non-critical */ }
+    } catch (err) {
+      console.warn('[auth] audit_log insert failed on login:', err);
+    }
 
     const tokens = await issueTokens(c.env, { id: user.id, email: user.email, role: user.role });
 
     let customPanels: string[] | null = null;
     try {
       if (user.custom_panels) customPanels = JSON.parse(user.custom_panels);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('[auth] failed to parse custom_panels JSON on login:', err);
+    }
 
     return c.json({
       success: true,
@@ -220,7 +239,9 @@ authRoutes.post("/logout", async (c) => {
         if (userRow?.firebase_uid) {
           await c.env.CACHE.delete(`user:${userRow.firebase_uid}`);
         }
-      } catch { /* non-critical */ }
+      } catch (err) {
+        console.warn('[auth] cache invalidation failed on logout:', err);
+      }
     }
 
     return c.json({ success: true });
@@ -249,7 +270,9 @@ authRoutes.get("/me", async (c) => {
   let customPanels: string[] | null = null;
   try {
     if (user.custom_panels) customPanels = JSON.parse(user.custom_panels);
-  } catch { /* ignore */ }
+  } catch (err) {
+    console.warn('[auth] failed to parse custom_panels JSON on /me:', err);
+  }
 
   return c.json({
     success: true,

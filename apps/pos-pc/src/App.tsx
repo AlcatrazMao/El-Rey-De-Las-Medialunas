@@ -117,7 +117,7 @@ function ERPLayout() {
     sessions.unshift({ email: activeUser.email, name: activeUser.name, role: activeUser.role });
     safeSetItem('erp_sessions', JSON.stringify(sessions));
     setSavedSessions(sessions);
-  }, [activeUser?.email, activeUser?.role]);
+  }, [activeUser?.email, activeUser?.name, activeUser?.role]);
 
   const switchSession = async (session: SavedSession) => {
     if (session.email === activeUser.email) return;

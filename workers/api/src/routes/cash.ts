@@ -62,13 +62,21 @@ cashRoutes.post("/sessions/open", async (c) => {
   }>();
 
   if (typeof body.opening_amount !== 'number' || body.opening_amount < 0) {
-    return c.json({ success: false, error: 'opening_amount must be a non-negative number' }, 400);
+    return c.json(
+      { success: false, error: { code: "VALIDATION_ERROR", message: "opening_amount must be a non-negative number" } },
+      400
+    );
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) {
+    return c.json(
+      { success: false, error: { code: "FORBIDDEN", message: "User not registered" } },
+      403
+    );
+  }
 
   const existing = await db
     .prepare(
@@ -79,7 +87,7 @@ cashRoutes.post("/sessions/open", async (c) => {
 
   if (existing) {
     return c.json(
-      { success: false, error: "There is already an open session for this branch" },
+      { success: false, error: { code: "CONFLICT", message: "There is already an open session for this branch" } },
       409
     );
   }
@@ -118,12 +126,36 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
     .first<{ id: string }>();
 
   if (!session) {
-    return c.json({ success: false, error: "Open session not found" }, 404);
+    return c.json(
+      { success: false, error: { code: "NOT_FOUND", message: "Open session not found" } },
+      404
+    );
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) {
+    return c.json(
+      { success: false, error: { code: "FORBIDDEN", message: "User not registered" } },
+      403
+    );
+  }
+
+  if (typeof body.closing_amount !== 'number' || !Number.isFinite(body.closing_amount) || body.closing_amount < 0) {
+    return c.json(
+      { success: false, error: { code: "VALIDATION_ERROR", message: "closing_amount must be a non-negative number" } },
+      400
+    );
+  }
+
+  if (body.expected_amount !== undefined && body.expected_amount !== null) {
+    if (typeof body.expected_amount !== 'number' || !Number.isFinite(body.expected_amount)) {
+      return c.json(
+        { success: false, error: { code: "VALIDATION_ERROR", message: "expected_amount must be a number" } },
+        400
+      );
+    }
+  }
 
   const closingAmount = body.closing_amount;
   const expectedAmount = body.expected_amount ?? null;
@@ -157,7 +189,10 @@ cashRoutes.get("/movements", async (c) => {
   const sessionId = c.req.query("session_id");
 
   if (!sessionId) {
-    return c.json({ success: false, error: "session_id is required" }, 400);
+    return c.json(
+      { success: false, error: { code: "VALIDATION_ERROR", message: "session_id is required" } },
+      400
+    );
   }
 
   const results = await db
@@ -182,19 +217,25 @@ cashRoutes.post("/movements", async (c) => {
   }>();
 
   if (!body.cash_session_id || typeof body.cash_session_id !== 'string') {
-    return c.json({ success: false, error: 'cash_session_id is required' }, 400);
+    return c.json(
+      { success: false, error: { code: "VALIDATION_ERROR", message: "cash_session_id is required" } },
+      400
+    );
   }
 
   const VALID_MOVEMENT_TYPES = ['income', 'expense', 'adjustment'];
   if (!VALID_MOVEMENT_TYPES.includes(body.type)) {
     return c.json(
-      { success: false, error: `type must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}` },
+      { success: false, error: { code: "VALIDATION_ERROR", message: `type must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}` } },
       400
     );
   }
 
   if (typeof body.amount !== 'number' || body.amount <= 0) {
-    return c.json({ success: false, error: 'amount must be a number greater than 0' }, 400);
+    return c.json(
+      { success: false, error: { code: "VALIDATION_ERROR", message: "amount must be a number greater than 0" } },
+      400
+    );
   }
 
   const session = await db
@@ -203,16 +244,27 @@ cashRoutes.post("/movements", async (c) => {
     .first<{ id: string; status: string }>();
 
   if (!session) {
-    return c.json({ success: false, error: 'Cash session not found' }, 404);
+    return c.json(
+      { success: false, error: { code: "NOT_FOUND", message: "Cash session not found" } },
+      404
+    );
   }
 
   if (session.status !== 'open') {
-    return c.json({ success: false, error: 'Cash session is not open' }, 409);
+    return c.json(
+      { success: false, error: { code: "CONFLICT", message: "Cash session is not open" } },
+      409
+    );
   }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
-  if (!user) return c.json({ success: false, error: "User not registered" }, 403);
+  if (!user) {
+    return c.json(
+      { success: false, error: { code: "FORBIDDEN", message: "User not registered" } },
+      403
+    );
+  }
 
   const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
   const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);
