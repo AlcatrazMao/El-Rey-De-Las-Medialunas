@@ -43,6 +43,13 @@ export const ProductGroupsEditor: React.FC<ProductGroupsEditorProps> = ({ produc
   const usedOrdenes = new Set(drafts.map((d) => d.orden));
   const nextOrden = ([1, 2, 3] as const).find((o) => !usedOrdenes.has(o)) ?? null;
 
+  // PM-03: si algún slot tiene descuento fijo >= precio base, deshabilitar Guardar.
+  const hasFijoExcedido = drafts.some((d) => {
+    if (d.descuento_tipo !== 'fijo') return false;
+    const base = calcularPrecioBase(product.price, d as ProductGroup);
+    return base > 0 && d.descuento >= base;
+  });
+
   const updateDraft = (idx: number, patch: Partial<Draft>) => {
     setDrafts((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
   };
@@ -136,6 +143,11 @@ export const ProductGroupsEditor: React.FC<ProductGroupsEditorProps> = ({ produc
         const base = calcularPrecioBase(product.price, d as ProductGroup);
         const total = calcularTotalFinal(product.price, d as ProductGroup);
         const ahorro = parseFloat((base - total).toFixed(2));
+
+        // PM-03: Validación en tiempo real — descuento fijo no puede ser >= precio base.
+        // Se recalcula reactivamente al cambiar cantidad, precio unitario, descuento o tipo.
+        const descuentoFijoExcedePrecio =
+          d.descuento_tipo === 'fijo' && d.descuento >= base && base > 0;
 
         return (
           <div
@@ -267,6 +279,15 @@ export const ProductGroupsEditor: React.FC<ProductGroupsEditorProps> = ({ produc
               </div>
             </div>
 
+            {descuentoFijoExcedePrecio && (
+              <p
+                id={`group-error-descuento-${idx}`}
+                className="text-[10px] text-red-600 dark:text-red-400 font-bold"
+              >
+                El descuento supera el precio del grupo.
+              </p>
+            )}
+
             {errors[idx] && (
               <p className="text-[10px] text-red-600 dark:text-red-400 font-bold">{errors[idx]}</p>
             )}
@@ -297,7 +318,8 @@ export const ProductGroupsEditor: React.FC<ProductGroupsEditorProps> = ({ produc
           type="button"
           id="btn-group-save"
           onClick={handleSave}
-          className="flex-1 py-2 px-3 text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-xl cursor-pointer flex items-center justify-center gap-1 transition-colors"
+          disabled={hasFijoExcedido}
+          className="flex-1 py-2 px-3 text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1 transition-colors"
         >
           <Save className="h-3.5 w-3.5" /> Guardar grupos
         </button>

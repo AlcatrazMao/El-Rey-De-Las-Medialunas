@@ -503,7 +503,13 @@ const MAX_GROUPS_PER_PRODUCT = 3;
 
 type DescuentoTipo = "porcentaje" | "fijo";
 
-function validateGroupCommon(body: {
+export const PRODUCT_GROUP_LIMITS = {
+  MAX_GROUP_NAME_LEN,
+  MAX_GROUP_CANTIDAD,
+  MAX_GROUPS_PER_PRODUCT,
+} as const;
+
+export function validateGroupCommon(body: {
   nombre?: unknown;
   cantidad?: unknown;
   descuento?: unknown;
