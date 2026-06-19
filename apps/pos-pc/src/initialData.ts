@@ -184,9 +184,13 @@ export const INITIAL_SALES: Sale[] = [
       { productId: 'prod_medialuna_manteca', name: 'Medialuna de Manteca', quantity: 12, price: 0.90, subtotal: 10.80 },
       { productId: 'prod_cafe', name: 'Café Espresso Premium', quantity: 2, price: 2.50, subtotal: 5.00 }
     ],
+    subtotal_bruto: 20.20,
+    discount_total: 0,
+    total_final: 20.20,
     total: 20.20,
     tax: 3.50,
-    paymentMethod: 'efectivo',
+    idempotencyKey: 'seed_sale_1',
+    paymentMethod: 'tarjeta',
     paymentStatus: 'completed',
     operatorRole: 'cajero',
     operatorName: 'Rodrigo Gómez',
@@ -199,8 +203,12 @@ export const INITIAL_SALES: Sale[] = [
     items: [
       { productId: 'prod_torta_frutilla', name: 'Tarta de Frutillas con Crema', quantity: 1, price: 18.50, subtotal: 18.50 }
     ],
+    subtotal_bruto: 18.50,
+    discount_total: 0,
+    total_final: 18.50,
     total: 18.50,
     tax: 3.21,
+    idempotencyKey: 'seed_sale_2',
     paymentMethod: 'tarjeta',
     paymentStatus: 'completed',
     operatorRole: 'cajero',
@@ -215,28 +223,17 @@ export const INITIAL_SALES: Sale[] = [
       { productId: 'prod_sand_miga', name: 'Sándwich de Miga (JyQ x6)', quantity: 2, price: 12.00, subtotal: 24.00 },
       { productId: 'prod_jugo', name: 'Jugo Naranja Exprimido', quantity: 2, price: 3.20, subtotal: 6.40 }
     ],
+    subtotal_bruto: 30.40,
+    discount_total: 0,
+    total_final: 30.40,
     total: 30.40,
     tax: 5.28,
-    paymentMethod: 'mercado_pago',
+    idempotencyKey: 'seed_sale_3',
+    paymentMethod: 'transferencia',
     paymentStatus: 'completed',
     operatorRole: 'admin',
     operatorName: 'Carlos Pastor (Dueño)',
     customerName: 'Sonia Díaz'
-  },
-  {
-    id: 'sale_4',
-    invoiceNumber: 'FC-B-0001-0000344',
-    date: '2026-06-04T12:30:00Z',
-    items: [
-      { productId: 'prod_medialuna_manteca', name: 'Medialuna de Manteca', quantity: 6, price: 0.90, subtotal: 5.40 }
-    ],
-    total: 5.40,
-    tax: 0.94,
-    paymentMethod: 'paypal',
-    paymentStatus: 'failed', // Failed simulated transaction for push notification alerts!
-    operatorRole: 'cajero',
-    operatorName: 'Rodrigo Gómez',
-    customerName: 'Cliente Anónimo'
   },
   {
     id: 'sale_5',
@@ -245,9 +242,13 @@ export const INITIAL_SALES: Sale[] = [
     items: [
       { productId: 'prod_felipe', name: 'Mignon / Felipe o Pancito', quantity: 15, price: 0.40, subtotal: 6.00 }
     ],
+    subtotal_bruto: 6.00,
+    discount_total: 0,
+    total_final: 6.00,
     total: 6.00,
     tax: 1.04,
-    paymentMethod: 'efectivo',
+    idempotencyKey: 'seed_sale_5',
+    paymentMethod: 'transferencia',
     paymentStatus: 'completed',
     operatorRole: 'cajero',
     operatorName: 'Rodrigo Gómez'

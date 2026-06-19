@@ -23,7 +23,7 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS,
 } from './initialData';
-import { syncSaleToD1, updateSupplyRequestStatusInD1, syncStockMovementToD1 } from './services/d1-sync';
+import { syncSaleToD1, buildSalePayload, updateSupplyRequestStatusInD1, syncStockMovementToD1 } from './services/d1-sync';
 import { formatCurrency } from './utils/format';
 import type {
   Ingredient, Product, ProductGroup, Sale, Expense, User, PushNotification, PaymentGateway,
@@ -45,7 +45,7 @@ interface AppContextType {
   setActiveUserRole: (role: UserRole) => void;
   setActiveTab: (tab: string) => void;
   setBatches: React.Dispatch<React.SetStateAction<ProductBatch[]>>;
-  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail?: boolean, discountPercent?: number, priceListDiscountPercent?: number) => { success: boolean; invoice?: Sale; error?: string };
+  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent?: number, priceListDiscountPercent?: number, idempotencyKey?: string) => { success: boolean; invoice?: Sale; error?: { code: string; message: string } };
   addExpense: (expense: Omit<Expense, 'id' | 'date'>) => void;
   addIngredient: (ingredient: Omit<Ingredient, 'id'>) => void;
   updateIngredientStock: (id: string, newStock: number) => void;
@@ -105,76 +105,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only effect; hook refs are stable
   }, []);
 
-  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail: boolean = false, discountPercent = 0, priceListDiscountPercent = 0) => {
-    if (cartItems.length === 0) return { success: false, error: 'La venta está vacía.' };
+  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string) => {
+    if (cartItems.length === 0) {
+      return { success: false, error: { code: 'EMPTY_CART', message: 'La venta está vacía.' } };
+    }
 
     // Bug 8 fix: capture settings once — avoids repeated getSettings() calls throughout the function
     const settings = getSettings();
     const ivaRate = settings.fiscal.ivaRate;
 
-    if (paymentMethod === 'tarjeta' || paymentMethod === 'mercado_pago' || paymentMethod === 'paypal') {
-      const gMap: Record<Sale['paymentMethod'], string> = { tarjeta: 'gate_stripe', mercado_pago: 'gate_mp', paypal: 'gate_paypal', efectivo: '', transferencia: '' };
-      const gate = inv.gateways.find(g => g.id === gMap[paymentMethod]);
-      if (gate && gate.status === 'inactive') {
-        const errMsg = `La pasarela de pago para ${gate.name} está inactiva. Habilítala desde Configuración.`;
-        notif.addSystemNotification('❌ Error de Pago', errMsg, 'error');
-        return { success: false, error: errMsg };
-      }
-    }
+    // Idempotency: si el caller no mandó key, generamos una. Idealmente la genera
+    // el POSView al iniciar el cobro y la pasa acá.
+    const finalIdempotencyKey = idempotencyKey ?? (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `idem_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
 
     // Snapshot for validation and line-item building; actual state updates use functional setters below.
     const snapshotProducts = [...inv.products];
     const snapshotIngredients = [...inv.ingredients];
     const saleLineItems: Sale['items'] = [];
     const lowStockAlerts: string[] = [];
-
-    if (simulateFail) {
-      const totalFail = cartItems.reduce((acc, c) => {
-        const prod = inv.products.find(p => p.id === c.productId);
-        const price = c.unitPrice ?? prod?.price ?? 0;
-        return acc + price * c.quantity;
-      }, 0);
-      const failNow = Date.now();
-      const failedSalePayload: Sale = {
-        id: `sale_fail_${failNow}`,
-        invoiceNumber: `FC-X-${failNow.toString().slice(-4)}-${failNow.toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-        date: new Date().toISOString(),
-        items: cartItems.map(cart => {
-          const prod = inv.products.find(p => p.id === cart.productId);
-          const linePrice = cart.unitPrice ?? prod?.price ?? 0;
-          return { productId: cart.productId, name: prod?.name || 'Producto Desconocido', quantity: cart.quantity, price: linePrice, subtotal: parseFloat((linePrice * cart.quantity).toFixed(2)), presentation: cart.presentation, admite_acum_desc: cart.admite_acum_desc };
-        }),
-        total: totalFail,
-        tax: parseFloat((totalFail - totalFail / (1 + ivaRate)).toFixed(2)),
-        paymentMethod, paymentStatus: 'failed',
-        operatorRole: usr.activeUser.role, operatorName: usr.activeUser.name,
-        customerName: customName || 'Cliente de Caja', customerDoc: customDoc,
-      };
-      sal.setSales(prev => [failedSalePayload, ...prev]);
-      notif.addSystemNotification('❌ Transacción Fallida', `Pago con ${paymentMethod.replace('_', ' ').toUpperCase()} rechazado por el banco. Importe: ${formatCurrency(failedSalePayload.total)}`, 'error');
-      return { success: false, invoice: failedSalePayload, error: 'Transacción denegada por la pasarela de pagos.' };
-    }
+    const stockWarnings: string[] = [];
 
     // Validation pass — uses snapshot (early-exit, no state mutation yet)
-    // Stock check is aggregated per product across all cart lines so multiple
-    // group/unit lines for the same product don't sneak past a per-line check.
+    for (const item of cartItems) {
+      const product = snapshotProducts.find(p => p.id === item.productId);
+      if (!product) {
+        return { success: false, error: { code: 'PRODUCT_NOT_FOUND', message: `El producto ${item.productId} no existe.` } };
+      }
+    }
+
+    // Stock se VERIFICA pero nunca BLOQUEA — filosofía offline-first.
+    // Si el stock disponible no alcanza, registramos un warning para mostrar
+    // al cajero pero la venta procede normalmente.
     const totalByProduct = new Map<string, number>();
     for (const item of cartItems) {
       totalByProduct.set(item.productId, (totalByProduct.get(item.productId) ?? 0) + item.quantity);
     }
-    for (const item of cartItems) {
-      const product = snapshotProducts.find(p => p.id === item.productId);
-      if (!product) return { success: false, error: `El producto ${item.productId} no existe.` };
-    }
     for (const [productId, totalQty] of totalByProduct.entries()) {
       const product = snapshotProducts.find(p => p.id === productId);
       if (!product) continue;
-      if (product.stock < totalQty) return { success: false, error: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}, Solicitado: ${totalQty}` };
-      for (const recipeIng of product.ingredients) {
-        const ing = snapshotIngredients.find(i => i.id === recipeIng.ingredientId);
-        if (!ing) continue;
-        const needed = recipeIng.quantity * totalQty;
-        if (ing.stock < needed) return { success: false, error: `Materia prima insuficiente para producir ${product.name}. Falta ${ing.name} (Necesitado: ${needed.toFixed(2)}${ing.unit}, Disponible: ${ing.stock.toFixed(2)}${ing.unit})` };
+      if (product.stock < totalQty) {
+        stockWarnings.push(`⚠️ ${product.name}: stock reportado ${product.stock} < pedido ${totalQty}. Venta procesada igual.`);
       }
     }
 
@@ -213,26 +185,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
       });
     }
 
-    const subtotalTotal = saleLineItems.reduce((acc, curr) => acc + curr.subtotal, 0);
-    // El descuento manual solo se aplica sobre las líneas elegibles:
-    // - Líneas sin presentación (venta unitaria): siempre admiten descuento
-    // - Líneas con presentación: solo si admite_acum_desc === 1
+    // ── Cálculo de los 3 campos canónicos ───────────────────────────────────
+    // subtotal_bruto = suma(unit_price × quantity) sin ningún descuento
+    // total_final    = lo que se cobra (subtotal − descuentos + ajuste método)
+    // discount_total = subtotal_bruto − total_final (SIEMPRE derivado)
+    const subtotalBruto = parseFloat(
+      saleLineItems.reduce((acc, curr) => acc + curr.subtotal, 0).toFixed(2)
+    );
+
+    const pmConfig = settings.paymentMethods?.find(m => m.id === paymentMethod);
+    const acumulaDescuentos = pmConfig?.acumulaDescuentos ?? false;
+    // Si el método de pago NO acumula descuentos, anulamos descuento manual + lista.
+    const effectiveDiscountPercent = acumulaDescuentos ? discountPercent : 0;
+    const effectivePriceListPercent = acumulaDescuentos ? priceListDiscountPercent : 0;
+
+    // El descuento manual solo se aplica sobre las líneas elegibles
     const eligibleSubtotal = saleLineItems.reduce((acc, curr) => {
       const admits = !curr.presentation || curr.admite_acum_desc === 1;
       return admits ? acc + curr.subtotal : acc;
     }, 0);
-    const discountAmount = discountPercent > 0 ? parseFloat((eligibleSubtotal * discountPercent / 100).toFixed(2)) : 0;
-    const afterDiscountTotal = parseFloat((subtotalTotal - discountAmount).toFixed(2));
-    // Price list adjustment: positive = discount (reduction), negative = markup (addition)
-    const priceListAdjustmentAmount = priceListDiscountPercent !== 0
-      ? parseFloat((afterDiscountTotal * priceListDiscountPercent / 100).toFixed(2))
+    const discountAmount = effectiveDiscountPercent > 0
+      ? parseFloat((eligibleSubtotal * effectiveDiscountPercent / 100).toFixed(2))
+      : 0;
+    const afterDiscountTotal = parseFloat((subtotalBruto - discountAmount).toFixed(2));
+    // Lista de precios: positivo = descuento, negativo = recargo
+    const priceListAdjustmentAmount = effectivePriceListPercent !== 0
+      ? parseFloat((afterDiscountTotal * effectivePriceListPercent / 100).toFixed(2))
       : 0;
     const afterPriceListTotal = parseFloat((afterDiscountTotal - priceListAdjustmentAmount).toFixed(2));
-    const pmConfig = settings.paymentMethods?.find((m: { id: string }) => m.id === paymentMethod);
-    const surchargePercent = (pmConfig as { surchargePercent?: number } | undefined)?.surchargePercent ?? 0;
-    const surchargeAmount = surchargePercent > 0 ? parseFloat((afterPriceListTotal * surchargePercent / 100).toFixed(2)) : 0;
-    const finalTotal = parseFloat((afterPriceListTotal + surchargeAmount).toFixed(2));
-    const finalTax = parseFloat((finalTotal - finalTotal / (1 + ivaRate)).toFixed(2));
+
+    // Ajuste por método de pago (nuevo modelo: recargo | descuento | ninguno)
+    const adjustmentType = pmConfig?.adjustmentType ?? 'none';
+    const adjustmentPercent = pmConfig?.adjustmentPercent ?? 0;
+    let paymentAdjustmentAmount = 0;
+    if (adjustmentType === 'recargo' && adjustmentPercent > 0) {
+      paymentAdjustmentAmount = parseFloat((afterPriceListTotal * adjustmentPercent / 100).toFixed(2));
+    } else if (adjustmentType === 'descuento' && adjustmentPercent > 0) {
+      paymentAdjustmentAmount = -parseFloat((afterPriceListTotal * adjustmentPercent / 100).toFixed(2));
+    }
+
+    const totalFinal = parseFloat((afterPriceListTotal + paymentAdjustmentAmount).toFixed(2));
+    // discount_total SIEMPRE derivado de la identidad contable.
+    const discountTotal = parseFloat((subtotalBruto - totalFinal).toFixed(2));
+    const finalTax = parseFloat((totalFinal - totalFinal / (1 + ivaRate)).toFixed(2));
 
     const dateToday = new Date();
 
@@ -247,15 +242,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     const operatorRole = seller ? seller.role : usr.activeUser.role;
 
     const newSaleInstance: Sale = {
-      id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, invoiceNumber, date: dateToday.toISOString(),
-      items: saleLineItems, total: finalTotal, tax: finalTax,
-      paymentMethod, paymentStatus: 'completed', operatorRole, operatorName,
-      customerName: customName || 'Consumidor Final', customerDoc: customDoc,
+      id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      invoiceNumber,
+      date: dateToday.toISOString(),
+      items: saleLineItems,
+      // Source of truth contable — los 3 campos canónicos
+      subtotal_bruto: subtotalBruto,
+      discount_total: discountTotal,
+      total_final: totalFinal,
+      total: totalFinal,
+      tax: finalTax,
+      idempotencyKey: finalIdempotencyKey,
+      paymentMethod,
+      paymentStatus: 'completed',
+      operatorRole,
+      operatorName,
+      customerName: customName || 'Consumidor Final',
+      customerDoc: customDoc,
       customerId: customerId || undefined,
-      discountPercent: discountPercent > 0 ? discountPercent : undefined,
+      discountPercent: effectiveDiscountPercent > 0 ? effectiveDiscountPercent : undefined,
       discountAmount: discountAmount > 0 ? discountAmount : undefined,
-      surchargePercent: surchargePercent > 0 ? surchargePercent : undefined,
-      surchargeAmount: surchargeAmount > 0 ? surchargeAmount : undefined,
+      paymentAdjustmentType: adjustmentType !== 'none' && adjustmentPercent > 0 ? adjustmentType : undefined,
+      paymentAdjustmentPercent: adjustmentType !== 'none' && adjustmentPercent > 0 ? adjustmentPercent : undefined,
+      paymentAdjustmentAmount: paymentAdjustmentAmount !== 0 ? paymentAdjustmentAmount : undefined,
     };
 
     bch.setBatches(prevBatches => {
@@ -308,37 +317,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
 
     sal.setSales(prev => [newSaleInstance, ...prev]);
 
-    syncEnqueueSale({
-      id: newSaleInstance.id,
-      items: newSaleInstance.items.map(i => ({
-        product_id: i.productId,
-        quantity: i.quantity,
-        unit_price: i.price,
-        tax_rate: ivaRate * 100,
-        tax_amount: (i.subtotal - i.subtotal / (1 + ivaRate)),
-      })),
-      payments: [{ payment_method: paymentMethod === 'efectivo' ? 'cash' : paymentMethod, amount: newSaleInstance.total }],
-      subtotal: subtotalTotal,
-      discount_total: discountAmount,
-      tax_total: newSaleInstance.tax,
-      total: newSaleInstance.total,
-      customer_id: newSaleInstance.customerId ?? null,
-      notes: null,
-      client_timestamp: newSaleInstance.date,
-    }).catch(() => {});
-
-    if (paymentMethod === 'efectivo' && cash.currentCashSession) {
-      cash.setCurrentCashSession(prev => {
-        if (!prev) return null;
-        return { ...prev, expectedAmount: parseFloat((prev.expectedAmount + newSaleInstance.total).toFixed(2)) };
-      });
-    }
-
     notif.addSystemNotification('💸 Nueva Venta Registrada', `Factura ${invoiceNumber} generada con éxito por ${formatCurrency(newSaleInstance.total)}`, 'success');
     addAutoNote(`💸 Venta ${invoiceNumber}`, `Total: ${formatCurrency(newSaleInstance.total)}\nItems: ${saleLineItems.length}\nPago: ${paymentMethod}`, 'ventas', 'low');
 
-    syncSaleToD1(newSaleInstance).catch((err: unknown) => {
+    // ── SYNC UNIFICADO ──────────────────────────────────────────────────────
+    // Un solo path al backend con los 3 campos canónicos + idempotency_key.
+    // Si falla (red caída, backend rechaza), encolamos en Dexie para reintento
+    // y avisamos al cajero sin bloquear.
+    syncSaleToD1(newSaleInstance).catch(async (err: unknown) => {
       if (import.meta.env.DEV) console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);
+      // Marcamos la venta como no sincronizada para reflejarlo en UI/historial.
+      sal.setSales(prev => prev.map(s => s.id === newSaleInstance.id ? { ...s, syncFailed: true } : s));
+      // Fallback: la encolamos en Dexie para reintento automático del SyncEngine.
+      try {
+        await syncEnqueueSale(buildSalePayload(newSaleInstance, ivaRate));
+      } catch { /* indexeddb lleno */ }
+      notif.addSystemNotification(
+        '⚠️ Venta no sincronizada',
+        'Esta venta no pudo sincronizarse con el servidor. Se reintentará automáticamente.',
+        'warning',
+      );
+    });
+
+    // Stock warnings (no bloqueantes) — la venta procede igual
+    stockWarnings.forEach(warning => {
+      notif.addSystemNotification('⚠️ Stock advertido', warning, 'warning');
     });
 
     // Low-stock alerts were computed from the snapshot before functional setters ran —

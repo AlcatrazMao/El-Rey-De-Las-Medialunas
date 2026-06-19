@@ -95,6 +95,7 @@ salesRoutes.post("/", async (c) => {
   const db = c.env.DB;
   const body = await c.req.json<{
     client_id?: string;
+    idempotency_key?: string;
     branch_id?: string;
     customer_id?: string;
     items: {
@@ -112,9 +113,13 @@ salesRoutes.post("/", async (c) => {
       reference?: string;
     }[];
     notes?: string;
+    // Nuevos campos canónicos (3 campos explícitos, source of truth = frontend)
+    subtotal_bruto?: number;
+    discount_total?: number;
+    total_final?: number;
+    // Legacy (compat con sync queue antiguo)
     subtotal?: number;
     tax_total?: number;
-    discount_total?: number;
     total?: number;
   }>();
 
@@ -123,6 +128,33 @@ salesRoutes.post("/", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+
+  // ── Idempotencia ────────────────────────────────────────────────────────
+  // Si llega un idempotency_key y ya existe una venta con ese key, devolver la
+  // venta existente con 200 sin re-procesar nada. Esto blinda los reintentos
+  // del POS (red caída, cliente reenviando, cola de sync, etc).
+  const idempotencyKey = typeof body.idempotency_key === "string" && body.idempotency_key.trim() !== ""
+    ? body.idempotency_key.trim()
+    : null;
+
+  if (idempotencyKey) {
+    const existing = await db
+      .prepare("SELECT id, sale_number, branch_id, created_at FROM sales WHERE idempotency_key = ? LIMIT 1")
+      .bind(idempotencyKey)
+      .first<{ id: string; sale_number: number; branch_id: string; created_at: string }>();
+    if (existing) {
+      return c.json({
+        success: true,
+        data: {
+          id: existing.id,
+          sale_number: existing.sale_number,
+          branch_id: existing.branch_id,
+          created_at: existing.created_at,
+          idempotent_replay: true,
+        },
+      }, 200);
+    }
+  }
 
   // TODO: add UNIQUE constraint on (branch_id, sale_number) in a migration to prevent
   // duplicate sale numbers under concurrent requests (MAX+1 is not safe without a lock).
@@ -172,26 +204,56 @@ salesRoutes.post("/", async (c) => {
     }
   }
 
-  // SECURITY: compute monetary totals server-side. Never trust client-provided
-  // subtotal/total — that would let a client submit "total: 0.01" for an
-  // expensive sale. We use the items+payments the client sent and re-derive
-  // every total from them.
-  const computedSubtotal = items.reduce(
-    (acc, item) => acc + Number(item.unit_price) * Number(item.quantity),
-    0,
+  // SOURCE OF TRUTH: el frontend manda los 3 campos canónicos (subtotal_bruto,
+  // discount_total, total_final). El backend NO recalcula — solo valida que la
+  // identidad |subtotal_bruto - discount_total - total_final| <= 1 se cumpla.
+  // Si no llegan, caemos al cálculo legacy desde los items (sync queue antiguo).
+  const subtotalBrutoFromItems = parseFloat(
+    items.reduce((acc, item) => acc + Number(item.unit_price) * Number(item.quantity), 0).toFixed(2),
   );
-  const computedDiscountTotal = items.reduce(
-    (acc, item) => acc + Number(item.discount ?? 0),
-    0,
-  );
-  const computedTaxTotal = items.reduce(
-    (acc, item) => acc + Number(item.tax_amount ?? 0),
-    0,
-  );
-  const subtotal = parseFloat(computedSubtotal.toFixed(2));
-  const discountTotal = parseFloat(computedDiscountTotal.toFixed(2));
-  const taxTotal = parseFloat(computedTaxTotal.toFixed(2));
-  const total = parseFloat((subtotal - discountTotal + taxTotal).toFixed(2));
+
+  let subtotal: number;
+  let discountTotal: number;
+  let total: number;
+
+  const hasCanonicalTotals =
+    Number.isFinite(Number(body.subtotal_bruto)) &&
+    Number.isFinite(Number(body.discount_total)) &&
+    Number.isFinite(Number(body.total_final));
+
+  if (hasCanonicalTotals) {
+    subtotal = parseFloat(Number(body.subtotal_bruto).toFixed(2));
+    discountTotal = parseFloat(Number(body.discount_total).toFixed(2));
+    total = parseFloat(Number(body.total_final).toFixed(2));
+    // Identidad contable: tolerancia ±1 ARS por redondeos de cliente.
+    if (Math.abs(subtotal - discountTotal - total) > 1) {
+      return c.json(
+        {
+          success: false,
+          error: { code: "TOTALS_MISMATCH", message: "Los totales de la venta no cuadran" },
+        },
+        400,
+      );
+    }
+  } else {
+    // Legacy / cola de sync: derivamos de los items.
+    const computedDiscountTotal = parseFloat(
+      items.reduce((acc, item) => acc + Number(item.discount ?? 0), 0).toFixed(2),
+    );
+    const computedTaxTotal = parseFloat(
+      items.reduce((acc, item) => acc + Number(item.tax_amount ?? 0), 0).toFixed(2),
+    );
+    subtotal = subtotalBrutoFromItems;
+    discountTotal = computedDiscountTotal;
+    total = parseFloat((subtotal - discountTotal + computedTaxTotal).toFixed(2));
+  }
+
+  // tax_total: si llegó explícito desde el cliente lo respetamos; si no, derivamos.
+  const taxTotal = Number.isFinite(Number(body.tax_total))
+    ? parseFloat(Number(body.tax_total).toFixed(2))
+    : parseFloat(
+        items.reduce((acc, item) => acc + Number(item.tax_amount ?? 0), 0).toFixed(2),
+      );
 
   if (!Number.isFinite(total) || total < 0) {
     return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Total calculado inválido" } }, 400);
@@ -201,12 +263,13 @@ salesRoutes.post("/", async (c) => {
 
   const saleInsert = db
     .prepare(
-      `INSERT INTO sales (id, client_id, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?, ?)`
+      `INSERT INTO sales (id, client_id, idempotency_key, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?, ?)`
     )
     .bind(
       saleId,
       body.client_id ?? null,
+      idempotencyKey,
       branchId,
       userId,
       body.customer_id ?? null,
@@ -263,7 +326,33 @@ salesRoutes.post("/", async (c) => {
       400,
     );
   }
-  await db.batch(allStatements);
+  try {
+    await db.batch(allStatements);
+  } catch (err) {
+    // Race-condition con el índice único en idempotency_key: si dos requests
+    // llegaron casi al mismo tiempo con el mismo key, el segundo falla acá.
+    // Re-buscamos la venta original y la devolvemos como replay.
+    const message = err instanceof Error ? err.message : String(err);
+    if (idempotencyKey && /UNIQUE|idempotency/i.test(message)) {
+      const existing = await db
+        .prepare("SELECT id, sale_number, branch_id, created_at FROM sales WHERE idempotency_key = ? LIMIT 1")
+        .bind(idempotencyKey)
+        .first<{ id: string; sale_number: number; branch_id: string; created_at: string }>();
+      if (existing) {
+        return c.json({
+          success: true,
+          data: {
+            id: existing.id,
+            sale_number: existing.sale_number,
+            branch_id: existing.branch_id,
+            created_at: existing.created_at,
+            idempotent_replay: true,
+          },
+        }, 200);
+      }
+    }
+    throw err;
+  }
 
   return c.json({ success: true, data: { id: saleId, sale_number: saleNumber, branch_id: branchId, created_at: now } }, 201);
 });

@@ -51,7 +51,7 @@ export const POSView: React.FC = () => {
     admite_acum_desc?: 0 | 1;
   }[]>([]);
   const [groupSelectorProduct, setGroupSelectorProduct] = useState<Product | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<Sale['paymentMethod']>('efectivo');
+  const [paymentMethod, setPaymentMethod] = useState<Sale['paymentMethod']>('tarjeta');
   const [selectedDiscount, setSelectedDiscount] = useState<number>(0);
   const [customerName, setCustomerName] = useState('');
   const [customerDoc, setCustomerDoc] = useState('');
@@ -86,7 +86,6 @@ export const POSView: React.FC = () => {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [latestInvoice, setLatestInvoice] = useState<Sale | null>(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [simulateFailedPayment, setSimulateFailedPayment] = useState(false);
   const [processingStatusText, setProcessingStatusText] = useState('');
 
   const pendingTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -283,10 +282,9 @@ export const POSView: React.FC = () => {
             <button
               key={prod.id}
               onClick={() => { addToCart(prod); playBeep(800, 0.05); }}
-              disabled={!inStock}
               className={`relative flex flex-col justify-between text-left p-3 rounded-2xl border transition-all active:scale-97 cursor-pointer ${
                 !inStock
-                  ? 'bg-gray-100 dark:bg-zinc-950/20 border-gray-300 dark:border-zinc-800 opacity-60 cursor-not-allowed'
+                  ? 'bg-red-50/40 dark:bg-red-950/10 border-red-200 dark:border-red-900/40 hover:bg-red-50/60'
                   : lowStock
                   ? 'bg-amber-50/40 dark:bg-amber-950/10 border-amber-200 dark:border-amber-900/60 hover:bg-amber-50/70'
                   : 'bg-white dark:bg-zinc-850 hover:bg-orange-50/30 dark:hover:bg-zinc-800 border-amber-100/40 dark:border-zinc-850/50 hover:border-amber-200 shadow-xs'
@@ -438,20 +436,15 @@ export const POSView: React.FC = () => {
                               {quantityInCart}
                             </span>
 
-                            {/* Increment Button */}
+                            {/* Increment Button — stock no bloquea (offline-first) */}
                             <button
                               id={`btn-modal-qty-inc-${prod.id}`}
-                              disabled={quantityInCart >= prod.stock}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (quantityInCart < prod.stock) {
-                                  addToCart(prod);
-                                  playBeep(1105, 0.05);
-                                } else {
-                                  addSystemNotification('⚠️ Stock límite', `No se pueden agregar más unidades de ${prod.name}`, 'warning');
-                                }
+                                addToCart(prod);
+                                playBeep(1105, 0.05);
                               }}
-                              className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-zinc-700 text-gray-600 dark:text-zinc-400 disabled:opacity-50 cursor-pointer transition-colors active:scale-95"
+                              className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-zinc-700 text-gray-600 dark:text-zinc-400 cursor-pointer transition-colors active:scale-95"
                               title="Sumar 1 unidad"
                             >
                               <Plus className="h-3 w-3" />
@@ -474,15 +467,19 @@ export const POSView: React.FC = () => {
                         ) : (
                           <button
                             id={`btn-modal-quick-add-${prod.id}`}
-                            disabled={prod.stock <= 0}
                             onClick={(e) => {
                               e.stopPropagation();
                               addToCart(prod);
                               playBeep(1105, 0.07);
                             }}
-                            className="py-1 px-3.5 rounded-xl border border-amber-300 dark:border-amber-900 bg-amber-50 hover:bg-amber-100 dark:bg-amber-955/20 dark:hover:bg-amber-955/45 text-amber-805 dark:text-amber-400 text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                            className={`py-1 px-3.5 rounded-xl border text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105 active:scale-95 ${
+                              prod.stock <= 0
+                                ? 'border-red-300 dark:border-red-900 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400'
+                                : 'border-amber-300 dark:border-amber-900 bg-amber-50 hover:bg-amber-100 dark:bg-amber-955/20 dark:hover:bg-amber-955/45 text-amber-805 dark:text-amber-400'
+                            }`}
+                            title={prod.stock <= 0 ? 'Stock no garantizado — la venta procede igual' : 'Agregar al carrito'}
                           >
-                            {prod.stock <= 0 ? 'Sin stock' : 'Agregar +'}
+                            {prod.stock <= 0 ? '⚠ Agregar' : 'Agregar +'}
                           </button>
                         )}
                       </div>
@@ -497,14 +494,24 @@ export const POSView: React.FC = () => {
     );
   };
 
+  // Filosofía: NUNCA bloquear una venta por stock. Si está en <= 0, mostramos
+  // un warning visual pero permitimos agregar al carrito. El sistema es
+  // offline-first y el stock puede estar desactualizado.
+  const warnIfNoStock = (product: Product) => {
+    if (product.stock <= 0) {
+      addSystemNotification(
+        '⚠️ Stock no garantizado',
+        `${product.name}: stock reportado ${product.stock}. La venta procede igual — verificá físicamente si hace falta.`,
+        'warning',
+      );
+      playBeep(360, 0.12);
+    }
+  };
+
   // Add item to POS cart — if the product has groups configured, opens the
   // selector modal first. The modal then calls addUnitToCart / addGroupToCart.
   const addToCart = (product: Product) => {
-    if (product.stock <= 0) {
-      addSystemNotification('❌ Sin Stock Disponible', `El producto ${product.name} no tiene stock suficiente para venderse en este momento.`, 'warning');
-      playBeep(220, 0.25);
-      return;
-    }
+    warnIfNoStock(product);
 
     if ((product.groups?.length ?? 0) > 0) {
       setGroupSelectorProduct(product);
@@ -519,20 +526,11 @@ export const POSView: React.FC = () => {
   const addUnitToCart = (product: Product) => {
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id && !item.presentation);
-      const totalQtyForProduct = prev.filter(i => i.product.id === product.id).reduce((s, i) => s + i.quantity, 0);
       if (existing) {
-        if (totalQtyForProduct >= product.stock) {
-          addSystemNotification('⚠️ Límite de Stock', `No puedes agregar más de ${product.stock} unidades de ${product.name} (stock actual).`, 'warning');
-          return prev;
-        }
         playBeep(600, 0.05);
         return prev.map(item =>
           item === existing ? { ...item, quantity: item.quantity + 1 } : item
         );
-      }
-      if (totalQtyForProduct + 1 > product.stock) {
-        addSystemNotification('⚠️ Límite de Stock', `No puedes agregar más de ${product.stock} unidades de ${product.name} (stock actual).`, 'warning');
-        return prev;
       }
       playBeep(1000, 0.05);
       return [...prev, { product, quantity: 1, unitPrice: product.price }];
@@ -545,11 +543,6 @@ export const POSView: React.FC = () => {
   const addGroupToCart = (product: Product, group: ProductGroup) => {
     const unitPrice = calcularPrecioUnitarioGrupo(product.price, group);
     setCart(prev => {
-      const totalQtyForProduct = prev.filter(i => i.product.id === product.id).reduce((s, i) => s + i.quantity, 0);
-      if (totalQtyForProduct + group.cantidad > product.stock) {
-        addSystemNotification('⚠️ Límite de Stock', `No hay stock suficiente para ${group.nombre} (faltan unidades de ${product.name}).`, 'warning');
-        return prev;
-      }
       playBeep(1100, 0.07);
       return [
         ...prev,
@@ -616,28 +609,41 @@ export const POSView: React.FC = () => {
   const cartSubtotal = cart.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
   const cartIvaRate = posSettings.fiscal.ivaRate;
 
+  // Config del método de pago seleccionado
+  const pmConfig = posSettings.paymentMethods?.find(m => m.id === paymentMethod);
+  const acumulaDescuentos = pmConfig?.acumulaDescuentos ?? false;
+  // Si el método de pago NO acumula descuentos, los anulamos en el cálculo del POS.
+  const effectiveDiscount = acumulaDescuentos ? selectedDiscount : 0;
+
   // Solo aplica el descuento manual sobre las líneas que admiten acumulación
   // (sin presentation = siempre admiten; con presentation = depende de admite_acum_desc).
   const eligibleSubtotal = cart.reduce((acc, item) => {
     const admits = !item.presentation || item.admite_acum_desc === 1;
     return admits ? acc + item.unitPrice * item.quantity : acc;
   }, 0);
-  const discountAmount = selectedDiscount > 0 ? parseFloat((eligibleSubtotal * selectedDiscount / 100).toFixed(2)) : 0;
+  const discountAmount = effectiveDiscount > 0 ? parseFloat((eligibleSubtotal * effectiveDiscount / 100).toFixed(2)) : 0;
   const afterDiscount = parseFloat((cartSubtotal - discountAmount).toFixed(2));
-  // Active price list: linked to the selected payment method (single payment mode only)
-  const pmConfig = posSettings.paymentMethods?.find(m => m.id === paymentMethod);
+
+  // Lista de precios: igual que el descuento manual, queda anulada si el método no acumula.
   const activePriceList = pmConfig?.linkedPriceListId
     ? (posSettings.priceLists.find(pl => pl.id === pmConfig.linkedPriceListId) ?? null)
     : null;
-  // Price list adjustment: positive discountPercent = discount, negative = markup
-  const priceListDiscountPercent = activePriceList?.discountPercent ?? 0;
+  const priceListDiscountPercent = acumulaDescuentos ? (activePriceList?.discountPercent ?? 0) : 0;
   const priceListAdjustmentAmount = priceListDiscountPercent !== 0
     ? parseFloat((afterDiscount * priceListDiscountPercent / 100).toFixed(2))
     : 0;
   const afterPriceList = parseFloat((afterDiscount - priceListAdjustmentAmount).toFixed(2));
-  const surchargePercent = pmConfig?.surchargePercent ?? 0;
-  const surchargeAmount = surchargePercent > 0 ? parseFloat((afterPriceList * surchargePercent / 100).toFixed(2)) : 0;
-  const cartTotal = parseFloat((afterPriceList + surchargeAmount).toFixed(2));
+
+  // Ajuste automático por método de pago (nuevo modelo: recargo | descuento | none)
+  const adjustmentType = pmConfig?.adjustmentType ?? 'none';
+  const adjustmentPercent = pmConfig?.adjustmentPercent ?? 0;
+  let paymentAdjustmentAmount = 0;
+  if (adjustmentType === 'recargo' && adjustmentPercent > 0) {
+    paymentAdjustmentAmount = parseFloat((afterPriceList * adjustmentPercent / 100).toFixed(2));
+  } else if (adjustmentType === 'descuento' && adjustmentPercent > 0) {
+    paymentAdjustmentAmount = -parseFloat((afterPriceList * adjustmentPercent / 100).toFixed(2));
+  }
+  const cartTotal = parseFloat((afterPriceList + paymentAdjustmentAmount).toFixed(2));
   const cartTax = parseFloat((cartTotal - cartTotal / (1 + cartIvaRate)).toFixed(2));
 
   // Create new customer from mini-modal
@@ -683,12 +689,16 @@ export const POSView: React.FC = () => {
     playBeep(520, 0.1);
 
     const gatewayNames: Record<Sale['paymentMethod'], string> = {
-      efectivo: 'Caja Local',
       tarjeta: 'Stripe API Gateway',
-      mercado_pago: 'Mercado Pago Express',
-      paypal: 'PayPal Checkout',
       transferencia: 'Transferencia Bancaria',
     };
+
+    // Idempotency key: se genera UNA vez al iniciar el cobro y se asocia a la venta.
+    // Si el cajero reintenta (por timeout, doble-click, red caída), el backend
+    // deduplica usando esta misma key.
+    const idempotencyKey = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `idem_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
     // Simulated cloud delay for high visual impact
     safeTimeout(() => {
@@ -704,13 +714,12 @@ export const POSView: React.FC = () => {
           customerName,
           selectedCustomerId || undefined,
           selectedSellerId || undefined,
-          simulateFailedPayment,
           selectedDiscount,
-          priceListDiscountPercent
+          priceListDiscountPercent,
+          idempotencyKey,
         );
 
         setIsProcessingPayment(false);
-        setSimulateFailedPayment(false);
 
         if (result.success && result.invoice) {
           setLatestInvoice(result.invoice);
@@ -724,20 +733,11 @@ export const POSView: React.FC = () => {
           setSelectedCustomerId(null);
           setCustomerSearch('');
           setSelectedDiscount(0);
-        } else if (result.invoice) {
-          // Failure simulation record was created but transaction rejected
-          setLatestInvoice(result.invoice);
-          setShowInvoiceModal(true);
-          setCart([]);
-          setCustomerDoc('');
-          setCustomerName('');
-          setSelectedCustomerId(null);
-          setCustomerSearch('');
-          setSelectedDiscount(0);
         } else {
-          // Business validations failed (e.g. stock issue)
-          // eslint-disable-next-line no-alert -- fallback for critical validation errors
-          alert(`Error de validación de Inventario: ${result.error}`);
+          // Validaciones de negocio fallidas (carrito vacío, producto inexistente, etc).
+          // NUNCA bloqueamos por stock — esos son warnings.
+          const msg = result.error?.message ?? 'Error de validación al procesar la venta.';
+          addSystemNotification('❌ Venta no procesada', msg, 'error');
         }
       }, 1500);
     }, 1000);
@@ -1088,15 +1088,10 @@ export const POSView: React.FC = () => {
                       id={`btn-cart-plus-${item.product.id}-${lineIdx}`}
                       onClick={() => {
                         if (item.presentation) {
-                          // Para líneas de grupo, sumar 1 a esta línea respetando stock total
-                          setCart(prev => {
-                            const totalQty = prev.filter(i => i.product.id === item.product.id).reduce((s, i) => s + i.quantity, 0);
-                            if (totalQty + 1 > item.product.stock) {
-                              addSystemNotification('⚠️ Límite de Stock', `No puedes agregar más unidades de ${item.product.name}.`, 'warning');
-                              return prev;
-                            }
-                            return prev.map((it, i) => i === lineIdx ? { ...it, quantity: it.quantity + 1 } : it);
-                          });
+                          // Stock no bloquea (offline-first). Si el stock no alcanza,
+                          // el sistema sigue procesando — el cajero verá un warning
+                          // al confirmar la venta.
+                          setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity: it.quantity + 1 } : it));
                           playBeep(1000, 0.05);
                         } else {
                           addUnitToCart(item.product);
@@ -1135,8 +1130,13 @@ export const POSView: React.FC = () => {
           </div>
           {discountAmount > 0 && (
             <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-              <span>Descuento ({selectedDiscount}%):</span>
+              <span>Descuento ({effectiveDiscount}%):</span>
               <span>- {formatCurrency(discountAmount)}</span>
+            </div>
+          )}
+          {selectedDiscount > 0 && !acumulaDescuentos && (
+            <div className="flex justify-between text-xs text-gray-400 italic">
+              <span>Descuento ignorado: el método de pago no acumula.</span>
             </div>
           )}
           {activePriceList && priceListAdjustmentAmount !== 0 && (
@@ -1145,10 +1145,16 @@ export const POSView: React.FC = () => {
               <span>{priceListDiscountPercent > 0 ? `- ${formatCurrency(priceListAdjustmentAmount)}` : `+ ${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
             </div>
           )}
-          {surchargeAmount > 0 && (
+          {adjustmentType === 'recargo' && paymentAdjustmentAmount > 0 && (
             <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-bold">
-              <span>Recargo ({surchargePercent}%):</span>
-              <span>+ {formatCurrency(surchargeAmount)}</span>
+              <span>Recargo método pago ({adjustmentPercent}%):</span>
+              <span>+ {formatCurrency(paymentAdjustmentAmount)}</span>
+            </div>
+          )}
+          {adjustmentType === 'descuento' && paymentAdjustmentAmount < 0 && (
+            <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+              <span>Descuento método pago ({adjustmentPercent}%):</span>
+              <span>- {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
             </div>
           )}
           <div className="flex justify-between text-xs text-gray-500">
@@ -1174,17 +1180,17 @@ export const POSView: React.FC = () => {
               .filter((pm) => pm.enabled)
               .map((pm) => {
                 const matchesSelected = paymentMethod === pm.id;
+                // Sólo la tarjeta sigue ligada a una pasarela activa (Stripe).
+                // Transferencia es manual y no depende de gateway externo.
                 let isGatewayActive = true;
                 if (pm.id === 'tarjeta') {
                   const g = gateways.find(g => g.id === 'gate_stripe');
                   isGatewayActive = g ? g.status === 'active' : true;
-                } else if (pm.id === 'mercado_pago') {
-                  const g = gateways.find(g => g.id === 'gate_mp');
-                  isGatewayActive = g ? g.status === 'active' : true;
-                } else if (pm.id === 'paypal') {
-                  const g = gateways.find(g => g.id === 'gate_paypal');
-                  isGatewayActive = g ? g.status === 'active' : true;
                 }
+                const showAdjustment = pm.adjustmentType !== 'none' && pm.adjustmentPercent > 0;
+                const adjLabel = pm.adjustmentType === 'recargo'
+                  ? `+${pm.adjustmentPercent}% recargo`
+                  : `-${pm.adjustmentPercent}% descuento`;
                 return (
                   <button
                     key={pm.id}
@@ -1203,8 +1209,8 @@ export const POSView: React.FC = () => {
                       <p className="truncate flex items-center gap-1.5 shrink-0">
                         <span>{pm.icon}</span> <span>{pm.label}</span>
                       </p>
-                      {pm.surchargePercent > 0 && (
-                        <span className="text-[8px] text-amber-600 dark:text-amber-400 block leading-tight">+{pm.surchargePercent}% recargo</span>
+                      {showAdjustment && (
+                        <span className={`text-[8px] block leading-tight ${pm.adjustmentType === 'recargo' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{adjLabel}</span>
                       )}
                       {!isGatewayActive && <span className="text-[8px] text-amber-600 block leading-tight">Inactiva</span>}
                     </div>
@@ -1213,21 +1219,6 @@ export const POSView: React.FC = () => {
               })}
           </div>
 
-          {/* Trigger to simulate failed bank authorization */}
-          {paymentMethod !== 'efectivo' && (
-            <div className="mt-3 flex items-center gap-2 bg-red-50 dark:bg-red-950/25 p-2 rounded-lg border border-red-100 dark:border-red-900/40">
-              <input
-                id="check-simulate-fail"
-                type="checkbox"
-                checked={simulateFailedPayment}
-                onChange={(e) => setSimulateFailedPayment(e.target.checked)}
-                className="rounded text-red-500 border-red-300 focus:ring-red-500 h-3.5 w-3.5"
-              />
-              <label htmlFor="check-simulate-fail" className="text-[10px] text-red-800 dark:text-red-300 font-extrabold cursor-pointer">
-                Simular Error de Comunicación / Tarjeta Rechazada
-              </label>
-            </div>
-          )}
         </div>
 
         {/* Descuento */}

@@ -3,7 +3,13 @@ import * as React from 'react';
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
-import type { AppSettings, GatewayCredential, PaymentMethodConfig, DiscountConfig } from '../hooks/useSettings';
+import type {
+  AppSettings,
+  GatewayCredential,
+  PaymentMethodConfig,
+  PaymentAdjustmentType,
+  DiscountConfig,
+} from '../hooks/useSettings';
 
 interface Props {
   settings: AppSettings;
@@ -53,6 +59,21 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
       .map(([gatewayId, publicKey]) => ({ gatewayId, publicKey: publicKey.trim() }));
     onUpdate(updated);
     onSaved();
+  };
+
+  const updatePm = (idx: number, patch: Partial<PaymentMethodConfig>) => {
+    setLocalPaymentMethods(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+  };
+
+  const clampPercent = (raw: string): number => {
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    if (n > 99.99) return 99.99;
+    return parseFloat(n.toFixed(2));
   };
 
   return (
@@ -122,46 +143,90 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
 
       <div className="border-t border-gray-100 dark:border-zinc-800 pt-5 space-y-4">
         <div className="flex items-center gap-2">
-          <h4 className="text-xs font-extrabold text-gray-700 dark:text-zinc-200 uppercase tracking-wider">Recargos por Método de Pago</h4>
+          <h4 className="text-xs font-extrabold text-gray-700 dark:text-zinc-200 uppercase tracking-wider">Métodos de Pago</h4>
         </div>
+        <p className="text-[10px] text-gray-500 dark:text-zinc-400 leading-relaxed">
+          Configurá cómo se comporta cada método al cobrar: si está habilitado, qué ajuste automático aplica sobre el total, y si admite acumular descuentos manuales o de lista de precios.
+        </p>
         <div className="space-y-3">
-          {paymentMethods.map((pm, idx) => (
-            <div key={pm.id} className="flex items-center gap-3 bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl px-4 py-3">
-              <span className="text-lg shrink-0">{pm.icon}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-extrabold text-gray-800 dark:text-zinc-100">{pm.label}</p>
+          {paymentMethods.map((pm, idx) => {
+            const showPercent = pm.adjustmentType !== 'none';
+            return (
+              <div
+                key={pm.id}
+                className="bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-2xl p-4 space-y-3"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl shrink-0">{pm.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-extrabold text-gray-800 dark:text-zinc-100">{pm.label}</p>
+                    <p className="text-[10px] text-gray-400 font-medium">ID: <span className="font-mono">{pm.id}</span></p>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Habilitado</span>
+                    <input
+                      type="checkbox"
+                      checked={pm.enabled}
+                      onChange={e => updatePm(idx, { enabled: e.target.checked })}
+                      className="rounded text-amber-500 border-gray-300 focus:ring-amber-500 h-4 w-4"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+                      Tipo de ajuste
+                    </label>
+                    <select
+                      value={pm.adjustmentType}
+                      onChange={e => updatePm(idx, { adjustmentType: e.target.value as PaymentAdjustmentType })}
+                      className="w-full text-xs font-bold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                    >
+                      <option value="none">Ninguno</option>
+                      <option value="recargo">Recargo (%)</option>
+                      <option value="descuento">Descuento (%)</option>
+                    </select>
+                  </div>
+
+                  {showPercent && (
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+                        Porcentaje
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="99.99"
+                          step="0.01"
+                          value={pm.adjustmentPercent}
+                          onChange={e => updatePm(idx, { adjustmentPercent: clampPercent(e.target.value) })}
+                          className="flex-1 text-xs font-bold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                        />
+                        <span className="text-xs font-extrabold text-gray-500">%</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <label className="flex items-center justify-between gap-3 px-3 py-2 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl cursor-pointer">
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold text-gray-700 dark:text-zinc-200">Acumula descuentos</p>
+                    <p className="text-[10px] text-gray-500 dark:text-zinc-400 leading-tight">
+                      Si está apagado, este método ignora descuentos manuales y de lista de precios.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={pm.acumulaDescuentos}
+                    onChange={e => updatePm(idx, { acumulaDescuentos: e.target.checked })}
+                    className="rounded text-amber-500 border-gray-300 focus:ring-amber-500 h-4 w-4 shrink-0"
+                  />
+                </label>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <label className="text-[10px] text-gray-400 font-bold">Recargo %</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="30"
-                  step="0.1"
-                  value={pm.surchargePercent}
-                  onChange={e => {
-                    const updated = [...paymentMethods];
-                    updated[idx] = { ...updated[idx], surchargePercent: parseFloat(e.target.value) || 0 };
-                    setLocalPaymentMethods(updated);
-                  }}
-                  className="w-16 text-xs font-bold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
-                />
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <label className="text-[10px] text-gray-400 font-bold">Activo</label>
-                <input
-                  type="checkbox"
-                  checked={pm.enabled}
-                  onChange={e => {
-                    const updated = [...paymentMethods];
-                    updated[idx] = { ...updated[idx], enabled: e.target.checked };
-                    setLocalPaymentMethods(updated);
-                  }}
-                  className="rounded text-amber-500 border-gray-300 focus:ring-amber-500 h-3.5 w-3.5"
-                />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

@@ -163,10 +163,8 @@ export const SalesHistoryView: React.FC = () => {
           className="w-full text-xs font-bold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-805 rounded-xl p-3 focus:outline-none text-gray-700 dark:text-zinc-350"
         >
           <option value="todos">💳 Todos los Métodos de Pago</option>
-          <option value="efectivo">💵 Efectivo (Local)</option>
-          <option value="tarjeta">💳 Tarjeta (Stripe)</option>
-          <option value="mercado_pago">🤝 Mercado Pago</option>
-          <option value="paypal">🌐 PayPal Checkout</option>
+          <option value="tarjeta">💳 Tarjeta</option>
+          <option value="transferencia">🏦 Transferencia</option>
         </select>
 
         {/* Status filter */}
@@ -263,10 +261,20 @@ export const SalesHistoryView: React.FC = () => {
 
                       {/* Payment method */}
                       <td className="py-4 px-5 text-center">
-                        <span className="inline-flex items-center gap-1 bg-gray-50 dark:bg-zinc-950/40 border border-gray-100 dark:border-zinc-800 text-[10px] font-bold px-2 py-1 rounded-lg text-gray-700 dark:text-zinc-350">
-                          {sale.paymentMethod === 'efectivo' ? '💵' : sale.paymentMethod === 'tarjeta' ? '💳' : sale.paymentMethod === 'mercado_pago' ? '🤝' : '🌐'}{' '}
-                          {sale.paymentMethod.replace('_', ' ').toUpperCase()}
-                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="inline-flex items-center gap-1 bg-gray-50 dark:bg-zinc-950/40 border border-gray-100 dark:border-zinc-800 text-[10px] font-bold px-2 py-1 rounded-lg text-gray-700 dark:text-zinc-350">
+                            {sale.paymentMethod === 'tarjeta' ? '💳' : '🏦'}{' '}
+                            {sale.paymentMethod.replace('_', ' ').toUpperCase()}
+                          </span>
+                          {sale.syncFailed && (
+                            <span
+                              className="inline-flex items-center gap-0.5 bg-amber-100 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/40 text-amber-700 dark:text-amber-400 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full"
+                              title="Esta venta no pudo sincronizarse. Se reintentará automáticamente."
+                            >
+                              ⚠ Sin sync
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Total */}
@@ -442,6 +450,18 @@ export const SalesHistoryView: React.FC = () => {
                   <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-bold">
                     <span>Recargo ({selectedSale.surchargePercent}%):</span>
                     <span>+ {formatCurrency(selectedSale.surchargeAmount ?? 0)}</span>
+                  </div>
+                )}
+                {selectedSale.paymentAdjustmentType === 'recargo' && (selectedSale.paymentAdjustmentAmount ?? 0) > 0 && (
+                  <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-bold">
+                    <span>Recargo método pago ({selectedSale.paymentAdjustmentPercent}%):</span>
+                    <span>+ {formatCurrency(selectedSale.paymentAdjustmentAmount ?? 0)}</span>
+                  </div>
+                )}
+                {selectedSale.paymentAdjustmentType === 'descuento' && (selectedSale.paymentAdjustmentAmount ?? 0) < 0 && (
+                  <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                    <span>Descuento método pago ({selectedSale.paymentAdjustmentPercent}%):</span>
+                    <span>- {formatCurrency(Math.abs(selectedSale.paymentAdjustmentAmount ?? 0))}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-base font-extrabold text-gray-850 dark:text-zinc-50 border-t pt-1.5 border-amber-200">

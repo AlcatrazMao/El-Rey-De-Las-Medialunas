@@ -146,9 +146,24 @@ export interface CreateSaleRequest {
   items: CreateSaleItemRequest[];
   payments: CreateSalePaymentRequest[];
   notes?: string;
-  subtotal?: number;
-  tax_total?: number;
+  /**
+   * UUID único por intento de cobro. Si el backend recibe dos POST con el mismo
+   * key, devuelve la venta original sin duplicar. Generado en el frontend al
+   * iniciar el cobro (no al agregar al carrito).
+   */
+  idempotency_key?: string;
+  client_id?: string;
+  /** Suma de (unit_price × quantity) sin descuentos — fuente de verdad del POS. */
+  subtotal_bruto?: number;
+  /** Diferencia subtotal_bruto − total_final (derivada). */
   discount_total?: number;
+  /** Lo que efectivamente se cobra al cliente (incluye ajustes por método de pago). */
+  total_final?: number;
+  /** @deprecated usar subtotal_bruto. */
+  subtotal?: number;
+  /** @deprecated cálculo del IVA hecho por el frontend dentro de total_final. */
+  tax_total?: number;
+  /** @deprecated usar total_final. */
   total?: number;
 }
 

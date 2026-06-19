@@ -172,10 +172,15 @@ export interface StockMovement {
 export interface Sale {
   id: string;
   client_id?: string | null;
+  idempotency_key?: string | null;
   branch_id: string;
   user_id: string;
   customer_id?: string | null;
   sale_number: number;
+  // subtotal_bruto: sum(unit_price × quantity) sin ningún descuento
+  // discount_total: subtotal_bruto − total_final (derivado)
+  // tax_total: IVA incluido en total_final
+  // total: lo que se cobra realmente al cliente (con ajustes de método de pago)
   subtotal: number;
   discount_total: number;
   tax_total: number;

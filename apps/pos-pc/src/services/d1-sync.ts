@@ -22,41 +22,62 @@ async function enqueue(entity_type: string, data: Record<string, unknown>): Prom
 
 // ── Sales ─────────────────────────────────────────────────────────────
 
-export async function syncSaleToD1(sale: Sale): Promise<void> {
-  const ivaRate = getSettings().fiscal.ivaRate;
-  const subtotal = sale.total;
-  const taxTotal = sale.tax;
-  const total = parseFloat((subtotal + taxTotal).toFixed(2));
+/**
+ * Construye el payload canónico para POST /sales.
+ *
+ * Source of truth = el frontend. Los 3 campos contables que mandamos al backend:
+ *   - subtotal_bruto: suma(unit_price × quantity) sin descuentos
+ *   - discount_total: subtotal_bruto − total_final (siempre derivado)
+ *   - total_final:    lo que efectivamente se cobra al cliente
+ *
+ * Además mandamos `idempotency_key` para que el backend deduplique reintentos.
+ */
+export function buildSalePayload(sale: Sale, ivaRate: number): Record<string, unknown> {
   const branchId = getSettings().business.branchId;
-
-  const payload = {
+  return {
     id: sale.id,
+    client_id: sale.id,
+    idempotency_key: sale.idempotencyKey,
     branch_id: branchId,
     customer_id: sale.customerId ?? null,
-    subtotal,
-    tax_total: taxTotal,
-    total,
+    // Los 3 campos canónicos
+    subtotal_bruto: sale.subtotal_bruto,
+    discount_total: sale.discount_total,
+    total_final: sale.total_final,
+    // Legacy/compat — el backend los acepta pero prefiere los canónicos
+    subtotal: sale.subtotal_bruto,
+    tax_total: sale.tax,
+    total: sale.total_final,
     items: sale.items.map(item => ({
       product_id: item.productId,
       quantity: item.quantity,
       unit_price: item.price,
       discount: 0,
       tax_rate: ivaRate,
-      tax_amount: parseFloat((item.subtotal * ivaRate).toFixed(2)),
+      tax_amount: parseFloat((item.subtotal - item.subtotal / (1 + ivaRate)).toFixed(2)),
       notes: null,
     })),
-    payments: [{ payment_method: sale.paymentMethod, amount: total, reference: null }],
+    payments: [{ payment_method: sale.paymentMethod, amount: sale.total_final, reference: null }],
     notes: sale.customerName ? `Cliente: ${sale.customerName}` : null,
+    client_timestamp: sale.date,
   };
+}
+
+export async function syncSaleToD1(sale: Sale): Promise<void> {
+  const ivaRate = getSettings().fiscal.ivaRate;
+  const payload = buildSalePayload(sale, ivaRate);
 
   try {
-    await getApi().sales.create(payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- payload super-set del tipo CreateSaleRequest oficial
+    await getApi().sales.create(payload as any);
   } catch (err) {
     if (isNetworkError(err)) {
-      await enqueue("sale", payload as Record<string, unknown>);
-    } else {
-      throw err;
+      // Encolamos para reintento; cuando vuelva la red el SyncEngine lo manda
+      // con el mismo idempotency_key y el backend deduplica.
+      await enqueue("sale", payload);
+      return;
     }
+    throw err;
   }
 }
 

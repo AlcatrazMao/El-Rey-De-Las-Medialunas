@@ -59,14 +59,31 @@ export interface Promotion {
   active: boolean;
 }
 
+export type PaymentMethodId = 'tarjeta' | 'transferencia';
+
+export type PaymentAdjustmentType = 'none' | 'recargo' | 'descuento';
+
 export interface PaymentMethodConfig {
-  id: 'efectivo' | 'tarjeta' | 'mercado_pago' | 'paypal' | 'transferencia';
+  id: PaymentMethodId;
   label: string;
   icon: string;
   enabled: boolean;
-  surchargePercent: number;
+  /**
+   * Tipo de ajuste sobre el total que se aplica automáticamente cuando el
+   * cajero elige este método de pago. 'none' = sin ajuste.
+   */
+  adjustmentType: PaymentAdjustmentType;
+  /** Porcentaje del ajuste (0–99.99). Solo se usa si adjustmentType != 'none'. */
+  adjustmentPercent: number;
+  /**
+   * Si está en false, las ventas con este método NO acumulan descuentos
+   * adicionales (descuentos manuales o de lista de precios quedan en 0).
+   */
+  acumulaDescuentos: boolean;
+  /** @deprecated reemplazado por adjustmentType + adjustmentPercent. */
+  surchargePercent?: number;
   linkedPriceListId?: string;
-  promotionsEnabled: boolean;
+  promotionsEnabled?: boolean;
 }
 
 export interface DiscountConfig {
@@ -126,17 +143,50 @@ const DEFAULT_SETTINGS: AppSettings = {
     autoSyncOnClose: true,
   },
   paymentMethods: [
-    { id: 'efectivo', label: 'Efectivo', icon: '💵', enabled: true, surchargePercent: 0, promotionsEnabled: true },
-    { id: 'tarjeta', label: 'Tarjeta (Stripe)', icon: '💳', enabled: true, surchargePercent: 3, promotionsEnabled: true },
-    { id: 'mercado_pago', label: 'Mercado Pago', icon: '🤝', enabled: true, surchargePercent: 5, promotionsEnabled: true },
-    { id: 'paypal', label: 'PayPal', icon: '🌐', enabled: true, surchargePercent: 3.9, promotionsEnabled: true },
-    { id: 'transferencia', label: 'Transferencia', icon: '🏦', enabled: true, surchargePercent: 0, promotionsEnabled: true },
+    { id: 'tarjeta',        label: 'Tarjeta',       icon: '💳', enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
+    { id: 'transferencia',  label: 'Transferencia', icon: '🏦', enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
   ],
   discountConfig: {
     availablePercents: [5, 10, 15, 20, 25, 30],
     allowManualDiscount: false,
   },
 };
+
+function migratePaymentMethods(stored: unknown): PaymentMethodConfig[] {
+  if (!Array.isArray(stored)) return [...DEFAULT_SETTINGS.paymentMethods];
+  // Mantenemos solo tarjeta y transferencia. Los métodos legacy (efectivo,
+  // mercado_pago, paypal) ya no se soportan: se descartan silenciosamente.
+  const VALID: PaymentMethodId[] = ['tarjeta', 'transferencia'];
+  const upgraded: PaymentMethodConfig[] = [];
+  for (const pm of stored as Array<Record<string, unknown>>) {
+    const id = pm?.id as PaymentMethodId | undefined;
+    if (!id || !VALID.includes(id)) continue;
+    const legacySurcharge = typeof pm.surchargePercent === 'number' ? (pm.surchargePercent as number) : 0;
+    const adjustmentType = (pm.adjustmentType as PaymentAdjustmentType | undefined)
+      ?? (legacySurcharge > 0 ? 'recargo' : 'none');
+    const adjustmentPercent = typeof pm.adjustmentPercent === 'number'
+      ? (pm.adjustmentPercent as number)
+      : legacySurcharge;
+    upgraded.push({
+      id,
+      label: typeof pm.label === 'string' ? (pm.label as string) : (id === 'tarjeta' ? 'Tarjeta' : 'Transferencia'),
+      icon: typeof pm.icon === 'string' ? (pm.icon as string) : (id === 'tarjeta' ? '💳' : '🏦'),
+      enabled: typeof pm.enabled === 'boolean' ? (pm.enabled as boolean) : true,
+      adjustmentType,
+      adjustmentPercent,
+      acumulaDescuentos: typeof pm.acumulaDescuentos === 'boolean' ? (pm.acumulaDescuentos as boolean) : false,
+      linkedPriceListId: typeof pm.linkedPriceListId === 'string' ? (pm.linkedPriceListId as string) : undefined,
+    });
+  }
+  // Si faltó alguno de los métodos válidos, lo agregamos desde defaults.
+  for (const id of VALID) {
+    if (!upgraded.some(pm => pm.id === id)) {
+      const def = DEFAULT_SETTINGS.paymentMethods.find(pm => pm.id === id);
+      if (def) upgraded.push({ ...def });
+    }
+  }
+  return upgraded;
+}
 
 export function getSettings(): AppSettings {
   try {
@@ -152,7 +202,7 @@ export function getSettings(): AppSettings {
       priceLists: parsed.priceLists ?? [...DEFAULT_SETTINGS.priceLists],
       promotions: parsed.promotions ?? [...DEFAULT_SETTINGS.promotions],
       sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
-      paymentMethods: parsed.paymentMethods ?? [...DEFAULT_SETTINGS.paymentMethods],
+      paymentMethods: migratePaymentMethods(parsed.paymentMethods),
       discountConfig: parsed.discountConfig ?? { ...DEFAULT_SETTINGS.discountConfig, availablePercents: [...DEFAULT_SETTINGS.discountConfig.availablePercents] },
     };
   } catch {

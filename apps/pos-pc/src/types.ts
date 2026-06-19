@@ -56,9 +56,24 @@ export interface Sale {
   invoiceNumber: string;
   date: string;
   items: SaleItem[];
+  /** Lo que efectivamente se cobra al cliente — equivale a `total_final`. */
   total: number;
+  /** IVA contenido dentro de `total` (precios con IVA incluido). */
   tax: number;
-  paymentMethod: 'efectivo' | 'tarjeta' | 'mercado_pago' | 'paypal' | 'transferencia';
+  // ── Source of truth contable ─────────────────────────────────────────────
+  // El frontend calcula estos 3 campos. discount_total es SIEMPRE derivado
+  // como subtotal_bruto − total_final. El backend NO los recalcula.
+  /** Suma(unit_price × quantity) sin ningún descuento. */
+  subtotal_bruto: number;
+  /** subtotal_bruto − total_final. Siempre derivado, nunca al revés. */
+  discount_total: number;
+  /** Igual a `total`. Duplicado intencional para alinear con el backend. */
+  total_final: number;
+  /** UUID generado al iniciar el cobro — clave de idempotencia con el backend. */
+  idempotencyKey: string;
+  /** true si el último intento de sync con D1 falló (la venta es local-only por ahora). */
+  syncFailed?: boolean;
+  paymentMethod: 'tarjeta' | 'transferencia';
   paymentStatus: 'completed' | 'failed' | 'pending' | 'voided';
   operatorRole: string;
   operatorName: string;
@@ -70,6 +85,9 @@ export interface Sale {
   discountAmount?: number;
   surchargePercent?: number;
   surchargeAmount?: number;
+  paymentAdjustmentType?: 'none' | 'recargo' | 'descuento';
+  paymentAdjustmentPercent?: number;
+  paymentAdjustmentAmount?: number;
 }
 
 export interface Customer {
