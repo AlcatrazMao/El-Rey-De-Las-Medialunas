@@ -3,6 +3,8 @@ import type {
   User,
   Category,
   Product,
+  ProductGroup,
+  ProductWithGroups,
   ProductPrice,
   InventoryItem,
   StockMovement,
@@ -101,6 +103,15 @@ export type CreateProductRequest = Omit<
 export type UpdateProductRequest = Partial<CreateProductRequest>;
 export type ProductResponse = ApiResponse<Product>;
 export type ProductsResponse = PaginatedResponse<Product>;
+
+export type CreateProductGroupRequest = Omit<
+  ProductGroup,
+  "id" | "product_id" | "created_at" | "updated_at"
+>;
+export type UpdateProductGroupRequest = Partial<CreateProductGroupRequest>;
+export interface ProductGroupResponse extends ApiResponse<ProductGroup> {}
+export interface ProductGroupsResponse extends ApiResponse<ProductGroup[]> {}
+export interface ProductWithGroupsResponse extends ApiResponse<ProductWithGroups> {}
 
 export type CreateProductPriceRequest = Omit<ProductPrice, "id" | "created_at" | "updated_at">;
 export type UpdateProductPriceRequest = Partial<
@@ -249,6 +260,8 @@ export type {
   Category,
   Product,
   ProductAlias,
+  ProductGroup,
+  ProductWithGroups,
   ProductPrice,
   InventoryItem,
   InventoryBatch,

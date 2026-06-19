@@ -26,7 +26,7 @@ import {
 import { syncSaleToD1, updateSupplyRequestStatusInD1, syncStockMovementToD1 } from './services/d1-sync';
 import { formatCurrency } from './utils/format';
 import type {
-  Ingredient, Product, Sale, Expense, User, PushNotification, PaymentGateway,
+  Ingredient, Product, ProductGroup, Sale, Expense, User, PushNotification, PaymentGateway,
   UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer,
 } from './types';
 
@@ -45,12 +45,13 @@ interface AppContextType {
   setActiveUserRole: (role: UserRole) => void;
   setActiveTab: (tab: string) => void;
   setBatches: React.Dispatch<React.SetStateAction<ProductBatch[]>>;
-  addSale: (items: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail?: boolean, discountPercent?: number, priceListDiscountPercent?: number) => { success: boolean; invoice?: Sale; error?: string };
+  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail?: boolean, discountPercent?: number, priceListDiscountPercent?: number) => { success: boolean; invoice?: Sale; error?: string };
   addExpense: (expense: Omit<Expense, 'id' | 'date'>) => void;
   addIngredient: (ingredient: Omit<Ingredient, 'id'>) => void;
   updateIngredientStock: (id: string, newStock: number) => void;
   addProduct: (product: Omit<Product, 'id' | 'code'>) => void;
   updateProductStock: (id: string, newStock: number) => void;
+  updateProductGroups: (id: string, groups: ProductGroup[]) => void;
   toggleGateway: (id: string) => void;
   updateUserWidgets: (widgets: string[]) => void;
   addSystemNotification: (title: string, message: string, type: PushNotification['type']) => void;
@@ -104,7 +105,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only effect; hook refs are stable
   }, []);
 
-  const addSale = (cartItems: { productId: string; quantity: number }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail: boolean = false, discountPercent = 0, priceListDiscountPercent = 0) => {
+  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, simulateFail: boolean = false, discountPercent = 0, priceListDiscountPercent = 0) => {
     if (cartItems.length === 0) return { success: false, error: 'La venta está vacía.' };
 
     // Bug 8 fix: capture settings once — avoids repeated getSettings() calls throughout the function
@@ -128,7 +129,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     const lowStockAlerts: string[] = [];
 
     if (simulateFail) {
-      const totalFail = cartItems.reduce((acc, c) => acc + ((inv.products.find(p => p.id === c.productId)?.price || 0) * c.quantity), 0);
+      const totalFail = cartItems.reduce((acc, c) => {
+        const prod = inv.products.find(p => p.id === c.productId);
+        const price = c.unitPrice ?? prod?.price ?? 0;
+        return acc + price * c.quantity;
+      }, 0);
       const failNow = Date.now();
       const failedSalePayload: Sale = {
         id: `sale_fail_${failNow}`,
@@ -136,7 +141,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         date: new Date().toISOString(),
         items: cartItems.map(cart => {
           const prod = inv.products.find(p => p.id === cart.productId);
-          return { productId: cart.productId, name: prod?.name || 'Producto Desconocido', quantity: cart.quantity, price: prod?.price || 0, subtotal: (prod?.price || 0) * cart.quantity };
+          const linePrice = cart.unitPrice ?? prod?.price ?? 0;
+          return { productId: cart.productId, name: prod?.name || 'Producto Desconocido', quantity: cart.quantity, price: linePrice, subtotal: parseFloat((linePrice * cart.quantity).toFixed(2)), presentation: cart.presentation, admite_acum_desc: cart.admite_acum_desc };
         }),
         total: totalFail,
         tax: parseFloat((totalFail - totalFail / (1 + ivaRate)).toFixed(2)),
@@ -150,14 +156,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     }
 
     // Validation pass — uses snapshot (early-exit, no state mutation yet)
+    // Stock check is aggregated per product across all cart lines so multiple
+    // group/unit lines for the same product don't sneak past a per-line check.
+    const totalByProduct = new Map<string, number>();
+    for (const item of cartItems) {
+      totalByProduct.set(item.productId, (totalByProduct.get(item.productId) ?? 0) + item.quantity);
+    }
     for (const item of cartItems) {
       const product = snapshotProducts.find(p => p.id === item.productId);
       if (!product) return { success: false, error: `El producto ${item.productId} no existe.` };
-      if (product.stock < item.quantity) return { success: false, error: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}, Solicitado: ${item.quantity}` };
+    }
+    for (const [productId, totalQty] of totalByProduct.entries()) {
+      const product = snapshotProducts.find(p => p.id === productId);
+      if (!product) continue;
+      if (product.stock < totalQty) return { success: false, error: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}, Solicitado: ${totalQty}` };
       for (const recipeIng of product.ingredients) {
         const ing = snapshotIngredients.find(i => i.id === recipeIng.ingredientId);
         if (!ing) continue;
-        const needed = recipeIng.quantity * item.quantity;
+        const needed = recipeIng.quantity * totalQty;
         if (ing.stock < needed) return { success: false, error: `Materia prima insuficiente para producir ${product.name}. Falta ${ing.name} (Necesitado: ${needed.toFixed(2)}${ing.unit}, Disponible: ${ing.stock.toFixed(2)}${ing.unit})` };
       }
     }
@@ -184,11 +200,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
         const ing = updatedIngSnapshot[ingIdx];
         if (ing.stock <= ing.minStock) lowStockAlerts.push(`Peligro: Materia prima baja en "${ing.name}" (${ing.stock.toFixed(2)}${ing.unit} restante).`);
       }
-      saleLineItems.push({ productId: product.id, name: product.name, quantity: item.quantity, price: product.price, subtotal: product.price * item.quantity, cost: product.cost });
+      const linePrice = item.unitPrice ?? product.price;
+      saleLineItems.push({
+        productId: product.id,
+        name: product.name,
+        quantity: item.quantity,
+        price: linePrice,
+        subtotal: parseFloat((linePrice * item.quantity).toFixed(2)),
+        cost: product.cost,
+        presentation: item.presentation,
+        admite_acum_desc: item.admite_acum_desc,
+      });
     }
 
     const subtotalTotal = saleLineItems.reduce((acc, curr) => acc + curr.subtotal, 0);
-    const discountAmount = discountPercent > 0 ? parseFloat((subtotalTotal * discountPercent / 100).toFixed(2)) : 0;
+    // El descuento manual solo se aplica sobre las líneas elegibles:
+    // - Líneas sin presentación (venta unitaria): siempre admiten descuento
+    // - Líneas con presentación: solo si admite_acum_desc === 1
+    const eligibleSubtotal = saleLineItems.reduce((acc, curr) => {
+      const admits = !curr.presentation || curr.admite_acum_desc === 1;
+      return admits ? acc + curr.subtotal : acc;
+    }, 0);
+    const discountAmount = discountPercent > 0 ? parseFloat((eligibleSubtotal * discountPercent / 100).toFixed(2)) : 0;
     const afterDiscountTotal = parseFloat((subtotalTotal - discountAmount).toFixed(2));
     // Price list adjustment: positive = discount (reduction), negative = markup (addition)
     const priceListAdjustmentAmount = priceListDiscountPercent !== 0
@@ -436,6 +469,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; firebaseUser: Fi
     setBatches: bch.setBatches, addSale, addExpense: exp.addExpense,
     addIngredient: inv.addIngredient, updateIngredientStock: inv.updateIngredientStock,
     addProduct: inv.addProduct, updateProductStock: inv.updateProductStock,
+    updateProductGroups: inv.updateProductGroups,
     toggleGateway: inv.toggleGateway, updateUserWidgets: usr.updateUserWidgets,
     addSystemNotification: notif.addSystemNotification,
     markNotificationAsRead: notif.markNotificationAsRead,

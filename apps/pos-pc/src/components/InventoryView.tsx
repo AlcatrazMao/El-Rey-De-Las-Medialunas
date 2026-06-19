@@ -9,17 +9,19 @@ import {
   X,
   Check,
   History,
-  ShieldAlert
+  ShieldAlert,
+  Layers
 } from 'lucide-react';
 import * as React from 'react'
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
-import type { Ingredient, Product, CategoryType} from '../types';
+import type { Ingredient, Product, ProductGroup, CategoryType} from '../types';
 import { exportIngredientsToCSV } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
 
 import { ImagePicker } from './ImagePicker';
+import { ProductGroupsEditor } from './ProductGroupsEditor';
 
 export const InventoryView: React.FC = () => {
   const {
@@ -38,11 +40,13 @@ export const InventoryView: React.FC = () => {
     withdrawalRequests = [],
     approveWithdrawalRequest,
     rejectWithdrawalRequest,
-    activeUser
+    activeUser,
+    updateProductGroups
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'insumos' | 'productos' | 'caducidad' | 'mermas'>('insumos');
   const [selectedProductForBatches, setSelectedProductForBatches] = useState<Product | null>(null);
+  const [expandedGroupsFor, setExpandedGroupsFor] = useState<string | null>(null);
   const [mermasFilter, setMermasFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [resolvingRequestId, setResolvingRequestId] = useState<string | null>(null);
   const [resolvingMemo, setResolvingMemo] = useState<string>('');
@@ -538,7 +542,7 @@ export const InventoryView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="mt-4 pt-1 select-none">
+                  <div className="mt-4 pt-1 select-none space-y-2">
                     <button
                       id={`btn-manage-batches-${prod.id}`}
                       onClick={() => setSelectedProductForBatches(prod)}
@@ -547,6 +551,37 @@ export const InventoryView: React.FC = () => {
                       <Package className="h-3.5 w-3.5 animate-bounce" />
                       Gestionar Lotes (Activos: {batches.filter(b => b.productId === prod.id && b.status === 'active' && b.stock > 0).length})
                     </button>
+
+                    <button
+                      id={`btn-manage-groups-${prod.id}`}
+                      onClick={() => setExpandedGroupsFor(prev => (prev === prod.id ? null : prod.id))}
+                      className="w-full py-2 px-3 text-center bg-white dark:bg-zinc-850 border border-amber-300 dark:border-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 text-amber-700 dark:text-amber-400 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 duration-200"
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                      {expandedGroupsFor === prod.id ? 'Ocultar grupos' : 'Configurar grupos'}
+                      {(prod.groups?.length ?? 0) > 0 && (
+                        <span className="text-[9px] bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-full font-black">
+                          {prod.groups!.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {expandedGroupsFor === prod.id && (
+                      <div className="bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-900/40 rounded-xl p-3 mt-2">
+                        <ProductGroupsEditor
+                          product={prod}
+                          onSave={(groups: ProductGroup[]) => {
+                            updateProductGroups(prod.id, groups);
+                            addSystemNotification(
+                              '✅ Grupos actualizados',
+                              `Se guardaron ${groups.length} presentación(es) para "${prod.name}".`,
+                              'success'
+                            );
+                            setExpandedGroupsFor(null);
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* Increment finished baked good stock counts directly */}

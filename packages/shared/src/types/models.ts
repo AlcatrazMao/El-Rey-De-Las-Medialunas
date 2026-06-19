@@ -95,6 +95,23 @@ export interface ProductAlias {
   created_at: string;
 }
 
+export interface ProductGroup {
+  id: string;
+  product_id: string;
+  nombre: string;
+  cantidad: number;
+  descuento: number;
+  descuento_tipo: "porcentaje" | "fijo";
+  admite_acum_desc: 0 | 1;
+  orden: 1 | 2 | 3;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductWithGroups extends Product {
+  groups: ProductGroup[];
+}
+
 export interface ProductPrice {
   id: string;
   product_id: string;

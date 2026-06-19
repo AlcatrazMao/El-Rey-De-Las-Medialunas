@@ -18,9 +18,12 @@ import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
 import { getSettings } from '../hooks/useSettings';
-import type { CategoryType, Product, Sale } from '../types';
+import type { CategoryType, Product, ProductGroup, Sale } from '../types';
 import { printTicketOrInvoice } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
+import { calcularPrecioUnitarioGrupo } from '../utils/productGroups';
+
+import { GroupSelectorModal } from './GroupSelectorModal';
 
 export const POSView: React.FC = () => {
   const {
@@ -40,7 +43,14 @@ export const POSView: React.FC = () => {
 
   const [selectedCategory, setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
   const [searchQuery, setSearchQuery] = useState('');
-  const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const [cart, setCart] = useState<{
+    product: Product;
+    quantity: number;
+    unitPrice: number;
+    presentation?: string;
+    admite_acum_desc?: 0 | 1;
+  }[]>([]);
+  const [groupSelectorProduct, setGroupSelectorProduct] = useState<Product | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<Sale['paymentMethod']>('efectivo');
   const [selectedDiscount, setSelectedDiscount] = useState<number>(0);
   const [customerName, setCustomerName] = useState('');
@@ -268,8 +278,7 @@ export const POSView: React.FC = () => {
         {productsList.map(prod => {
           const inStock = prod.stock > 0;
           const lowStock = prod.stock <= (prod.minStock || 5);
-          const cartItem = cart.find(item => item.product.id === prod.id);
-          const quantityInCart = cartItem ? cartItem.quantity : 0;
+          const quantityInCart = cart.filter(item => item.product.id === prod.id).reduce((s, i) => s + i.quantity, 0);
           return (
             <button
               key={prod.id}
@@ -331,8 +340,7 @@ export const POSView: React.FC = () => {
                 const isLowStock = prod.stock <= (prod.minStock || 5);
                 const isNegativeStock = prod.stock < 0;
                 const exp = getExpiryStatus(prod.elaborationDate, prod.durabilityDays);
-                const cartItem = cart.find(item => item.product.id === prod.id);
-                const quantityInCart = cartItem ? cartItem.quantity : 0;
+                const quantityInCart = cart.filter(item => item.product.id === prod.id).reduce((s, i) => s + i.quantity, 0);
 
                 return (
                   <tr
@@ -489,7 +497,8 @@ export const POSView: React.FC = () => {
     );
   };
 
-  // Add item to POS cart
+  // Add item to POS cart — if the product has groups configured, opens the
+  // selector modal first. The modal then calls addUnitToCart / addGroupToCart.
   const addToCart = (product: Product) => {
     if (product.stock <= 0) {
       addSystemNotification('❌ Sin Stock Disponible', `El producto ${product.name} no tiene stock suficiente para venderse en este momento.`, 'warning');
@@ -497,43 +506,91 @@ export const POSView: React.FC = () => {
       return;
     }
 
+    if ((product.groups?.length ?? 0) > 0) {
+      setGroupSelectorProduct(product);
+      playBeep(800, 0.05);
+      return;
+    }
+
+    addUnitToCart(product);
+  };
+
+  // Add a single unit (no group / "Unidad" selection)
+  const addUnitToCart = (product: Product) => {
     setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
+      const existing = prev.find(item => item.product.id === product.id && !item.presentation);
+      const totalQtyForProduct = prev.filter(i => i.product.id === product.id).reduce((s, i) => s + i.quantity, 0);
       if (existing) {
-        if (existing.quantity >= product.stock) {
+        if (totalQtyForProduct >= product.stock) {
           addSystemNotification('⚠️ Límite de Stock', `No puedes agregar más de ${product.stock} unidades de ${product.name} (stock actual).`, 'warning');
           return prev;
         }
         playBeep(600, 0.05);
         return prev.map(item =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item === existing ? { ...item, quantity: item.quantity + 1 } : item
         );
       }
+      if (totalQtyForProduct + 1 > product.stock) {
+        addSystemNotification('⚠️ Límite de Stock', `No puedes agregar más de ${product.stock} unidades de ${product.name} (stock actual).`, 'warning');
+        return prev;
+      }
       playBeep(1000, 0.05);
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: 1, unitPrice: product.price }];
+    });
+  };
+
+  // Add a group (presentation) line to the cart. Each group selection is a NEW
+  // cart line — even if user already has the same group; this matches POS UX
+  // expectations ("agregar otra docena").
+  const addGroupToCart = (product: Product, group: ProductGroup) => {
+    const unitPrice = calcularPrecioUnitarioGrupo(product.price, group);
+    setCart(prev => {
+      const totalQtyForProduct = prev.filter(i => i.product.id === product.id).reduce((s, i) => s + i.quantity, 0);
+      if (totalQtyForProduct + group.cantidad > product.stock) {
+        addSystemNotification('⚠️ Límite de Stock', `No hay stock suficiente para ${group.nombre} (faltan unidades de ${product.name}).`, 'warning');
+        return prev;
+      }
+      playBeep(1100, 0.07);
+      return [
+        ...prev,
+        {
+          product,
+          quantity: group.cantidad,
+          unitPrice,
+          presentation: group.nombre,
+          admite_acum_desc: group.admite_acum_desc,
+        },
+      ];
     });
   };
   // Keep ref current so the barcode listener always calls the latest closure
   addToCartRef.current = addToCart;
 
-  // Remove or subtract item
+  // Remove or subtract item (operates on the first matching line — unit line preferred)
   const decreaseQuantity = (productId: string) => {
     setCart(prev => {
-      const existing = prev.find(item => item.product.id === productId);
-      if (!existing) return prev;
+      const idx = prev.findIndex(item => item.product.id === productId && !item.presentation);
+      const targetIdx = idx >= 0 ? idx : prev.findIndex(item => item.product.id === productId);
+      if (targetIdx < 0) return prev;
+      const existing = prev[targetIdx];
       playBeep(400, 0.05);
       if (existing.quantity === 1) {
-        return prev.filter(item => item.product.id !== productId);
+        return prev.filter((_, i) => i !== targetIdx);
       }
-      return prev.map(item =>
-        item.product.id === productId ? { ...item, quantity: item.quantity - 1 } : item
+      return prev.map((item, i) =>
+        i === targetIdx ? { ...item, quantity: item.quantity - 1 } : item
       );
     });
   };
 
-  const removeFromCart = (productId: string) => {
+  const removeFromCart = (productId: string, presentation?: string) => {
     playBeep(300, 0.1);
-    setCart(prev => prev.filter(item => item.product.id !== productId));
+    if (presentation === undefined) {
+      // Remove ALL lines for this product (used by the "table" delete button)
+      setCart(prev => prev.filter(item => item.product.id !== productId));
+      return;
+    }
+    setCart(prev => prev.filter(item => !(item.product.id === productId && (item.presentation ?? null) === presentation)));
   };
 
   // Demo: simula un scan con producto al azar (solo para pruebas sin hardware)
@@ -555,9 +612,17 @@ export const POSView: React.FC = () => {
 
   // Calculate prices — precios con IVA incluido, se extrae: tax = total - total/(1+rate)
   const posSettings = getSettings();
-  const cartSubtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
+  // Use unitPrice (snapshot with group discount already baked in) instead of product.price.
+  const cartSubtotal = cart.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
   const cartIvaRate = posSettings.fiscal.ivaRate;
-  const discountAmount = selectedDiscount > 0 ? parseFloat((cartSubtotal * selectedDiscount / 100).toFixed(2)) : 0;
+
+  // Solo aplica el descuento manual sobre las líneas que admiten acumulación
+  // (sin presentation = siempre admiten; con presentation = depende de admite_acum_desc).
+  const eligibleSubtotal = cart.reduce((acc, item) => {
+    const admits = !item.presentation || item.admite_acum_desc === 1;
+    return admits ? acc + item.unitPrice * item.quantity : acc;
+  }, 0);
+  const discountAmount = selectedDiscount > 0 ? parseFloat((eligibleSubtotal * selectedDiscount / 100).toFixed(2)) : 0;
   const afterDiscount = parseFloat((cartSubtotal - discountAmount).toFixed(2));
   // Active price list: linked to the selected payment method (single payment mode only)
   const pmConfig = posSettings.paymentMethods?.find(m => m.id === paymentMethod);
@@ -605,7 +670,13 @@ export const POSView: React.FC = () => {
     }
 
     // Snapshot cart before delays — prevents race condition if user modifies cart during processing
-    const cartSnapshot = cart.map(item => ({ productId: item.product.id, quantity: item.quantity }));
+    const cartSnapshot = cart.map(item => ({
+      productId: item.product.id,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      presentation: item.presentation,
+      admite_acum_desc: item.admite_acum_desc,
+    }));
 
     setIsProcessingPayment(true);
     setProcessingStatusText('Conectando con pasarela...');
@@ -975,27 +1046,62 @@ export const POSView: React.FC = () => {
               </p>
             </button>
           ) : (
-            cart.map(item => (
-              <div key={item.product.id} className="pt-2 flex items-center justify-between gap-3 text-xs min-w-0">
+            cart.map((item, lineIdx) => {
+              const lineKey = `${item.product.id}::${item.presentation ?? ''}::${lineIdx}`;
+              const lineSubtotal = item.unitPrice * item.quantity;
+              return (
+              <div key={lineKey} className="pt-2 flex items-center justify-between gap-3 text-xs min-w-0">
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <p className="font-bold text-gray-800 dark:text-zinc-100 truncate">{item.product.name}</p>
-                  <p className="text-[10px] text-amber-600 dark:text-amber-500 font-semibold truncate">{formatCurrency(item.product.price)} c/u</p>
+                  <p className="font-bold text-gray-800 dark:text-zinc-100 truncate">
+                    {item.product.name}
+                    {item.presentation && (
+                      <span className="ml-1.5 inline-block bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider">
+                        {item.presentation}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-500 font-semibold truncate">
+                    {formatCurrency(item.unitPrice)} c/u · Subtotal: {formatCurrency(lineSubtotal)}
+                  </p>
                 </div>
 
                 {/* Item adjustments */}
                 <div className="flex items-center gap-2 shrink-0">
                   <div className="flex items-center border border-gray-200 dark:border-zinc-700 rounded-lg">
                     <button
-                      id={`btn-cart-minus-${item.product.id}`}
-                      onClick={() => decreaseQuantity(item.product.id)}
+                      id={`btn-cart-minus-${item.product.id}-${lineIdx}`}
+                      onClick={() => {
+                        if (item.presentation) {
+                          // Para líneas de grupo, restar 1 directamente o eliminar si llega a 0
+                          setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity: Math.max(0, it.quantity - 1) } : it).filter(it => it.quantity > 0));
+                          playBeep(400, 0.05);
+                        } else {
+                          decreaseQuantity(item.product.id);
+                        }
+                      }}
                       className="p-1 text-gray-500 px-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 cursor-pointer"
                     >
                       <Minus className="h-3 w-3" />
                     </button>
                     <span className="px-2 font-bold font-mono text-gray-800 dark:text-zinc-100">{item.quantity}</span>
                     <button
-                      id={`btn-cart-plus-${item.product.id}`}
-                      onClick={() => addToCart(item.product)}
+                      id={`btn-cart-plus-${item.product.id}-${lineIdx}`}
+                      onClick={() => {
+                        if (item.presentation) {
+                          // Para líneas de grupo, sumar 1 a esta línea respetando stock total
+                          setCart(prev => {
+                            const totalQty = prev.filter(i => i.product.id === item.product.id).reduce((s, i) => s + i.quantity, 0);
+                            if (totalQty + 1 > item.product.stock) {
+                              addSystemNotification('⚠️ Límite de Stock', `No puedes agregar más unidades de ${item.product.name}.`, 'warning');
+                              return prev;
+                            }
+                            return prev.map((it, i) => i === lineIdx ? { ...it, quantity: it.quantity + 1 } : it);
+                          });
+                          playBeep(1000, 0.05);
+                        } else {
+                          addUnitToCart(item.product);
+                        }
+                      }}
                       className="p-1 text-gray-500 px-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 cursor-pointer"
                     >
                       <Plus className="h-3 w-3" />
@@ -1003,8 +1109,12 @@ export const POSView: React.FC = () => {
                   </div>
 
                   <button
-                    id={`btn-cart-remove-${item.product.id}`}
-                    onClick={() => removeFromCart(item.product.id)}
+                    id={`btn-cart-remove-${item.product.id}-${lineIdx}`}
+                    onClick={() => {
+                      // Eliminar exactamente esta línea (por índice, no por producto)
+                      setCart(prev => prev.filter((_, i) => i !== lineIdx));
+                      playBeep(300, 0.1);
+                    }}
                     className="p-1.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 cursor-pointer"
                     title="Eliminar de la orden de venta"
                   >
@@ -1012,7 +1122,8 @@ export const POSView: React.FC = () => {
                   </button>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -1495,6 +1606,22 @@ export const POSView: React.FC = () => {
 
           </div>
         </div>
+      )}
+
+      {/* GROUP SELECTOR MODAL */}
+      {groupSelectorProduct && (
+        <GroupSelectorModal
+          product={groupSelectorProduct}
+          onSelectUnit={() => {
+            addUnitToCart(groupSelectorProduct);
+            setGroupSelectorProduct(null);
+          }}
+          onSelectGroup={(g) => {
+            addGroupToCart(groupSelectorProduct, g);
+            setGroupSelectorProduct(null);
+          }}
+          onClose={() => setGroupSelectorProduct(null)}
+        />
       )}
 
       {/* FLOATING ACTION LUPA BUTTON FOR BOTH VIEWS */}

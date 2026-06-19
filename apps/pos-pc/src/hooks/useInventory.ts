@@ -108,6 +108,10 @@ export function useInventory(notify: NotifyFn) {
     setProducts(prev => prev.map(prod => (prod.id === id ? { ...prod, stock: newStock } : prod)));
   };
 
+  const updateProductGroups = (id: string, groups: import('../types').ProductGroup[]) => {
+    setProducts(prev => prev.map(prod => (prod.id === id ? { ...prod, groups } : prod)));
+  };
+
   const toggleGateway = (id: string) => {
     setGateways(prev =>
       prev.map(gate => {
@@ -140,6 +144,7 @@ export function useInventory(notify: NotifyFn) {
     updateIngredientStock,
     addProduct,
     updateProductStock,
+    updateProductGroups,
     toggleGateway,
     refreshProductsFromD1,
   };

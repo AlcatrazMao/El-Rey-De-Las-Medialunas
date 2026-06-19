@@ -14,6 +14,16 @@ export interface ProductIngredient {
   quantity: number; // Quantity needed per product unit (e.g., 0.05 kg of harina for a bread load)
 }
 
+export interface ProductGroup {
+  id: string;
+  nombre: string;
+  cantidad: number;
+  descuento: number;
+  descuento_tipo: 'porcentaje' | 'fijo';
+  admite_acum_desc: 0 | 1;
+  orden: 1 | 2 | 3;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -27,6 +37,7 @@ export interface Product {
   ingredients: ProductIngredient[];
   elaborationDate?: string; // YYYY-MM-DD format
   durabilityDays?: number; // expiry days
+  groups?: ProductGroup[]; // grupos de venta por presentación (hasta 3)
 }
 
 export interface SaleItem {
@@ -36,6 +47,8 @@ export interface SaleItem {
   price: number;
   subtotal: number;
   cost?: number; // snapshot del costo al momento de la venta — evita COGS=0 si se borra el producto
+  presentation?: string; // nombre del grupo de venta (p. ej. "Docena"); undefined = unidad
+  admite_acum_desc?: 0 | 1; // si el grupo admite descuento acumulado adicional
 }
 
 export interface Sale {

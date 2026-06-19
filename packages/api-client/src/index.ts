@@ -23,6 +23,7 @@ import { ProductionEndpoints } from "./endpoints/production";
 import type { RecipeFilters, BatchFilters as ProductionBatchFilters, ExecuteBatchRequest } from "./endpoints/production";
 import type { ProductFilters } from "./endpoints/products";
 import { ProductEndpoints } from "./endpoints/products";
+import { ProductGroupEndpoints } from "./endpoints/productGroups";
 import { PurchaseEndpoints } from "./endpoints/purchases";
 import type {
   PurchaseOrderFilters,
@@ -47,6 +48,7 @@ import type { ApiClientOptions, RequestOptions, AuthResponse } from "./types";
 import { ApiError } from "./types";
 
 export { ApiClient, ApiError, AuthEndpoints, BranchEndpoints, CategoryEndpoints, ProductEndpoints,
+  ProductGroupEndpoints,
   InventoryEndpoints, SaleEndpoints, CustomerEndpoints, CashEndpoints, ProductionEndpoints,
   SupplierEndpoints, PurchaseEndpoints, ReportEndpoints, SyncEndpoints, AuditEndpoints,
   ExpenseEndpoints, SupplyRequestEndpoints };
@@ -66,6 +68,7 @@ export function createApiClient(options: ApiClientOptions) {
     branches: new BranchEndpoints(client),
     categories: new CategoryEndpoints(client),
     products: new ProductEndpoints(client),
+    productGroups: new ProductGroupEndpoints(client),
     inventory: new InventoryEndpoints(client),
     sales: new SaleEndpoints(client),
     customers: new CustomerEndpoints(client),
