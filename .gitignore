@@ -58,3 +58,9 @@ temp/
 test/
 
 firebase-key.json
+
+# Claude Code agent worktrees
+.claude/worktrees/
+
+# Dev version manifest (generated)
+apps/pos-pc/public/version.json
