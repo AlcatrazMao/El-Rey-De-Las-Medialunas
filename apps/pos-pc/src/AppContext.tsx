@@ -404,11 +404,14 @@ export const AppProvider: React.FC<{
     inv.setProducts(updatedProducts);
 
     // sync product stock update and batch withdrawal to D1
+    // FIX A2: 'withdrawal' no está en la whitelist del backend — una baja de
+    // lote es desperdicio/merma → 'waste_out'. La cantidad debe ser positiva:
+    // el backend calcula el signo a partir del sufijo _in/_out.
     syncStockMovementToD1({
       product_id: req.productId,
       branch_id: getSettings().business.branchId,
-      movement_type: 'withdrawal',
-      quantity: -req.quantity,
+      movement_type: 'waste_out',
+      quantity: req.quantity,
       reason: `Baja aprobada: ${req.reason}`,
     }).catch(() => {});
 
@@ -439,10 +442,14 @@ export const AppProvider: React.FC<{
       }, ...prev]);
 
       // sync the new batch to D1 as a stock movement (inbound)
+      // FIX A2: backend whitelist no acepta 'purchase' — usar 'purchase_in'.
+      // Whitelist real (workers/api/src/routes/inventory.ts):
+      //   purchase_in | production_in | transfer_in | adjustment_in | return_in |
+      //   sale_out | transfer_out | waste_out | adjustment_out | production_out
       syncStockMovementToD1({
         product_id: req.itemId,
         branch_id: getSettings().business.branchId,
-        movement_type: 'purchase',
+        movement_type: 'purchase_in',
         quantity: req.quantity,
         reason: `Pedido aprobado: ${req.reason}`,
       }).catch(() => {});

@@ -22,18 +22,33 @@ salesRoutes.get("/", async (c) => {
   const bindings: (string | number)[] = [branchId];
   const countBindings: (string | number)[] = [branchId];
 
+  // El cliente envía fechas en hora Argentina (UTC-3). created_at se guarda en
+  // UTC, así que convertimos:
+  //   from_date "YYYY-MM-DD" (ARG midnight)      → "YYYY-MM-DDT03:00:00.000Z" (UTC)
+  //   to_date   "YYYY-MM-DD" (ARG 23:59:59)      → "YYYY-MM-(DD+1)T02:59:59.999Z"
+  // Si el cliente ya manda timestamp con hora, lo respetamos tal cual.
+  const isBareDate = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const argDateToUtcFrom = (d: string): string => `${d}T03:00:00.000Z`;
+  const argDateToUtcTo = (d: string): string => {
+    const dt = new Date(`${d}T00:00:00Z`);
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    return `${dt.toISOString().slice(0, 10)}T02:59:59.999Z`;
+  };
+
   if (fromDate) {
+    const fromUtc = isBareDate(fromDate) ? argDateToUtcFrom(fromDate) : fromDate;
     query += " AND created_at >= ?";
     countQuery += " AND created_at >= ?";
-    bindings.push(fromDate);
-    countBindings.push(fromDate);
+    bindings.push(fromUtc);
+    countBindings.push(fromUtc);
   }
 
   if (toDate) {
+    const toUtc = isBareDate(toDate) ? argDateToUtcTo(toDate) : toDate;
     query += " AND created_at <= ?";
     countQuery += " AND created_at <= ?";
-    bindings.push(toDate);
-    countBindings.push(toDate);
+    bindings.push(toUtc);
+    countBindings.push(toUtc);
   }
 
   query += ` ORDER BY created_at ${sortOrder} LIMIT ? OFFSET ?`;
@@ -94,6 +109,7 @@ salesRoutes.get("/:id", async (c) => {
 salesRoutes.post("/", async (c) => {
   const db = c.env.DB;
   const body = await c.req.json<{
+    id?: string;
     client_id?: string;
     idempotency_key?: string;
     branch_id?: string;
@@ -156,16 +172,11 @@ salesRoutes.post("/", async (c) => {
     }
   }
 
-  // TODO: add UNIQUE constraint on (branch_id, sale_number) in a migration to prevent
-  // duplicate sale numbers under concurrent requests (MAX+1 is not safe without a lock).
-  const saleNumberRow = await db
-    .prepare(
-      "SELECT COALESCE(MAX(sale_number), 0) + 1 AS next_number FROM sales WHERE branch_id = ?"
-    )
-    .bind(branchId)
-    .first<{ next_number: number }>();
-
-  const saleNumber = saleNumberRow?.next_number ?? 1;
+  // sale_number se calcula dentro del bucle de retry (más abajo) porque bajo
+  // concurrencia dos requests pueden leer el mismo MAX+1 y violar el UNIQUE
+  // (branch_id, sale_number) — migración 0008. Mantenemos `let` para que el
+  // bloque de INSERT lo pueda re-asignar tras un conflicto.
+  let saleNumber = 0;
 
   const items = body.items ?? [];
   if (items.length === 0) {
@@ -259,28 +270,15 @@ salesRoutes.post("/", async (c) => {
     return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Total calculado inválido" } }, 400);
   }
 
-  const saleId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-
-  const saleInsert = db
-    .prepare(
-      `INSERT INTO sales (id, client_id, idempotency_key, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?, ?)`
-    )
-    .bind(
-      saleId,
-      body.client_id ?? null,
-      idempotencyKey,
-      branchId,
-      userId,
-      body.customer_id ?? null,
-      saleNumber,
-      subtotal,
-      discountTotal,
-      taxTotal,
-      total,
-      body.notes ?? null,
-      now
-    );
+  // Aceptamos el ID generado por el cliente para que void/refund posteriores
+  // hagan match contra el mismo registro local. Validamos formato: UUID con
+  // o sin guiones (32 o 36 chars hex). Si no llega o es inválido, generamos.
+  const clientProvidedId = typeof body.id === "string" ? body.id.trim().toLowerCase() : "";
+  const isValidLocalId =
+    /^[0-9a-f]{32}$/.test(clientProvidedId) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(clientProvidedId);
+  const saleId = isValidLocalId
+    ? clientProvidedId.replace(/-/g, "")
+    : crypto.randomUUID().replace(/-/g, "").toLowerCase();
 
   const itemStatements = items.flatMap(item => {
     const itemId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
@@ -319,39 +317,96 @@ salesRoutes.post("/", async (c) => {
 
   // SECURITY: D1 batch limit ~100. With 3 statements per item plus payments,
   // a single sale could exceed the limit; clip to a safe upper bound.
-  const allStatements = [saleInsert, ...itemStatements, ...paymentStatements];
-  if (allStatements.length > 100) {
+  // (saleInsert se agrega adentro del loop para que use el sale_number actual)
+  const baseStatementsCount = 1 + itemStatements.length + paymentStatements.length;
+  if (baseStatementsCount > 100) {
     return c.json(
       { success: false, error: { code: "VALIDATION_ERROR", message: "La venta excede el máximo de operaciones por batch. Reduce items o pagos." } },
       400,
     );
   }
-  try {
-    await db.batch(allStatements);
-  } catch (err) {
-    // Race-condition con el índice único en idempotency_key: si dos requests
-    // llegaron casi al mismo tiempo con el mismo key, el segundo falla acá.
-    // Re-buscamos la venta original y la devolvemos como replay.
-    const message = err instanceof Error ? err.message : String(err);
-    if (idempotencyKey && /UNIQUE|idempotency/i.test(message)) {
-      const existing = await db
-        .prepare("SELECT id, sale_number, branch_id, created_at FROM sales WHERE idempotency_key = ? LIMIT 1")
-        .bind(idempotencyKey)
-        .first<{ id: string; sale_number: number; branch_id: string; created_at: string }>();
-      if (existing) {
-        return c.json({
-          success: true,
-          data: {
-            id: existing.id,
-            sale_number: existing.sale_number,
-            branch_id: existing.branch_id,
-            created_at: existing.created_at,
-            idempotent_replay: true,
-          },
-        }, 200);
+
+  // Retry loop para colisiones del índice UNIQUE (branch_id, sale_number).
+  // Bajo concurrencia dos requests pueden leer el mismo MAX+1; el segundo
+  // INSERT falla por el UNIQUE de migración 0008. Reintentamos hasta 5 veces
+  // recalculando MAX+1.
+  const MAX_SALE_NUMBER_RETRIES = 5;
+  let attempts = 0;
+  let inserted = false;
+
+  while (attempts < MAX_SALE_NUMBER_RETRIES && !inserted) {
+    const saleNumberRow = await db
+      .prepare(
+        "SELECT COALESCE(MAX(sale_number), 0) + 1 AS next_number FROM sales WHERE branch_id = ?"
+      )
+      .bind(branchId)
+      .first<{ next_number: number }>();
+    saleNumber = saleNumberRow?.next_number ?? 1;
+
+    const saleInsert = db
+      .prepare(
+        `INSERT INTO sales (id, client_id, idempotency_key, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?, ?)`
+      )
+      .bind(
+        saleId,
+        body.client_id ?? null,
+        idempotencyKey,
+        branchId,
+        userId,
+        body.customer_id ?? null,
+        saleNumber,
+        subtotal,
+        discountTotal,
+        taxTotal,
+        total,
+        body.notes ?? null,
+        now
+      );
+
+    try {
+      await db.batch([saleInsert, ...itemStatements, ...paymentStatements]);
+      inserted = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+
+      // 1) Race con idempotency_key: devolver la venta original (replay).
+      if (idempotencyKey && /UNIQUE|idempotency_key|idempotency/i.test(message)) {
+        const existing = await db
+          .prepare("SELECT id, sale_number, branch_id, created_at FROM sales WHERE idempotency_key = ? LIMIT 1")
+          .bind(idempotencyKey)
+          .first<{ id: string; sale_number: number; branch_id: string; created_at: string }>();
+        if (existing) {
+          return c.json({
+            success: true,
+            data: {
+              id: existing.id,
+              sale_number: existing.sale_number,
+              branch_id: existing.branch_id,
+              created_at: existing.created_at,
+              idempotent_replay: true,
+            },
+          }, 200);
+        }
       }
+
+      // 2) Colisión en UNIQUE (branch_id, sale_number) → reintentar con MAX+1 fresco.
+      const isSaleNumberConflict = /UNIQUE/i.test(message) &&
+        (/sale_number/i.test(message) || /uq_sales_branch_sale_number/i.test(message));
+      if (isSaleNumberConflict) {
+        attempts++;
+        continue;
+      }
+
+      throw err;
     }
-    throw err;
+  }
+
+  if (!inserted) {
+    return c.json(
+      { success: false, error: { code: "SALE_NUMBER_CONFLICT", message: "No se pudo generar número de venta único tras varios reintentos" } },
+      500,
+    );
   }
 
   return c.json({ success: true, data: { id: saleId, sale_number: saleNumber, branch_id: branchId, created_at: now } }, 201);

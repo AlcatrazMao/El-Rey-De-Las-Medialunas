@@ -294,6 +294,40 @@ batchRoutes.put("/:id", async (c) => {
   return c.json({ success: true, data: { id } });
 });
 
+// POST /expire-stale
+// FIX A3: marca como 'expired' todos los lotes activos cuya expiry_date ya pasó
+// según hora argentina (UTC-3). Pensado para ser disparado por el cron schedule
+// del Worker o manualmente por un admin. Devuelve la cantidad de lotes
+// actualizados para que el frontend pueda mostrar un toast.
+batchRoutes.post("/expire-stale", async (c) => {
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(c.env.DB, userId);
+  if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  const userRole = c.get("userRole");
+  if (
+    userRole !== "admin" &&
+    userRole !== "owner" &&
+    userRole !== "supervisor" &&
+    userRole !== "warehouse"
+  ) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para expirar lotes"), 403);
+  }
+
+  const db = c.env.DB;
+  const result = await db
+    .prepare(
+      `UPDATE inventory_batches
+         SET status = 'expired'
+       WHERE status = 'active'
+         AND expiry_date IS NOT NULL
+         AND expiry_date < DATE('now', '-3 hours')`,
+    )
+    .run();
+
+  return c.json({ success: true, data: { expired: result.meta.changes ?? 0 } });
+});
+
 batchRoutes.delete("/:id", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);

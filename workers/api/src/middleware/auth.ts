@@ -52,7 +52,6 @@ export function authMiddleware() {
     }
 
     const sub = typeof payload.sub === "string" ? payload.sub : "";
-    const role = typeof payload.role === "string" ? (payload.role as Role) : ("cashier" as Role);
     const email = typeof payload.email === "string" ? payload.email : "";
 
     if (!sub) {
@@ -64,6 +63,30 @@ export function authMiddleware() {
         401,
       );
     }
+
+    // SECURITY: rechazar tokens sin role o con role inválido. Antes se hacía
+    // fallback silencioso a "cashier", lo que permitía a tokens malformados
+    // (o forjados sin el claim) operar como cajero. Ahora exigimos que el
+    // claim exista y coincida con el enum oficial de roles.
+    const VALID_ROLES: Role[] = [
+      "owner",
+      "admin",
+      "supervisor",
+      "cashier",
+      "production",
+      "warehouse",
+    ];
+    const rawRole = typeof payload.role === "string" ? payload.role : null;
+    if (!rawRole || !VALID_ROLES.includes(rawRole as Role)) {
+      return c.json(
+        {
+          success: false,
+          error: { code: "INVALID_TOKEN", message: "Token sin rol válido" },
+        },
+        401,
+      );
+    }
+    const role = rawRole as Role;
 
     const branchHeader = c.req.header("X-Branch-Id") ?? "";
 

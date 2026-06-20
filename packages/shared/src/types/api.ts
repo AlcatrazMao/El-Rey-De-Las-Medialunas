@@ -141,6 +141,13 @@ export interface CreateSalePaymentRequest {
 }
 
 export interface CreateSaleRequest {
+  /**
+   * UUID generado por el cliente para la venta. Si llega, el backend lo usa
+   * tal cual como `id` del registro en `sales`. Permite que el POS pueda
+   * hacer void/refund usando el mismo ID local sin reconciliación posterior.
+   * Si no llega o tiene formato inválido, el backend genera uno.
+   */
+  id?: string;
   branch_id: string;
   customer_id?: string;
   items: CreateSaleItemRequest[];
@@ -169,6 +176,20 @@ export interface CreateSaleRequest {
 
 export type SaleResponse = ApiResponse<Sale>;
 export type SalesResponse = PaginatedResponse<Sale>;
+
+/**
+ * Respuesta del POST /sales. El backend devuelve siempre `id` (server-side)
+ * más metadatos esenciales para que el POS reconcilie su Sale local.
+ * Si la request usó `idempotency_key` y ya existía la venta, se incluye
+ * `idempotent_replay: true`.
+ */
+export type CreateSaleResponse = ApiResponse<{
+  id: string;
+  sale_number: number;
+  branch_id: string;
+  created_at: string;
+  idempotent_replay?: boolean;
+}>;
 
 export type CreateCustomerRequest = Omit<
   Customer,

@@ -222,6 +222,7 @@ export const CashSessionView: React.FC = () => {
                     <label htmlFor="closingAmount" className="text-[10px] font-black uppercase text-gray-450 dark:text-zinc-300 tracking-wider block">
                       EFECTIVO REAL EN CAJA ($) *
                     </label>
+                    {/* TODO: requiere arqueo manual — esta acción setea realAmount = expectedAmount sin contar billetes reales, generando discrepancy=0 falsa. Mantener solo como atajo opt-in del cajero (jamás auto-disparar). */}
                     <button
                       type="button"
                       onClick={() => setClosingAmount(currentCashSession.expectedAmount)}
@@ -471,6 +472,7 @@ export const CashSessionView: React.FC = () => {
                               </div>
                             </div>
                           ) : (
+                            /* TODO: requiere arqueo manual — al abrir el modal se prefilltea con expectedAmount, lo que sugiere discrepancy=0 al admin si no edita. Considerar dejar el campo vacío para forzar el conteo real. */
                             <button
                               type="button"
                               onClick={() => { setClosingHistoricalId(sess.id); setHistoricalClosingAmount(sess.expectedAmount); }}

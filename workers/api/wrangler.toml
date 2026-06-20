@@ -33,6 +33,12 @@ queue = "inventory-processing"
 binding = "REPORTS_QUEUE"
 queue = "report-generation"
 
+# FIX A3: cron que dispara el scheduled handler de index.ts para expirar lotes
+# con expiry_date < hoy (hora ARG). Cada hora basta para mantener el inventario
+# actualizado sin sobrecargar D1.
+[triggers]
+crons = ["0 * * * *"]
+
 [vars]
 APP_NAME = "El Rey De Las Medialunas"
 APP_ENV = "development"
@@ -67,6 +73,10 @@ queue = "inventory-processing"
 [[env.production.queues.producers]]
 binding = "REPORTS_QUEUE"
 queue = "report-generation"
+
+# FIX A3: misma cron que dev — expira lotes vencidos cada hora.
+[env.production.triggers]
+crons = ["0 * * * *"]
 
 [env.production.vars]
 APP_NAME = "El Rey De Las Medialunas"

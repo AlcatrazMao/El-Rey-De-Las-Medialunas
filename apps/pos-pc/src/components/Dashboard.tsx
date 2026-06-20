@@ -21,12 +21,32 @@ export const Dashboard: React.FC = () => {
     updateUserWidgets,
     withdrawalRequests = [],
     supplyRequests = [],
+    batches = [],
     approveWithdrawalRequest,
     rejectWithdrawalRequest,
     approveSupplyRequest,
     rejectSupplyRequest,
     addSystemNotification
   } = useApp();
+
+  // FIX A3: lotes activos que vencen en las próximas 24h — alerta crítica
+  // para que el admin retire/promocione antes de que el cron los expire.
+  const expiringBatches = React.useMemo(() => {
+    const now = Date.now();
+    const cutoff = now + 24 * 60 * 60 * 1000;
+    return batches
+      .filter(b => {
+        if (b.status !== 'active') return false;
+        if (!b.expiryDate) return false;
+        const t = new Date(b.expiryDate).getTime();
+        return Number.isFinite(t) && t >= now && t <= cutoff;
+      })
+      .map(b => ({
+        ...b,
+        productName: products.find(p => p.id === b.productId)?.name ?? b.productId,
+      }))
+      .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+  }, [batches, products]);
 
   // Control customization modal visibility
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -470,6 +490,39 @@ export const Dashboard: React.FC = () => {
         </button>
         )}
       </div>
+
+      {/* FIX A3: lotes vencen en próximas 24h — alerta visible siempre */}
+      {expiringBatches.length > 0 && (
+        <div
+          id="dashboard-expiring-batches-alert"
+          className="bg-red-50 dark:bg-red-950/20 border border-red-300 dark:border-red-900/50 rounded-2xl p-4 shadow-xs"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+            <h3 className="font-extrabold text-sm text-red-800 dark:text-red-300">
+              ⏰ {expiringBatches.length} lote{expiringBatches.length === 1 ? '' : 's'} vence{expiringBatches.length === 1 ? '' : 'n'} en menos de 24 horas
+            </h3>
+          </div>
+          <p className="text-[10px] text-red-700/80 dark:text-red-400/80 font-semibold mb-2">
+            Revisá lotes activos para retirar, descontar o promocionar antes del vencimiento automático.
+          </p>
+          <ul className="space-y-1 max-h-40 overflow-y-auto pr-1">
+            {expiringBatches.slice(0, 10).map(b => (
+              <li
+                key={b.id}
+                className="flex items-center justify-between text-[11px] bg-white dark:bg-zinc-950/40 rounded-lg px-2 py-1 border border-red-100 dark:border-red-900/30"
+              >
+                <span className="font-bold text-gray-800 dark:text-zinc-200 truncate">
+                  {b.productName} — Lote {b.batchNumber}
+                </span>
+                <span className="font-mono text-red-700 dark:text-red-300 shrink-0 ml-2">
+                  {b.stock}u • vence {new Date(b.expiryDate).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* UNIFIED APPROVAL CENTER FOR ADMIN */}
       {activeUser.role === 'admin' && (

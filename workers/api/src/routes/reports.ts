@@ -7,11 +7,30 @@ export const reportRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
+// Timezone Argentina (UTC-3). El cliente envía `from_date`/`to_date` ya
+// expresados en hora argentina (ej: "2026-06-19"). Internamente la DB guarda
+// `created_at` en UTC, así que convertimos el rango argentino a UTC antes de
+// querear: medianoche ARG de un día = 03:00:00 UTC del mismo día, y el final
+// 23:59:59 ARG = 02:59:59 UTC del día siguiente.
 function dateRange(c: { req: { query: (k: string) => string | undefined } }) {
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
-  const from = c.req.query("from_date") ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const to = c.req.query("to_date") ?? new Date().toISOString().slice(0, 10);
-  return { branchId, from: `${from} 00:00:00`, to: `${to} 23:59:59` };
+  // Por defecto últimos 30 días en hora ARG. Calculamos el "hoy" argentino
+  // desplazando el reloj UTC -3 horas.
+  const argNowMs = Date.now() - 3 * 3600 * 1000;
+  const fromDefault = new Date(argNowMs - 30 * 86400000).toISOString().slice(0, 10);
+  const toDefault = new Date(argNowMs).toISOString().slice(0, 10);
+  const from = c.req.query("from_date") ?? fromDefault;
+  const to = c.req.query("to_date") ?? toDefault;
+  // ARG midnight (00:00 -03:00) → 03:00 UTC del mismo día.
+  // ARG 23:59:59 (-03:00) → 02:59:59 UTC del día siguiente.
+  const toDateObj = new Date(`${to}T00:00:00Z`);
+  toDateObj.setUTCDate(toDateObj.getUTCDate() + 1);
+  const toNextDay = toDateObj.toISOString().slice(0, 10);
+  return {
+    branchId,
+    from: `${from} 03:00:00`,
+    to: `${toNextDay} 02:59:59`,
+  };
 }
 
 // GET /sales/summary
@@ -73,9 +92,11 @@ reportRoutes.get("/sales/by-hour", async (c) => {
   const db = c.env.DB;
   const { branchId, from, to } = dateRange(c);
 
+  // strftime('%H', created_at, '-3 hours') → hora argentina (UTC-3).
+  // Sin el offset, una venta hecha a las 22:00 ARG aparecería como hora 1 UTC.
   const results = await db.prepare(
     `SELECT
-       CAST(strftime('%H', created_at) AS INTEGER) as hour,
+       CAST(strftime('%H', created_at, '-3 hours') AS INTEGER) as hour,
        COUNT(*) as count,
        COALESCE(SUM(total), 0) as revenue,
        COALESCE(AVG(total), 0) as average_ticket

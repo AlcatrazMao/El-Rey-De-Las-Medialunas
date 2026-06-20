@@ -96,9 +96,13 @@ cashRoutes.post("/sessions/open", async (c) => {
 
   let autoClosed = false;
   if (existing) {
-    // Si la sesión abierta es de un día anterior, cerrarla automáticamente
+    // Si la sesión abierta es de un día anterior (en hora Argentina, UTC-3),
+    // cerrarla automáticamente. Comparamos la fecha *comercial* argentina:
+    //   - opened_at está en UTC → convertimos a ARG con '-3 hours'
+    //   - 'now' lo convertimos al mismo huso para que la comparación de DATE()
+    //     sea contra el día calendario argentino real.
     const isFromPreviousDay = await db
-      .prepare("SELECT 1 AS is_old FROM cash_sessions WHERE id = ? AND DATE(opened_at) < DATE('now')")
+      .prepare("SELECT 1 AS is_old FROM cash_sessions WHERE id = ? AND DATE(opened_at, '-3 hours') < DATE('now', '-3 hours')")
       .bind(existing.id)
       .first<{ is_old: number }>();
 
