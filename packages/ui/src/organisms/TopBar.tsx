@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+
 import { Avatar } from '../atoms/Avatar';
-import { Icon } from '../atoms/Icon';
 import { Badge } from '../atoms/Badge';
+import { Icon } from '../atoms/Icon';
+
 import styles from './TopBar.module.css';
 
 interface Branch {

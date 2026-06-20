@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+
 import { Icon } from '../atoms/Icon';
+
 import styles from './SearchInput.module.css';
 
 interface SearchInputProps {

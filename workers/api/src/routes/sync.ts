@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 
-import type { Env, Variables } from "../types/bindings";
 import { resolveUser } from "../lib/resolve-user";
+import type { Env, Variables } from "../types/bindings";
 
 export const syncRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 

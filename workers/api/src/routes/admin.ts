@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 
+import { resolveUser } from "../lib/resolve-user";
 import { requireRole } from "../middleware/rbac";
 import type { Env, Variables } from "../types/bindings";
-import { resolveUser } from "../lib/resolve-user";
 
 export const adminRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 

@@ -1,6 +1,9 @@
 import React from 'react';
-import { Icon, IconName } from '../atoms/Icon';
+
 import { Button } from '../atoms/Button';
+import type { IconName } from '../atoms/Icon';
+import { Icon } from '../atoms/Icon';
+
 import styles from './EmptyState.module.css';
 
 interface EmptyStateProps {

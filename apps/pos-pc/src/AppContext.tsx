@@ -24,12 +24,12 @@ import {
   PAYMENT_GATEWAYS,
 } from './initialData';
 import { syncSaleToD1, buildSalePayload, updateSupplyRequestStatusInD1, syncStockMovementToD1, syncBatchToD1 } from './services/d1-sync';
-import { formatCurrency } from './utils/format';
 import type {
   Ingredient, Product, ProductGroup, Sale, Expense, User, PushNotification, PaymentGateway,
   UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer,
   SyncStatus,
 } from './types';
+import { formatCurrency } from './utils/format';
 
 interface AppContextType {
   ingredients: Ingredient[]; products: Product[]; sales: Sale[]; expenses: Expense[];

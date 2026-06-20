@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useId, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+
 import { Icon } from './Icon';
 import styles from './Modal.module.css';
 

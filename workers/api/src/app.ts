@@ -7,7 +7,6 @@ import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { validate } from "./middleware/validate";
 import { adminRoutes } from "./routes/admin";
 import { auditRoutes } from "./routes/audit";
-import { uploadRoutes } from "./routes/uploads";
 import { authRoutes } from "./routes/auth";
 import { batchRoutes } from "./routes/batches";
 import { branchRoutes } from "./routes/branches";
@@ -25,6 +24,7 @@ import { salesRoutes } from "./routes/sales";
 import { supplierRoutes } from "./routes/suppliers";
 import { supplyRequestRoutes } from "./routes/supply-requests";
 import { syncRoutes } from "./routes/sync";
+import { uploadRoutes } from "./routes/uploads";
 import type { Env, Variables } from "./types/bindings";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

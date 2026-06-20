@@ -6,6 +6,7 @@ import { useSettings } from '../hooks/useSettings';
 import type { BusinessSettings, FiscalSettings, CashSettings, InventorySettings, GatewayCredential, PriceList, Promotion, SyncSettings } from '../hooks/useSettings';
 import { BusinessSettings as BusinessSettingsPanel } from '../settings/BusinessSettings';
 import { CashSettings as CashSettingsPanel } from '../settings/CashSettings';
+import { DangerZoneSettings as DangerZoneSettingsPanel } from '../settings/DangerZoneSettings';
 import { FiscalSettings as FiscalSettingsPanel } from '../settings/FiscalSettings';
 import { InventorySettings as InventorySettingsPanel } from '../settings/InventorySettings';
 import { PaymentSettings as PaymentSettingsPanel } from '../settings/PaymentSettings';
@@ -13,7 +14,6 @@ import { PriceListSettings as PriceListSettingsPanel } from '../settings/PriceLi
 import { PrinterSettings as PrinterSettingsPanel } from '../settings/PrinterSettings';
 import { PromotionsSettings as PromotionsSettingsPanel } from '../settings/PromotionsSettings';
 import { SyncSettings as SyncSettingsPanel } from '../settings/SyncSettings';
-import { DangerZoneSettings as DangerZoneSettingsPanel } from '../settings/DangerZoneSettings';
 
 import { SyncErrorConsole } from './SyncErrorConsole';
 

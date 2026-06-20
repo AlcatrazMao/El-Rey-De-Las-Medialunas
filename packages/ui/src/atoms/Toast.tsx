@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+
 import { Icon } from './Icon';
 import styles from './Toast.module.css';
 

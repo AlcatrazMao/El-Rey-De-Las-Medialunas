@@ -1,6 +1,8 @@
 import React from 'react';
-import { Modal } from '../atoms/Modal';
+
 import { Button } from '../atoms/Button';
+import { Modal } from '../atoms/Modal';
+
 import styles from './ConfirmDialog.module.css';
 
 interface ConfirmDialogProps {

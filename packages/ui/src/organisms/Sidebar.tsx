@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Icon, type IconName } from '../atoms/Icon';
+
 import { Badge } from '../atoms/Badge';
+import { Icon, type IconName } from '../atoms/Icon';
+
 import styles from './Sidebar.module.css';
 
 interface SidebarItem {

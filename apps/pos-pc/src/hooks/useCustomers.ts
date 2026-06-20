@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
-import { syncCustomerToD1, fetchCustomersFromD1 } from '../services/d1-sync';
 import { getApi } from '../services/api';
+import { syncCustomerToD1, fetchCustomersFromD1 } from '../services/d1-sync';
 import type { Customer } from '../types';
 import { safeSetItem } from '../utils/safeStorage';
 

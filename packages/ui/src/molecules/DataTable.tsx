@@ -1,6 +1,8 @@
 import React from 'react';
-import { Spinner } from '../atoms/Spinner';
+
 import { Icon } from '../atoms/Icon';
+import { Spinner } from '../atoms/Spinner';
+
 import styles from './DataTable.module.css';
 
 interface ColumnDef<T> {
