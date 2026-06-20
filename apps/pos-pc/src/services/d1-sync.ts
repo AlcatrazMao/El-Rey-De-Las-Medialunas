@@ -190,6 +190,25 @@ export async function syncVoidSaleToD1(saleId: string, voidReason?: string): Pro
 }
 
 
+// ── Batches ───────────────────────────────────────────────────────────
+
+/**
+ * Sincroniza un lote de inventario al backend (POST /api/v2/batches).
+ * Llamada fire-and-forget: si falla red/server el POS no debe romperse.
+ */
+export async function syncBatchToD1(batch: {
+  product_id: string;
+  branch_id: string;
+  batch_number: string;
+  entry_date: string;      // YYYY-MM-DD
+  expiry_date?: string;    // YYYY-MM-DD
+  cost_per_unit: number;
+  initial_quantity: number;
+  notes?: string;
+}): Promise<void> {
+  await getApi().client.post('/api/v2/batches', batch);
+}
+
 // ── Inventory ─────────────────────────────────────────────────────────
 
 export async function syncStockMovementToD1(movement: {
@@ -298,11 +317,18 @@ export async function syncCashSessionCloseToD1(
   }
 }
 
-export async function fetchCashSessionsFromD1(limit = 30, offset = 0): Promise<LocalCashSession[]> {
+export async function fetchCashSessionsFromD1(
+  limit = 30,
+  beforeId?: string,
+): Promise<LocalCashSession[]> {
   try {
     // Traemos todas las sesiones (abiertas y cerradas) para que las sesiones
     // abiertas de días anteriores aparezcan en el historial y puedan cerrarse manualmente.
-    const sessions = await getApi().cash.getSessions({ limit, offset });
+    // Cursor-based pagination via before_id (más robusto que offset: una sesión
+    // insertada mientras paginás no desplaza la ventana ni te hace saltar registros).
+    const filters: { limit: number; before_id?: string } = { limit };
+    if (beforeId) filters.before_id = beforeId;
+    const sessions = await getApi().cash.getSessions(filters);
     return (sessions ?? []).map((s): LocalCashSession => ({
       id: s.id,
       openedAt: s.opened_at,
@@ -522,5 +548,7 @@ export async function fetchProductsFromD1(
     }
   }
 
-  return merged;
+  // D1 es source of truth — descartamos productos que ya no existen en el server
+  const d1Ids = new Set(d1Products.map(p => String(p.id ?? '')));
+  return merged.filter(p => d1Ids.has(p.id));
 }

@@ -18,6 +18,8 @@ export interface CashSessionFilters {
   to_date?: string;
   limit?: number;
   offset?: number;
+  /** Cursor-based pagination: trae sesiones con id < before_id. */
+  before_id?: string;
 }
 
 export class CashEndpoints {

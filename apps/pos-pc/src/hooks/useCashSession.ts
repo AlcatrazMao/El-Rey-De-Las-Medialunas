@@ -40,7 +40,6 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
     }
   });
 
-  const [sessionOffset, setSessionOffset] = useState(30);
   const [hasMoreSessions, setHasMoreSessions] = useState(true);
 
   useEffect(() => {
@@ -75,7 +74,8 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
   }, []);
 
   useEffect(() => {
-    fetchCashSessionsFromD1(30, 0).then((d1Sessions) => {
+    // Carga inicial: sin cursor (trae las más recientes).
+    fetchCashSessionsFromD1(30).then((d1Sessions) => {
       if (d1Sessions.length < 30) setHasMoreSessions(false);
       if (d1Sessions.length === 0) return;
       setCashSessionsHistory(prev => {
@@ -202,7 +202,17 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
   };
 
   const loadMoreSessions = (): void => {
-    fetchCashSessionsFromD1(30, sessionOffset).then((d1Sessions) => {
+    // Cursor-based: usamos el id más chico (lexicográficamente) ya cargado como
+    // before_id. El backend devuelve sesiones con id < before_id. Esto evita
+    // que una sesión insertada en paralelo desplace nuestra ventana y nos haga
+    // saltar/duplicar registros.
+    const beforeId = cashSessionsHistory.length > 0
+      ? cashSessionsHistory.reduce(
+          (min, s) => (s.id < min ? s.id : min),
+          cashSessionsHistory[0].id,
+        )
+      : undefined;
+    fetchCashSessionsFromD1(30, beforeId).then((d1Sessions) => {
       if (d1Sessions.length < 30) setHasMoreSessions(false);
       if (d1Sessions.length === 0) return;
       setCashSessionsHistory(prev => {
@@ -213,7 +223,6 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
           (a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()
         );
       });
-      setSessionOffset(prev => prev + 30);
     }).catch(() => {});
   };
 

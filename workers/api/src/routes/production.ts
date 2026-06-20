@@ -404,7 +404,7 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
        WHERE pb.id = ? LIMIT 1`,
     )
     .bind(id)
-    .first<{ id: string; branch_id: string; status: string; output_product_id: string; user_id: string }>();
+    .first<{ id: string; branch_id: string; status: string; output_product_id: string; user_id: string; planned_quantity: number }>();
 
   if (!batch) return c.json(errBody("NOT_FOUND", "Lote de producción no encontrado"), 404);
   if (batch.status !== "in_progress") {
@@ -423,12 +423,16 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   const movId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
 
+  // Si la cantidad real es menor a lo planeado, el lote se marca como 'partial'
+  // para reflejar que no se cumplió la producción objetivo.
+  const completionStatus = body.actual_quantity < batch.planned_quantity ? 'partial' : 'completed';
+
   const completeStatements = [
     db.prepare(
       `UPDATE production_batches
-       SET status = 'completed', actual_quantity = ?, waste_quantity = ?, notes = ?, completed_at = ?
+       SET status = ?, actual_quantity = ?, waste_quantity = ?, notes = ?, completed_at = ?
        WHERE id = ?`,
-    ).bind(body.actual_quantity, body.waste_quantity ?? 0, body.notes ?? null, now, id),
+    ).bind(completionStatus, body.actual_quantity, body.waste_quantity ?? 0, body.notes ?? null, now, id),
     db.prepare(
       `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
        VALUES (?, ?, ?, 'production_in', ?, 'Producción completada', ?, ?)`,
@@ -440,7 +444,7 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
   ];
 
   await db.batch(completeStatements);
-  return c.json({ success: true, data: { id, status: "completed", actual_quantity: body.actual_quantity, completed_at: now } });
+  return c.json({ success: true, data: { id, status: completionStatus, actual_quantity: body.actual_quantity, completed_at: now } });
 });
 
 // POST /batches/:id/cancel

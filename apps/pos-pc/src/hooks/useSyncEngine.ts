@@ -217,6 +217,10 @@ export function useSyncEngine(isAuthenticated: boolean) {
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
+    // Capturamos la ref al montar para que el cleanup pueda limpiar timers
+    // sin warnings de stale-ref. En StrictMode (dev) el mount doble podría
+    // dejar timers huérfanos del primer mount; este cleanup los cancela.
+    const timers = timersRef.current;
     (async () => {
       try {
         const pending = await syncErrorStore.getPending();
@@ -232,7 +236,13 @@ export function useSyncEngine(isAuthenticated: boolean) {
       }
       void refreshPendingCount();
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // Cancelar todos los timers pendientes programados por este boot scan
+      // para evitar duplicación si el componente se remonta (StrictMode dev).
+      timers.forEach(t => clearTimeout(t));
+      timers.clear();
+    };
   }, [isAuthenticated, scheduleRetry, refreshPendingCount]);
 
   // Polling del contador (UI viva sin librerías reactivas extra).

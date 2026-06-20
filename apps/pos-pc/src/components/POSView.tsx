@@ -74,6 +74,9 @@ export const POSView: React.FC = () => {
   const barcodeBufferRef = useRef<string>('');
   const lastKeyTimeRef = useRef<number>(0);
   const barcodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Rate-limit: si el mismo código llega 2x en <800ms (doble disparo del scanner físico),
+  // ignoramos el segundo para que no se agregue duplicado al carrito.
+  const lastScanRef = useRef<{ code: string; at: number } | null>(null);
   // Stable refs so the keydown listener always gets the latest closures without re-subscribing
   const addToCartRef = useRef<((product: Product) => void) | null>(null);
   const productsRef = useRef(products);
@@ -113,6 +116,13 @@ export const POSView: React.FC = () => {
         if (code.length >= 3) {
           const found = productsRef.current.find(p => p.code === code || p.code.endsWith(code));
           if (found) {
+            // Rate-limit: ignorar mismo código en <800ms (doble disparo físico)
+            const nowTs = Date.now();
+            const last = lastScanRef.current;
+            if (last && last.code === code && nowTs - last.at < 800) {
+              return;
+            }
+            lastScanRef.current = { code, at: nowTs };
             addToCartRef.current?.(found);
             addSystemNotificationRef.current('📷 Código escaneado', `Lector leyó: ${code} → ${found.name}`, 'success');
           } else {

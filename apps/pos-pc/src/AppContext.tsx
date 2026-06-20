@@ -23,7 +23,7 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS,
 } from './initialData';
-import { syncSaleToD1, buildSalePayload, updateSupplyRequestStatusInD1, syncStockMovementToD1 } from './services/d1-sync';
+import { syncSaleToD1, buildSalePayload, updateSupplyRequestStatusInD1, syncStockMovementToD1, syncBatchToD1 } from './services/d1-sync';
 import { formatCurrency } from './utils/format';
 import type {
   Ingredient, Product, ProductGroup, Sale, Expense, User, PushNotification, PaymentGateway,
@@ -377,8 +377,20 @@ export const AppProvider: React.FC<{
     const batchInstance: ProductBatch = { ...newBatch, id: generatedId, status: 'active' };
     bch.setBatches(prev => [...prev, batchInstance]);
     inv.setProducts(prev => prev.map(p => (p.id === newBatch.productId ? { ...p, stock: p.stock + newBatch.quantity } : p)));
-    const prodName = inv.products.find(p => p.id === newBatch.productId)?.name || 'Producto';
+    const product = inv.products.find(p => p.id === newBatch.productId);
+    const prodName = product?.name || 'Producto';
     notif.addSystemNotification('📦 Nuevo Lote Registrado', `Se registró el lote ${newBatch.batchNumber} de "${prodName}" con ${newBatch.quantity} unidades.`, 'success');
+
+    // Sync to D1 — fire-and-forget. Si la red falla el POS no debe romperse.
+    syncBatchToD1({
+      product_id: batchInstance.productId,
+      branch_id: getSettings().business.branchId,
+      batch_number: batchInstance.batchNumber,
+      entry_date: batchInstance.elaborationDate ?? new Date().toISOString().slice(0, 10),
+      expiry_date: batchInstance.expiryDate,
+      cost_per_unit: product?.cost ?? 0,
+      initial_quantity: batchInstance.quantity,
+    }).catch(() => {});
   };
 
   const approveWithdrawalRequest = (requestId: string, adminMemo: string) => {
