@@ -1,4 +1,4 @@
-import Dexie, { type Table } from 'dexie';
+import { Dexie, type Table } from 'dexie';
 
 import type { LocalProduct, LocalCategory, LocalProductAlias, LocalSale, LocalSaleItem, LocalSalePayment, LocalInventory, LocalCustomer, LocalCashSession, SyncQueueItem, SyncMeta, HeldCart } from './schema';
 

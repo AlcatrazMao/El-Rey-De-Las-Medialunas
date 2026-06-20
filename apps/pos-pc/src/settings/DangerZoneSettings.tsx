@@ -26,13 +26,15 @@ function wipeLocalStorage(): void {
 export const DangerZoneSettings: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState(false);
+
+  const handleWipeRequest = () => {
+    setResult(null);
+    setPendingConfirm(true);
+  };
 
   const handleWipe = async () => {
-    const confirmed = window.confirm(
-      'Esto borrará TODAS las ventas, movimientos, clientes y sesiones de caja. Los productos se conservan. ¿Confirmar?'
-    );
-    if (!confirmed) return;
-
+    setPendingConfirm(false);
     setLoading(true);
     setResult(null);
 
@@ -85,15 +87,35 @@ export const DangerZoneSettings: React.FC = () => {
               Borra ventas, movimientos de stock, sesiones de caja, clientes, gastos y producción. El catálogo de productos se conserva.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleWipe}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer shrink-0"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {loading ? 'Vaciando...' : 'Vaciar datos de prueba'}
-          </button>
+          {pendingConfirm ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[11px] font-bold text-red-700 dark:text-red-400">¿Confirmar?</span>
+              <button
+                type="button"
+                onClick={handleWipe}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-all cursor-pointer"
+              >
+                Sí, vaciar
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingConfirm(false)}
+                className="px-3 py-1.5 bg-gray-200 dark:bg-zinc-700 hover:bg-gray-300 dark:hover:bg-zinc-600 text-gray-800 dark:text-zinc-100 text-xs font-bold rounded-lg transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleWipeRequest}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer shrink-0"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {loading ? 'Vaciando...' : 'Vaciar datos de prueba'}
+            </button>
+          )}
         </div>
 
         {result && (

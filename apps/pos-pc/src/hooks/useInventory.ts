@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
 import { fetchProductsFromD1, syncProductToD1 } from '../services/d1-sync';
-import type { Ingredient, Product, PaymentGateway } from '../types';
+import type { Ingredient, Product, PaymentGateway, ProductGroup } from '../types';
 import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
@@ -108,7 +108,7 @@ export function useInventory(notify: NotifyFn) {
     setProducts(prev => prev.map(prod => (prod.id === id ? { ...prod, stock: newStock } : prod)));
   };
 
-  const updateProductGroups = (id: string, groups: import('../types').ProductGroup[]) => {
+  const updateProductGroups = (id: string, groups: ProductGroup[]) => {
     setProducts(prev => prev.map(prod => (prod.id === id ? { ...prod, groups } : prod)));
   };
 

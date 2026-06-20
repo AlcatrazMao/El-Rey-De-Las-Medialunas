@@ -173,7 +173,8 @@ export function useBatches({ notify, products }: UseBatchesParams) {
     checkExpiry(); // check al montar
     const interval = setInterval(checkExpiry, 3_600_000); // cada hora
     return () => clearInterval(interval);
-  }, []); // sin deps — accede a batches y withdrawalRequests via setters funcionales
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `notify` no cambia de identidad entre renders (viene de un useRef estable en useNotifications), y accedemos a batches/withdrawalRequests via setters funcionales para evitar stale closures
+  }, []);
 
   const requestBatchWithdrawal = (
     batchId: string,

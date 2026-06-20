@@ -38,7 +38,7 @@ export const NotesCanvas: React.FC<NotesCanvasProps> = ({ notes, onUpdate, onDel
       onUpdate(editingId, { title: editTitle, content: editContent });
       setEditingId(null);
     }
-  }, [editingId, editTitle, editContent]);
+  }, [editingId, editTitle, editContent, onUpdate]);
 
   // Handle drag start - works anywhere on the card
   const handlePointerDown = (e: React.PointerEvent, note: StickyNote) => {
@@ -80,7 +80,7 @@ export const NotesCanvas: React.FC<NotesCanvasProps> = ({ notes, onUpdate, onDel
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-  }, [dragging]);
+  }, [dragging, onUpdate]);
 
   // Keyboard: Escape exits edit mode
   useEffect(() => {
