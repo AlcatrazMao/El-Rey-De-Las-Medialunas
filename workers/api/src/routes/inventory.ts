@@ -175,11 +175,19 @@ inventoryRoutes.post("/adjust", async (c) => {
     )
     .run();
 
-  const delta = body.movement_type.endsWith("_in")
-    ? body.quantity
-    : -body.quantity;
+  const isInbound = body.movement_type.endsWith("_in");
+  const delta = isInbound ? body.quantity : -body.quantity;
 
   const invId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+  // Para movimientos _out clampeamos a 0 — consistente con sales.ts y
+  // production.ts. Esto evita que un ajuste manual de salida deje stock
+  // negativo. Para _in dejamos suma directa.
+  const updateSql = isInbound
+    ? `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+       WHERE product_id = ? AND branch_id = ?`
+    : `UPDATE inventory SET current_quantity = MAX(0, current_quantity + ?), updated_at = ?
+       WHERE product_id = ? AND branch_id = ?`;
+
   await db.batch([
     db
       .prepare(
@@ -188,10 +196,7 @@ inventoryRoutes.post("/adjust", async (c) => {
       )
       .bind(invId, body.product_id, branchId, createdAt),
     db
-      .prepare(
-        `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
-         WHERE product_id = ? AND branch_id = ?`
-      )
+      .prepare(updateSql)
       .bind(delta, createdAt, body.product_id, branchId),
   ]);
 

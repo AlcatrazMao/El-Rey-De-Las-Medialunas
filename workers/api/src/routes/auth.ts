@@ -108,7 +108,11 @@ authRoutes.post("/login", async (c) => {
 
     const ip = c.req.header("CF-Connecting-IP") || "unknown";
     const rateLimitKey = `rate_limit:login:${ip}`;
-    const attempts = parseInt(await c.env.SESSIONS.get(rateLimitKey) ?? '0', 10);
+    // Defensa contra KV corrupto: parseInt puede devolver NaN, y NaN >= 5 es
+    // false (bypass del rate limit). Normalizamos a 0 si no es finito.
+    const raw = await c.env.SESSIONS.get(rateLimitKey);
+    const parsed = parseInt(raw ?? '0', 10);
+    const attempts = Number.isFinite(parsed) ? parsed : 0;
     if (attempts >= 5) {
       return c.json({ success: false, error: { code: "RATE_LIMITED", message: "Demasiados intentos" } }, 429);
     }

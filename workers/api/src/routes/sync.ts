@@ -187,20 +187,26 @@ async function applyOperation(
   switch (op.entity_type) {
     case "sale": {
       if (op.operation !== "create") break;
-      const saleNumberRow = await db
-        .prepare("SELECT COALESCE(MAX(sale_number), 0) + 1 AS next_number FROM sales WHERE branch_id = ?")
-        .bind(branchId)
-        .first<{ next_number: number }>();
-      const saleNumber = saleNumberRow?.next_number ?? 1;
+
+      // Idempotency: si llega idempotency_key y ya existe la venta, no re-procesar.
+      const idempotencyKey = typeof d.idempotency_key === "string" && d.idempotency_key.trim() !== ""
+        ? d.idempotency_key.trim()
+        : null;
+      if (idempotencyKey) {
+        const existing = await db
+          .prepare("SELECT id FROM sales WHERE idempotency_key = ? LIMIT 1")
+          .bind(idempotencyKey)
+          .first<{ id: string }>();
+        if (existing) {
+          // Ya procesada — replay silencioso, no romper sync.
+          break;
+        }
+      }
+
       const subtotal = Number(d.subtotal ?? 0);
       const discountTotal = Number(d.discount_total ?? 0);
       const taxTotal = Number(d.tax_total ?? 0);
       const total = Number(d.total ?? subtotal + taxTotal);
-
-      await db.prepare(
-        `INSERT OR IGNORE INTO sales (id, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'synced', ?, ?)`
-      ).bind(id, branchId, userId, d.customer_id ?? null, saleNumber, subtotal, discountTotal, taxTotal, total, d.notes ?? null, now).run();
 
       const items = Array.isArray(d.items) ? d.items as Record<string, unknown>[] : [];
       const payments = Array.isArray(d.payments) ? d.payments as Record<string, unknown>[] : [];
@@ -233,7 +239,58 @@ async function applyOperation(
         ).bind(payId, id, String(pay.payment_method ?? "cash"), Number(pay.amount ?? 0), now);
       });
 
-      if (itemStmts.length + paymentStmts.length > 0) await db.batch([...itemStmts, ...paymentStmts]);
+      // Retry loop para colisiones del índice UNIQUE (branch_id, sale_number) —
+      // bajo concurrencia dos pushes pueden leer el mismo MAX+1. Reintentamos
+      // hasta 5 veces igual que en sales.ts POST /.
+      const MAX_SALE_NUMBER_RETRIES = 5;
+      let attempts = 0;
+      let inserted = false;
+
+      while (attempts < MAX_SALE_NUMBER_RETRIES && !inserted) {
+        const saleNumberRow = await db
+          .prepare("SELECT COALESCE(MAX(sale_number), 0) + 1 AS next_number FROM sales WHERE branch_id = ?")
+          .bind(branchId)
+          .first<{ next_number: number }>();
+        const saleNumber = saleNumberRow?.next_number ?? 1;
+
+        const saleInsert = db.prepare(
+          `INSERT INTO sales (id, idempotency_key, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'synced', ?, ?)`
+        ).bind(id, idempotencyKey, branchId, userId, d.customer_id ?? null, saleNumber, subtotal, discountTotal, taxTotal, total, d.notes ?? null, now);
+
+        try {
+          await db.batch([saleInsert, ...itemStmts, ...paymentStmts]);
+          inserted = true;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+
+          // 1) Race con idempotency_key: la otra request ya ganó, replay silencioso.
+          if (idempotencyKey && /UNIQUE|idempotency_key|idempotency/i.test(message)) {
+            const existing = await db
+              .prepare("SELECT id FROM sales WHERE idempotency_key = ? LIMIT 1")
+              .bind(idempotencyKey)
+              .first<{ id: string }>();
+            if (existing) {
+              inserted = true;
+              break;
+            }
+          }
+
+          // 2) Colisión en UNIQUE (branch_id, sale_number) → reintentar.
+          const isSaleNumberConflict = /UNIQUE/i.test(message) &&
+            (/sale_number/i.test(message) || /uq_sales_branch_sale_number/i.test(message));
+          if (isSaleNumberConflict) {
+            attempts++;
+            continue;
+          }
+
+          throw err;
+        }
+      }
+
+      if (!inserted) {
+        throw new Error("SALE_NUMBER_CONFLICT: no se pudo generar número de venta único tras varios reintentos");
+      }
       break;
     }
 

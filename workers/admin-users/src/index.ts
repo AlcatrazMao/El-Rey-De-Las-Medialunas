@@ -93,6 +93,12 @@ interface FirebaseUpdatePayload {
 }
 
 // ── Rate limiter ─────────────────────────────────────────────────────
+// TODO(rate-limit): este Map vive en memoria del isolate y no persiste entre
+// invocaciones ni entre instancias. Bajo carga real, Cloudflare puede atender
+// requests con distintos isolates → el rate limit se "resetea" silenciosamente.
+// Solución correcta: agregar un binding KV (p.ej. RATE_LIMIT_KV) en
+// wrangler.toml y migrar este estado allí, igual que como hace workers/api/auth.ts
+// con SESSIONS. No lo hacemos ahora porque no existe el binding configurado.
 const rateLimit = new Map<string, { count: number; reset: number }>();
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
@@ -156,7 +162,9 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   const method = req.method;
   const ah = req.headers.get('Authorization');
 
-  // Role check: validates Firebase token by decoding JWT
+  // Role check: validates Firebase token by decoding JWT, checks cache,
+  // then falls back to Firestore. Usado por el POS login — autenticado con
+  // el Firebase ID token del propio usuario (no con AUTH_SECRET).
   if (method === 'GET' && path.startsWith('/api/role/')) {
     const uid = path.split('/api/role/')[1];
     const fbToken = ah?.startsWith('Bearer ') ? ah.slice(7) : '';
@@ -172,8 +180,24 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     } catch {
       return { status: 401, error: 'Token inválido' };
     }
+    // Check cache first
     const cached = userCache.find(u => u.uid === uid);
     if (cached) return { status: 200, data: { role: cached.role } };
+    // Fallback a Firestore vía REST API — necesita service account token.
+    try {
+      const token = await getAccessToken(env);
+      const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+      const sa = JSON.parse(raw.startsWith('{') ? raw : atob(raw.replace(/\s/g, ''))) as ServiceAccount;
+      const fsRes = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles/${uid}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (fsRes.ok) {
+        const fsData = await fsRes.json() as FirestoreRoleDocument;
+        const role = fsData.fields?.role?.stringValue || null;
+        return { status: 200, data: { role } };
+      }
+    } catch (e) { console.error('[admin] Firestore role fetch failed:', e); }
     return { status: 404, error: 'Usuario no registrado' };
   }
 
@@ -183,7 +207,7 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (!checkRateLimit(ip)) return { status: 429, error: 'Demasiados intentos' };
   const secret = (env.AUTH_SECRET ?? "").trim();
   if (!secret || !at || at !== secret) return { status: 401, error: 'No autorizado' };
-  
+
   let token: string;
   let sa: ServiceAccount;
   try {
@@ -196,27 +220,6 @@ async function handleRequest(req: Request, env: Env, url: URL) {
 
   // Sync cache
   if (method === 'POST' && path === '/api/sync') { userCache = []; return { status: 200, data: { message: 'Cache cleared' } }; }
-
-  // Get role for a specific user (used by POS login)
-  if (method === 'GET' && path.startsWith('/api/role/')) {
-    const uid = path.split('/api/role/')[1];
-    // Check cache first
-    const cached = userCache.find(u => u.uid === uid);
-    if (cached) return { status: 200, data: { role: cached.role } };
-    // Try Firestore via REST API
-    try {
-      const fsRes = await fetch(
-        `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/user_roles/${uid}`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
-      if (fsRes.ok) {
-        const fsData = await fsRes.json() as FirestoreRoleDocument;
-        const role = fsData.fields?.role?.stringValue || null;
-        return { status: 200, data: { role } };
-      }
-    } catch (e) { console.error('[admin] Firestore role fetch failed:', e); }
-    return { status: 404, error: 'Usuario no encontrado' };
-  }
   
   // List users — always fetch fresh from Firebase Auth (cache is volatile)
   if (method === 'GET' && path === '/api/users') {

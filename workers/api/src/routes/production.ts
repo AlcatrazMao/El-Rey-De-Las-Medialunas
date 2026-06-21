@@ -332,12 +332,18 @@ productionRoutes.post("/batches/:id/start", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para iniciar lotes de producción"), 403);
   }
 
+  // Validamos recipe_yield > 0 antes de calcular el multiplicador para evitar
+  // ratios con denominador 0 o negativo que generen consumos incorrectos.
+  if ((batch.recipe_yield ?? 0) <= 0) {
+    return c.json(errBody("VALIDATION_ERROR", "recipe_yield debe ser mayor a 0"), 400);
+  }
+
   const ingredients = await db
     .prepare("SELECT * FROM recipe_ingredients WHERE recipe_id = ?")
     .bind(batch.recipe_id)
     .all<{ ingredient_product_id: string; quantity: number; waste_percentage: number }>();
 
-  const batchMultiplier = batch.planned_quantity / (batch.recipe_yield || 1);
+  const batchMultiplier = batch.planned_quantity / batch.recipe_yield;
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   const consumeStatements = (ingredients.results ?? []).flatMap(ing => {
@@ -482,13 +488,19 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   if (batch.status === "in_progress") {
-    // Reverse the ingredient consumption that was applied when the batch started
+    // Reverse the ingredient consumption that was applied when the batch started.
+    // Validamos recipe_yield > 0 — sin esto el multiplicador sería incorrecto
+    // y dejaría inventarios inconsistentes tras la reversión.
+    if ((batch.recipe_yield ?? 0) <= 0) {
+      return c.json(errBody("VALIDATION_ERROR", "recipe_yield debe ser mayor a 0"), 400);
+    }
+
     const ingredients = await db
       .prepare("SELECT * FROM recipe_ingredients WHERE recipe_id = ?")
       .bind(batch.recipe_id)
       .all<{ ingredient_product_id: string; quantity: number; waste_percentage: number }>();
 
-    const batchMultiplier = batch.planned_quantity / (batch.recipe_yield || 1);
+    const batchMultiplier = batch.planned_quantity / batch.recipe_yield;
 
     const reverseStatements = (ingredients.results ?? []).flatMap(ing => {
       const totalQty = parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4));

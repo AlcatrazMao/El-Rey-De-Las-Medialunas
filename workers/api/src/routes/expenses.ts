@@ -40,14 +40,29 @@ expenseRoutes.get("/", async (c) => {
     query += " AND category = ?";
     bindings.push(category);
   }
+
+  // El cliente envía fechas en hora Argentina (UTC-3). created_at se guarda
+  // en UTC, así que convertimos igual que en sales.ts:
+  //   from_date "YYYY-MM-DD" (ARG 00:00)        → "YYYY-MM-DDT03:00:00.000Z"
+  //   to_date   "YYYY-MM-DD" (ARG 23:59:59)     → "YYYY-MM-(DD+1)T02:59:59.999Z"
+  // Si ya viene con hora, lo respetamos.
+  const isBareDate = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const argDateToUtcFrom = (d: string): string => `${d}T03:00:00.000Z`;
+  const argDateToUtcTo = (d: string): string => {
+    const dt = new Date(`${d}T00:00:00Z`);
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    return `${dt.toISOString().slice(0, 10)}T02:59:59.999Z`;
+  };
+
   if (fromDate) {
+    const fromUtc = isBareDate(fromDate) ? argDateToUtcFrom(fromDate) : fromDate;
     query += " AND created_at >= ?";
-    bindings.push(fromDate);
+    bindings.push(fromUtc);
   }
   if (toDate) {
-    const toDateStr = toDate.includes(' ') ? toDate : `${toDate} 23:59:59`;
+    const toUtc = isBareDate(toDate) ? argDateToUtcTo(toDate) : toDate;
     query += " AND created_at <= ?";
-    bindings.push(toDateStr);
+    bindings.push(toUtc);
   }
 
   query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";

@@ -183,6 +183,7 @@ customerRoutes.put("/:id", async (c) => {
     email?: string;
     phone?: string;
     tax_id?: string;
+    type?: string;
     credit_limit?: number;
     notes?: string;
     is_active?: number;
@@ -208,6 +209,22 @@ customerRoutes.put("/:id", async (c) => {
     }
   }
 
+  // Map frontend type values to DB enum — mismo mapeo que POST.
+  let dbType: string | undefined;
+  if (body.type !== undefined) {
+    const typeMap: Record<string, string> = {
+      consumidor_final: "consumer",
+      frecuente: "frequent",
+      mayorista: "wholesale",
+      empresa: "corporate",
+    };
+    dbType = typeMap[body.type] ?? body.type;
+    const validTypes = ["consumer", "frequent", "wholesale", "corporate"];
+    if (!validTypes.includes(dbType)) {
+      return c.json(errBody("VALIDATION_ERROR", "Tipo de cliente inválido"), 400);
+    }
+  }
+
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   const fields: string[] = ["updated_at = ?"];
   const vals: (string | number | null)[] = [now];
@@ -216,6 +233,7 @@ customerRoutes.put("/:id", async (c) => {
   if (body.email !== undefined) { fields.push("email = ?"); vals.push(body.email ?? null); }
   if (body.phone !== undefined) { fields.push("phone = ?"); vals.push(body.phone ?? null); }
   if (body.tax_id !== undefined) { fields.push("document_number = ?"); vals.push(body.tax_id ?? null); }
+  if (dbType !== undefined) { fields.push("type = ?"); vals.push(dbType); }
   if (body.credit_limit !== undefined) { fields.push("credit_limit = ?"); vals.push(body.credit_limit ?? null); }
   if (body.notes !== undefined) { fields.push("notes = ?"); vals.push(body.notes ?? null); }
   if (body.is_active !== undefined) { fields.push("is_active = ?"); vals.push(body.is_active); }
