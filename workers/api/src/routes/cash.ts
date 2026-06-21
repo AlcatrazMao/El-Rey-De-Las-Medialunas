@@ -1,16 +1,17 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const cashRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
 // GET /sessions
 cashRoutes.get("/sessions", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const status = c.req.query("status");
   const beforeId = c.req.query("before_id");
   const rawLimit = parseInt(c.req.query("limit") ?? "30", 10);
@@ -51,7 +52,7 @@ cashRoutes.get("/sessions", async (c) => {
 // GET /sessions/current
 cashRoutes.get("/sessions/current", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
 
   const session = await db
     .prepare(
@@ -89,7 +90,7 @@ cashRoutes.post("/sessions/open", async (c) => {
     );
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) {
@@ -126,7 +127,7 @@ cashRoutes.post("/sessions/open", async (c) => {
     }
 
     // Cerrar automáticamente la sesión del día anterior
-    const autoClosedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+    const autoClosedAt = nowSqliteTs();
     await db
       .prepare(
         `UPDATE cash_sessions
@@ -141,8 +142,8 @@ cashRoutes.post("/sessions/open", async (c) => {
 
   const id =
     body.id ??
-    crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const openedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+    genId();
+  const openedAt = nowSqliteTs();
 
   await db
     .prepare(
@@ -217,7 +218,7 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
   const expectedAmount = body.expected_amount ?? null;
   const difference =
     expectedAmount !== null ? closingAmount - expectedAmount : null;
-  const closedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const closedAt = nowSqliteTs();
 
   await db
     .prepare(
@@ -344,8 +345,8 @@ cashRoutes.post("/movements", async (c) => {
     );
   }
 
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const id = genId();
+  const createdAt = nowSqliteTs();
 
   await db
     .prepare(

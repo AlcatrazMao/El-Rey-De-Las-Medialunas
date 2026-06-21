@@ -2,6 +2,8 @@ import { Hono } from "hono";
 
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const supplierRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -84,8 +86,8 @@ supplierRoutes.post("/", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para crear proveedores"), 403);
   }
 
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const id = genId();
+  const now = nowSqliteTs();
 
   await db
     .prepare(
@@ -143,7 +145,7 @@ supplierRoutes.put("/:id", async (c) => {
 
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   if (body.name !== undefined) { fields.push("name = ?"); vals.push(body.name.trim()); }
   if (body.contact_name !== undefined) { fields.push("contact_name = ?"); vals.push(body.contact_name ?? null); }
@@ -189,7 +191,7 @@ supplierRoutes.delete("/:id", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para eliminar proveedores"), 403);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   await db
     .prepare("UPDATE suppliers SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id = ?")
     .bind(now, now, id)

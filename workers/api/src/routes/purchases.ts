@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const purchaseRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 // SECURITY: cap monetary and quantity inputs to avoid Infinity-adjacent or
 // absurd values poisoning totals.
 const MAX_QUANTITY = 1_000_000;
@@ -20,7 +21,7 @@ const errBody = (code: string, message: string) => ({
 // GET /orders
 purchaseRoutes.get("/orders", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const supplierId = c.req.query("supplier_id");
   const status = c.req.query("status");
   const fromDate = c.req.query("from_date");
@@ -129,9 +130,9 @@ purchaseRoutes.post("/orders", async (c) => {
     .first<{ id: string }>();
   if (!supplier) return c.json(errBody("NOT_FOUND", "Proveedor no encontrado"), 404);
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const id = genId();
+  const now = nowSqliteTs();
 
   const orderNumberRow = await db
     .prepare("SELECT COALESCE(MAX(CAST(SUBSTR(order_number, 4) AS INTEGER)), 0) + 1 AS next FROM purchase_orders WHERE branch_id = ?")
@@ -148,7 +149,7 @@ purchaseRoutes.post("/orders", async (c) => {
        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
     ).bind(id, body.supplier_id, branchId, user.id, orderNumber, total, total, body.expected_delivery_date ?? null, body.notes ?? null, now, now),
     ...body.items.map(item => {
-      const itemId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+      const itemId = genId();
       const itemTotal = parseFloat((Number(item.quantity) * Number(item.unit_cost)).toFixed(2));
       return db.prepare(
         `INSERT INTO purchase_order_items (id, purchase_order_id, product_id, quantity, unit_cost, received_quantity, total, notes, created_at)
@@ -189,7 +190,7 @@ purchaseRoutes.put("/orders/:id", async (c) => {
 
   const fields: string[] = [];
   const vals: (string | null)[] = [];
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   if (body.status !== undefined) { fields.push("status = ?"); vals.push(body.status); }
   if (body.notes !== undefined) { fields.push("notes = ?"); vals.push(body.notes ?? null); }
@@ -235,7 +236,7 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para recibir órdenes de compra"), 403);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   const items = body.items ?? [];
 
   // SECURITY: validate every receive item before mutating inventory. A
@@ -258,7 +259,7 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
 
   const receiveStatements = items.flatMap(item => {
     if (!item.product_id || !item.received_quantity || item.received_quantity <= 0) return [];
-    const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    const movementId = genId();
     return [
       db.prepare(
         `UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE purchase_order_id = ? AND product_id = ?`,
@@ -333,7 +334,7 @@ purchaseRoutes.post("/orders/:id/cancel", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para cancelar órdenes de compra"), 403);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   await db
     .prepare("UPDATE purchase_orders SET status = 'cancelled', updated_at = ? WHERE id = ?")
     .bind(now, id)

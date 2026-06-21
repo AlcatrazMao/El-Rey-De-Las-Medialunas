@@ -1,11 +1,10 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
 
 export const reportRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
 // Timezone Argentina (UTC-3). El cliente envía `from_date`/`to_date` ya
 // expresados en hora argentina (ej: "2026-06-19"). Internamente la DB guarda
@@ -13,7 +12,7 @@ const DEFAULT_BRANCH = "00000000000000000000000000000001";
 // querear: medianoche ARG de un día = 03:00:00 UTC del mismo día, y el final
 // 23:59:59 ARG = 02:59:59 UTC del día siguiente.
 function dateRange(c: { req: { query: (k: string) => string | undefined } }) {
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   // Por defecto últimos 30 días en hora ARG. Calculamos el "hoy" argentino
   // desplazando el reloj UTC -3 horas.
   const argNowMs = Date.now() - 3 * 3600 * 1000;
@@ -194,7 +193,7 @@ reportRoutes.get("/inventory/valuation", async (c) => {
   }
 
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
 
   const [valuation, summary] = await Promise.all([
     db.prepare(

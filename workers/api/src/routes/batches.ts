@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
 
 export const batchRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 // SECURITY: cap monetary and quantity inputs.
 const MAX_QUANTITY = 1_000_000;
 const MAX_UNIT_COST = 10_000_000;
@@ -47,7 +47,7 @@ interface BatchRow {
 
 batchRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const productId = c.req.query("product_id");
   const status = c.req.query("status") ?? "active";
   const expiringWithinHoursRaw = c.req.query("expiring_within_hours");
@@ -174,8 +174,8 @@ batchRoutes.post("/", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "inventory_method debe ser FIFO o LIFO"), 400);
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const id = genId();
   const remaining = body.remaining_quantity ?? body.initial_quantity;
 
   await db

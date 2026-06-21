@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const offerRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 const VALID_STATUSES = new Set(["active", "expired", "cancelled"]);
 const MAX_IDS_PER_OFFER = 1000;
 
@@ -37,7 +38,7 @@ interface OfferRow {
 
 offerRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const status = c.req.query("status");
   const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "50", 10) || 50), 100);
   const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
@@ -143,9 +144,9 @@ offerRoutes.post("/", async (c) => {
     }
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const id = genId();
+  const now = nowSqliteTs();
   const startsAt = body.starts_at ?? now;
 
   await db
@@ -200,7 +201,7 @@ offerRoutes.put("/:id/status", async (c) => {
     .first<{ id: string }>();
   if (!existing) return c.json(errBody("NOT_FOUND", "Oferta no encontrada"), 404);
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   await db
     .prepare("UPDATE offers SET status = ?, updated_at = ? WHERE id = ?")
     .bind(body.status, now, id)
@@ -227,7 +228,7 @@ offerRoutes.delete("/:id", async (c) => {
     .first<{ id: string }>();
   if (!existing) return c.json(errBody("NOT_FOUND", "Oferta no encontrada"), 404);
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   await db
     .prepare("UPDATE offers SET status = 'cancelled', updated_at = ? WHERE id = ?")
     .bind(now, id)

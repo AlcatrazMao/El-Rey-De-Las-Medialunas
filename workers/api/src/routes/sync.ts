@@ -1,17 +1,18 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const syncRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
 // ── PULL — differential sync, server → client ─────────────────────────
 // GET /pull?last_sync_timestamp=&branch_id=&entity_types=
 syncRoutes.get("/pull", async (c) => {
   const db = c.env.DB;
-  const rawBranchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const rawBranchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const rawSince = c.req.query("last_sync_timestamp") ?? "";
 
   // Bug 1 — CRITICAL: validate inputs before using in queries
@@ -28,7 +29,7 @@ syncRoutes.get("/pull", async (c) => {
   const since = rawSince !== "" ? rawSince : "1970-01-01 00:00:00";
   const requestedTypes = c.req.query("entity_types")?.split(",").filter(Boolean);
 
-  const serverTimestamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const serverTimestamp = nowSqliteTs();
 
   // Bug 1 — CRITICAL: use prepared statements with ? placeholders
   const PULLABLE: { type: string; query: string; bindings: unknown[] }[] = [
@@ -125,7 +126,7 @@ syncRoutes.post("/push", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
   const operations = body.operations ?? [];
 
   // SECURITY: cap the batch size to prevent a single client from queueing
@@ -180,7 +181,7 @@ async function applyOperation(
   userId: string,
   branchId: string,
 ): Promise<void> {
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   const id = String(op.data.id ?? op.client_id);
   const d = op.data;
 
@@ -212,8 +213,8 @@ async function applyOperation(
       const payments = Array.isArray(d.payments) ? d.payments as Record<string, unknown>[] : [];
 
       const itemStmts = items.flatMap(item => {
-        const itemId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-        const movId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+        const itemId = genId();
+        const movId = genId();
         const qty = Number(item.quantity ?? 0);
         const price = Number(item.unit_price ?? 0);
         return [
@@ -233,7 +234,7 @@ async function applyOperation(
       });
 
       const paymentStmts = payments.map(pay => {
-        const payId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+        const payId = genId();
         return db.prepare(
           `INSERT OR IGNORE INTO sale_payments (id, sale_id, payment_method, amount, created_at) VALUES (?, ?, ?, ?, ?)`
         ).bind(payId, id, String(pay.payment_method ?? "cash"), Number(pay.amount ?? 0), now);

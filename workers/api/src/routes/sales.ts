@@ -1,16 +1,17 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001"; // fallback — configure via branch_id query param
 
 // GET /
 salesRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const fromDate = c.req.query("from_date");
   const toDate = c.req.query("to_date");
   const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "50", 10) || 50), 200);
@@ -139,11 +140,11 @@ salesRoutes.post("/", async (c) => {
     total?: number;
   }>();
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   // ── Idempotencia ────────────────────────────────────────────────────────
   // Si llega un idempotency_key y ya existe una venta con ese key, devolver la
@@ -278,11 +279,11 @@ salesRoutes.post("/", async (c) => {
     /^[0-9a-f]{32}$/.test(clientProvidedId) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(clientProvidedId);
   const saleId = isValidLocalId
     ? clientProvidedId.replace(/-/g, "")
-    : crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    : genId();
 
   const itemStatements = items.flatMap(item => {
-    const itemId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-    const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    const itemId = genId();
+    const movementId = genId();
     const discount = item.discount ?? 0;
     const itemTotal = item.unit_price * item.quantity - discount;
 
@@ -308,7 +309,7 @@ salesRoutes.post("/", async (c) => {
   });
 
   const paymentStatements = payments.map(payment => {
-    const paymentId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    const paymentId = genId();
     return db.prepare(
       `INSERT INTO sale_payments (id, sale_id, payment_method, amount, reference, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`
@@ -446,7 +447,7 @@ salesRoutes.post("/:id/void", async (c) => {
     );
   }
 
-  const voidedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const voidedAt = nowSqliteTs();
 
   const saleItems = await db
     .prepare("SELECT product_id, quantity FROM sale_items WHERE sale_id = ?")
@@ -459,7 +460,7 @@ salesRoutes.post("/:id/void", async (c) => {
        WHERE id = ?`
     ).bind(voidedAt, userId, (body as { void_reason?: string }).void_reason ?? null, id),
     ...(saleItems.results ?? []).flatMap(item => {
-      const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+      const movementId = genId();
       return [
         db.prepare(
           `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
@@ -576,7 +577,7 @@ salesRoutes.post("/:id/refund", async (c) => {
     }
   }
 
-  const refundedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const refundedAt = nowSqliteTs();
   const reason = body.reason ?? "Reembolso";
   const branchId = sale.branch_id;
 
@@ -586,7 +587,7 @@ salesRoutes.post("/:id/refund", async (c) => {
        WHERE id = ?`
     ).bind(refundedAt, userId, reason, id),
     ...toRefund.flatMap((item) => {
-      const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+      const movementId = genId();
       const baseStmts = [
         db.prepare(
           `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
@@ -680,7 +681,7 @@ salesRoutes.get("/:id/receipt", async (c) => {
       .all<{ payment_method: string; amount: number }>(),
     db
       .prepare("SELECT name, address, phone FROM branches WHERE id = ? LIMIT 1")
-      .bind(sale.branch_id ?? DEFAULT_BRANCH)
+      .bind(sale.branch_id ?? DEFAULT_BRANCH_ID)
       .first<{ name: string; address: string | null; phone: string | null }>(),
   ]);
 

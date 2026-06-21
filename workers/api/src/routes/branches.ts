@@ -2,6 +2,8 @@ import { Hono } from "hono";
 
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const branchRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -71,8 +73,8 @@ branchRoutes.post("/", async (c) => {
     .first<{ id: string }>();
   if (existing) return c.json({ success: false, error: { code: "CONFLICT", message: "Ya existe una sucursal con ese código" } }, 409);
 
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const id = genId();
+  const now = nowSqliteTs();
 
   await db
     .prepare(
@@ -130,7 +132,7 @@ branchRoutes.put("/:id", async (c) => {
 
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   if (body.name !== undefined) { fields.push("name = ?"); vals.push(body.name.trim()); }
   if (body.address !== undefined) { fields.push("address = ?"); vals.push(body.address ?? null); }
@@ -178,7 +180,7 @@ branchRoutes.delete("/:id", async (c) => {
     return c.json({ success: false, error: { code: "CONFLICT", message: "No se puede eliminar la última sucursal activa" } }, 409);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   await db
     .prepare("UPDATE branches SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id = ?")
     .bind(now, now, id)

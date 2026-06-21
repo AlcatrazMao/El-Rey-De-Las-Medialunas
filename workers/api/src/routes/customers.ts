@@ -2,6 +2,8 @@ import { Hono } from "hono";
 
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const customerRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -141,7 +143,7 @@ customerRoutes.post("/", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "Tipo de cliente inválido"), 400);
   }
 
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+  const id = genId();
 
   await db
     .prepare(
@@ -225,7 +227,7 @@ customerRoutes.put("/:id", async (c) => {
     }
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   const fields: string[] = ["updated_at = ?"];
   const vals: (string | number | null)[] = [now];
 

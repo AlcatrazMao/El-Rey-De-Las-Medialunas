@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const productionRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 // SECURITY: cap quantities to keep production math from exploding.
 const MAX_QUANTITY = 1_000_000;
 const MAX_INGREDIENTS_PER_RECIPE = 200;
@@ -20,7 +21,7 @@ const errBody = (code: string, message: string) => ({
 // GET /recipes
 productionRoutes.get("/recipes", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const search = c.req.query("search");
   const isActive = c.req.query("is_active");
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
@@ -147,8 +148,8 @@ productionRoutes.post("/recipes", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para crear recetas"), 403);
   }
 
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const id = genId();
+  const now = nowSqliteTs();
 
   const statements = [
     db.prepare(
@@ -156,7 +157,7 @@ productionRoutes.post("/recipes", async (c) => {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).bind(id, body.product_id, body.name.trim(), body.yield_quantity, body.preparation_instructions ?? null, now, now),
     ...body.ingredients.map((ing, idx) => {
-      const ingId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+      const ingId = genId();
       return db.prepare(
         `INSERT INTO recipe_ingredients (id, recipe_id, ingredient_product_id, quantity, unit, waste_percentage, sort_order, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -206,7 +207,7 @@ productionRoutes.put("/recipes/:id", async (c) => {
 
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   if (body.name !== undefined) { fields.push("name = ?"); vals.push(body.name.trim()); }
   if (body.yield_quantity !== undefined) { fields.push("yield_quantity = ?"); vals.push(body.yield_quantity); }
@@ -227,7 +228,7 @@ productionRoutes.put("/recipes/:id", async (c) => {
 // GET /batches
 productionRoutes.get("/batches", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const status = c.req.query("status");
   const recipeId = c.req.query("recipe_id");
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
@@ -288,9 +289,9 @@ productionRoutes.post("/batches", async (c) => {
     .first<{ id: string }>();
   if (!recipe) return c.json(errBody("NOT_FOUND", "Receta no encontrada o inactiva"), 404);
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const id = genId();
+  const now = nowSqliteTs();
 
   await db
     .prepare(
@@ -344,11 +345,11 @@ productionRoutes.post("/batches/:id/start", async (c) => {
     .all<{ ingredient_product_id: string; quantity: number; waste_percentage: number }>();
 
   const batchMultiplier = batch.planned_quantity / batch.recipe_yield;
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   const consumeStatements = (ingredients.results ?? []).flatMap(ing => {
     const totalQty = parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4));
-    const movId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    const movId = genId();
     return [
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
@@ -426,8 +427,8 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para completar lotes de producción"), 403);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
-  const movId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+  const now = nowSqliteTs();
+  const movId = genId();
 
   // Si la cantidad real es menor a lo planeado, el lote se marca como 'partial'
   // para reflejar que no se cumplió la producción objetivo.
@@ -485,7 +486,7 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para cancelar lotes de producción"), 403);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   if (batch.status === "in_progress") {
     // Reverse the ingredient consumption that was applied when the batch started.
@@ -504,7 +505,7 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
 
     const reverseStatements = (ingredients.results ?? []).flatMap(ing => {
       const totalQty = parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4));
-      const movId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+      const movId = genId();
       return [
         db.prepare(
           `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)

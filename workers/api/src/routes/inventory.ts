@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const inventoryRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
 const VALID_MOVEMENT_TYPES = new Set([
   "purchase_in",
@@ -23,7 +24,7 @@ const VALID_MOVEMENT_TYPES = new Set([
 // GET /
 inventoryRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
   const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 500);
@@ -46,7 +47,7 @@ inventoryRoutes.get("/", async (c) => {
 // GET /low-stock
 inventoryRoutes.get("/low-stock", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
 
   const results = await db
     .prepare(
@@ -65,7 +66,7 @@ inventoryRoutes.get("/low-stock", async (c) => {
 // GET /movements
 inventoryRoutes.get("/movements", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const productId = c.req.query("product_id");
   const rawLimitMov = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffsetMov = parseInt(c.req.query("offset") ?? "0", 10);
@@ -131,7 +132,7 @@ inventoryRoutes.post("/adjust", async (c) => {
     return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "unit_cost_at_time debe ser un número finito >= 0" } }, 400);
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
@@ -152,8 +153,8 @@ inventoryRoutes.post("/adjust", async (c) => {
     );
   }
 
-  const movementId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const movementId = genId();
+  const createdAt = nowSqliteTs();
 
   await db
     .prepare(
@@ -178,7 +179,7 @@ inventoryRoutes.post("/adjust", async (c) => {
   const isInbound = body.movement_type.endsWith("_in");
   const delta = isInbound ? body.quantity : -body.quantity;
 
-  const invId = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+  const invId = genId();
   // Para movimientos _out clampeamos a 0 — consistente con sales.ts y
   // production.ts. Esto evita que un ajuste manual de salida deje stock
   // negativo. Para _in dejamos suma directa.

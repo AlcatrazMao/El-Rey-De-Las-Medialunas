@@ -1,14 +1,15 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const supplyRequestRoutes = new Hono<{
   Bindings: Env;
   Variables: Variables;
 }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 const MAX_QUANTITY = 1_000_000;
 
 const errBody = (code: string, message: string) => ({
@@ -19,7 +20,7 @@ const errBody = (code: string, message: string) => ({
 // GET /
 supplyRequestRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const status = c.req.query("status");
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
@@ -97,13 +98,13 @@ supplyRequestRoutes.post("/", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "id debe ser un string hexadecimal de 32 caracteres"), 400);
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
-  const id = body.id ?? crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const id = body.id ?? genId();
+  const now = nowSqliteTs();
 
   const insertResult = await db
     .prepare(
@@ -168,7 +169,7 @@ supplyRequestRoutes.put("/:id", async (c) => {
     return c.json(errBody("NOT_FOUND", "Solicitud de abastecimiento no encontrada"), 404);
   }
 
-  const updatedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const updatedAt = nowSqliteTs();
 
   await db
     .prepare(

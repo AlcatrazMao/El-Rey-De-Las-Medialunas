@@ -1,15 +1,16 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const productRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 function escapeLike(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 // SECURITY: cap monetary fields so a malicious client cannot persist Infinity.
 const MAX_PRICE = 10_000_000;
 const MAX_TAX_RATE = 100;
@@ -28,7 +29,7 @@ function canManageProducts(role: string | undefined): boolean {
 // GET /
 productRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "200", 10) || 200), 500);
   const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
   const search = c.req.query("search");
@@ -70,7 +71,7 @@ productRoutes.get("/", async (c) => {
 // GET /search — quick search via `q` param
 productRoutes.get("/search", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "200", 10) || 200), 500);
   const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
   const q = c.req.query("q");
@@ -205,8 +206,8 @@ productRoutes.post("/", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "max_stock debe ser un número finito >= 0"), 400);
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const now = nowSqliteTs();
 
   let categoryId = body.category_id ?? null;
   if (!categoryId) {
@@ -217,7 +218,7 @@ productRoutes.post("/", async (c) => {
     categoryId = cat?.id ?? null;
   }
 
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+  const id = genId();
 
   await db
     .prepare(
@@ -324,7 +325,7 @@ productRoutes.put("/:id", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "max_stock debe ser un número finito >= 0"), 400);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   const setClauses: string[] = [];
   const values: (string | number | boolean | null)[] = [];
@@ -382,7 +383,7 @@ productRoutes.delete("/:id", async (c) => {
     return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   await db
     .prepare(
@@ -458,9 +459,9 @@ productRoutes.post("/:id/prices", async (c) => {
     .first<{ id: string }>();
   if (!productExists) return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const id = genId();
+  const now = nowSqliteTs();
 
   await db.prepare(
     'UPDATE product_prices SET is_active = 0 WHERE product_id = ? AND price_list_type = ? AND is_active = 1',
@@ -654,8 +655,8 @@ productRoutes.post("/:id/groups", async (c) => {
     );
   }
 
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const id = genId();
+  const now = nowSqliteTs();
   const admiteAcum = body.admite_acum_desc === 1 || body.admite_acum_desc === true ? 1 : 0;
 
   await db
@@ -747,7 +748,7 @@ productRoutes.put("/:id/groups/:gid", async (c) => {
     }
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   const setClauses: string[] = [];
   const values: (string | number | null)[] = [];
 

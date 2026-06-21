@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const categoryRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 
 const errBody = (code: string, message: string) => ({
   success: false as const,
@@ -19,7 +20,7 @@ function canManageCategories(role: string | undefined): boolean {
 // GET / — flat list
 categoryRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const isActive = c.req.query("is_active");
 
   let query = "SELECT * FROM categories WHERE branch_id = ? AND deleted_at IS NULL";
@@ -39,7 +40,7 @@ categoryRoutes.get("/", async (c) => {
 // GET /tree — nested tree
 categoryRoutes.get("/tree", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
 
   const results = await db
     .prepare(
@@ -102,9 +103,9 @@ categoryRoutes.post("/", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para crear categorías"), 403);
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
-  const id = crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const id = genId();
+  const now = nowSqliteTs();
 
   if (body.parent_id) {
     const parent = await db
@@ -171,7 +172,7 @@ categoryRoutes.put("/:id", async (c) => {
 
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
 
   if (body.name !== undefined) { fields.push("name = ?"); vals.push(body.name.trim()); }
   if (body.parent_id !== undefined) { fields.push("parent_id = ?"); vals.push(body.parent_id ?? null); }
@@ -223,7 +224,7 @@ categoryRoutes.delete("/:id", async (c) => {
     return c.json(errBody("CONFLICT", "No se puede eliminar la categoría: tiene productos activos"), 409);
   }
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowSqliteTs();
   await db
     .prepare("UPDATE categories SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id = ?")
     .bind(now, now, id)

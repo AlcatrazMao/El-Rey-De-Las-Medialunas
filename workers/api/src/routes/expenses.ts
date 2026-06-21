@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const expenseRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const DEFAULT_BRANCH = "00000000000000000000000000000001";
 // SECURITY: cap expense amount to prevent Infinity-adjacent values from
 // poisoning financial reports.
 const MAX_EXPENSE_AMOUNT = 10_000_000;
@@ -26,7 +27,7 @@ const VALID_CATEGORIES = new Set([
 // GET /
 expenseRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH;
+  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const category = c.req.query("category");
   const fromDate = c.req.query("from_date");
   const toDate = c.req.query("to_date");
@@ -142,7 +143,7 @@ expenseRoutes.post("/", async (c) => {
     }
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH;
+  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
@@ -154,8 +155,8 @@ expenseRoutes.post("/", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para registrar gastos"), 403);
   }
 
-  const id = body.id ?? crypto.randomUUID().replace(/-/g, "").toLowerCase();
-  const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const id = body.id ?? genId();
+  const createdAt = nowSqliteTs();
 
   const result = await db
     .prepare(
