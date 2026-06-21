@@ -548,7 +548,16 @@ export async function fetchProductsFromD1(
     }
   }
 
-  // D1 es source of truth — descartamos productos que ya no existen en el server
+  // D1 es source of truth para los productos que conoce, PERO no podemos
+  // descartar productos que sólo existen localmente: si addProduct() creó un
+  // producto y syncProductToD1 falló (red caída / categoría sin resolver), el
+  // producto vive sólo en el cliente y el backend todavía no lo conoce. Hasta
+  // que el motor de retries logre subirlo, queremos:
+  //   - producto en D1               → usar la versión del server (ya fue mergeada arriba)
+  //   - producto sólo local          → mantenerlo (pending de sync)
+  //   - producto en ambos lados      → usar la versión del server
+  // El motor de retries / próximos refreshes terminan reconciliando.
   const d1Ids = new Set(d1Products.map(p => String(p.id ?? '')));
-  return merged.filter(p => d1Ids.has(p.id));
+  const existingIds = new Set(existing.map(p => p.id));
+  return merged.filter(p => d1Ids.has(p.id) || existingIds.has(p.id));
 }
