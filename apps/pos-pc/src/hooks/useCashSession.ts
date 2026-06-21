@@ -45,16 +45,24 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
   useEffect(() => {
     const session = currentCashSession;
     if (session !== null) {
-      const openedDate = new Date(session.openedAt);
-      const today = new Date();
-      const isFromPreviousDay =
-        openedDate.getFullYear() !== today.getFullYear() ||
-        openedDate.getMonth() !== today.getMonth() ||
-        openedDate.getDate() !== today.getDate();
+      // Comparamos fechas en timezone Argentina (UTC-3) para alinearnos con el
+      // backend (cash.ts hace DATE(opened_at, '-3 hours')). Si comparáramos con
+      // new Date() y el navegador estuviese en otra TZ (viaje, reloj mal seteado,
+      // VPN), el auto-cierre se dispararía en momentos incorrectos respecto al
+      // día contable ARG.
+      const ARG_OFFSET_MS = 3 * 60 * 60 * 1000;
+      const nowArg = new Date(Date.now() - ARG_OFFSET_MS);
+      const todayArg = nowArg.toISOString().split('T')[0]; // 'YYYY-MM-DD'
+
+      const openedArg = new Date(new Date(session.openedAt).getTime() - ARG_OFFSET_MS);
+      const openedDayArg = openedArg.toISOString().split('T')[0];
+
+      const isFromPreviousDay = openedDayArg < todayArg;
       if (isFromPreviousDay) {
-        const closedAtDate = new Date(session.openedAt);
-        closedAtDate.setHours(23, 59, 59, 999);
-        const closedAt = closedAtDate.toISOString();
+        // Cerramos a las 23:59:59.999 hora ARG del día de apertura. Construimos
+        // el ISO desde la fecha ARG y le sumamos el offset para volver a UTC.
+        const closingArgMs = new Date(`${openedDayArg}T23:59:59.999Z`).getTime() + ARG_OFFSET_MS;
+        const closedAt = new Date(closingArgMs).toISOString();
         const finishedSession: CashSession = {
           ...session,
           status: 'closed',
