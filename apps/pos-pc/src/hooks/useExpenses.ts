@@ -4,27 +4,13 @@ import { INITIAL_EXPENSES } from '../initialData';
 import { syncExpenseToD1 } from '../services/d1-sync';
 import type { Expense } from '../types';
 import { formatCurrency } from '../utils/format';
-import { safeSetItem } from '../utils/safeStorage';
+import { safeSetItem, safeParseLocalStorage } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
-const safeParse = <T,>(key: string, fallback: T): T => {
-  try {
-    const saved = localStorage.getItem(key);
-    if (!saved) return fallback;
-    const parsed = JSON.parse(saved);
-    if (parsed === null || parsed === undefined) return fallback;
-    return parsed as T;
-  } catch (e) {
-    console.error(`Error parsing localStorage key "${key}":`, e);
-    localStorage.removeItem(key);
-    return fallback;
-  }
-};
-
 export function useExpenses(notify: NotifyFn) {
   const [expenses, setExpenses] = useState<Expense[]>(() =>
-    safeParse<Expense[]>('pan_erp_expenses', INITIAL_EXPENSES)
+    safeParseLocalStorage<Expense[]>('pan_erp_expenses', INITIAL_EXPENSES)
   );
 
   useEffect(() => {

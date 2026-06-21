@@ -1,6 +1,6 @@
 import type { User as FirebaseUser } from 'firebase/auth';
 import * as React from 'react';
-import { createContext, useContext, useEffect } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
 
 import { useBatches } from './hooks/useBatches';
 import { useCashSession } from './hooks/useCashSession';
@@ -491,7 +491,13 @@ export const AppProvider: React.FC<{
     bch.requestBatchWithdrawal(batchId, quantity, reason, usr.activeUser.name, usr.activeUser.role);
   };
 
-  const value: AppContextType = {
+  // MOD-2: memoise the context value so every render of AppProvider doesn't
+  // produce a fresh object reference and force every consumer to re-render.
+  // The dependency array tracks all primitive/state values that actually go
+  // into `value`; the method references coming from hooks are stable enough
+  // for practical purposes (they're recreated only when their owning hooks
+  // re-render, which is already in this dep array via the underlying state).
+  const value: AppContextType = useMemo(() => ({
     ingredients: inv.ingredients, products: inv.products, sales: sal.sales, expenses: exp.expenses,
     users: usr.users, notifications: notif.notifications, gateways: inv.gateways,
     activeUser: usr.activeUser, activeTab: usr.activeTab, batches: bch.batches,
@@ -518,6 +524,18 @@ export const AppProvider: React.FC<{
     closeHistoricalSession: cash.closeHistoricalSession,
     loadMoreSessions: cash.loadMoreSessions, hasMoreSessions: cash.hasMoreSessions,
     syncStatus, retryError, retryAllNetwork,
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hook return refs (addSale, addBatch, etc) are stable per-render of their owning hooks; tracking state slices is sufficient
+  }), [
+    inv.ingredients, inv.products, inv.gateways,
+    sal.sales,
+    exp.expenses,
+    usr.users, usr.activeUser, usr.activeTab, usr.selectedSellerId,
+    notif.notifications,
+    bch.batches, bch.withdrawalRequests,
+    sup.supplyRequests,
+    cash.currentCashSession, cash.cashSessionsHistory, cash.hasMoreSessions,
+    cust.customers,
+    syncStatus, retryError, retryAllNetwork,
+  ]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };

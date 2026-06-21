@@ -1,4 +1,9 @@
+import { getSettings } from '../hooks/useSettings';
 import type { Sale, Ingredient, Expense } from '../types';
+
+// Use the build-time injected app version if available, otherwise fall back to
+// the local package version string so prints never go out unlabeled.
+const APP_VERSION: string = import.meta.env.VITE_APP_VERSION ?? 'v0.1.0';
 
 /**
  * Downloads arbitrary structural rows as a clean CSV file
@@ -28,7 +33,8 @@ export const downloadCSV = (headers: string[], rows: string[][], filename: strin
 };
 
 export const exportSalesToCSV = (sales: Sale[]) => {
-  const headers = ['Factura', 'Fecha', 'Operador', 'Cliente', 'Items', 'Subtotal', 'IVA (21%)', 'Total', 'Método Pago', 'Estado'];
+  const ivaPct = (getSettings().fiscal.ivaRate * 100).toFixed(0);
+  const headers = ['Factura', 'Fecha', 'Operador', 'Cliente', 'Items', 'Subtotal', `IVA (${ivaPct}%)`, 'Total', 'Método Pago', 'Estado'];
   const rows = sales.map(s => [
     s.invoiceNumber,
     new Date(s.date).toLocaleString('es-AR'),
@@ -77,6 +83,8 @@ export const exportExpensesToCSV = (expenses: Expense[]) => {
  */
 export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 'receipt') => {
   const isReceipt = style === 'receipt';
+  const ivaRate = getSettings().fiscal.ivaRate;
+  const ivaPct = (ivaRate * 100).toFixed(2);
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
@@ -178,7 +186,7 @@ export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 
             <td class="text-right">$${(sale.total - sale.tax).toFixed(2)}</td>
           </tr>
           <tr>
-            <td>IVA (21.00%):</td>
+            <td>IVA (${ivaPct}%):</td>
             <td class="text-right">$${sale.tax.toFixed(2)}</td>
           </tr>
           ${sale.discountAmount && sale.discountAmount > 0 ? `
@@ -208,7 +216,7 @@ export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 
         <div class="text-center" style="margin-top: 20px; font-size: 11px;">
           <p style="margin: 2px 0;">¡Muchas gracias por su preferencia!</p>
           <p style="margin: 2px 0; font-weight: bold;">Conserve este comprobante para reclamos.</p>
-          <p style="margin: 10px 0 0 0; font-size: 9px; color: #555;">Sincronizado vía Nube ERP Panadería v1.4.2</p>
+          <p style="margin: 10px 0 0 0; font-size: 9px; color: #555;">Sincronizado vía Nube ERP Panadería ${APP_VERSION}</p>
         </div>
       </div>
     </body>

@@ -6,7 +6,7 @@ import { auth } from '../config/firebase';
 import { API_URL } from '../services/api';
 import { syncUserPreferencesToD1 } from '../services/d1-sync';
 import type { User, UserRole } from '../types';
-import { safeSetItem } from '../utils/safeStorage';
+import { safeSetItem, safeParseLocalStorage } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
@@ -16,20 +16,6 @@ interface UseUsersParams {
   serverPanels?: string[] | null;
   notify: NotifyFn;
 }
-
-const safeParse = <T,>(key: string, fallback: T): T => {
-  try {
-    const saved = localStorage.getItem(key);
-    if (!saved) return fallback;
-    const parsed = JSON.parse(saved);
-    if (parsed === null || parsed === undefined) return fallback;
-    return parsed as T;
-  } catch (e) {
-    console.error(`Error parsing localStorage key "${key}":`, e);
-    localStorage.removeItem(key);
-    return fallback;
-  }
-};
 
 export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: UseUsersParams) {
   const defaultPanels =
@@ -59,7 +45,7 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
   };
 
   const [users, setUsers] = useState<User[]>(() =>
-    safeParse<User[]>('pan_erp_users', [firebaseMappedUser])
+    safeParseLocalStorage<User[]>('pan_erp_users', [firebaseMappedUser])
   );
   const [activeUserId, setActiveUserId] = useState<string>(
     () => localStorage.getItem('pan_erp_active_user_id') || firebaseUser.uid

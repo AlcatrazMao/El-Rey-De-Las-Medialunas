@@ -261,8 +261,11 @@ export const POSView: React.FC = () => {
           valA = a.name.toLowerCase();
           valB = b.name.toLowerCase();
         } else if (modalSortKey === 'fecha_elaboracion') {
-          valA = a.elaborationDate || '2026-06-01';
-          valB = b.elaborationDate || '2026-06-01';
+          // Products without an elaboration date sort to the bottom of asc /
+          // top of desc by using the epoch as a predictable lower bound. Was
+          // a hardcoded 2026-06-01 which silently aged into being recent.
+          valA = a.elaborationDate || '1970-01-01';
+          valB = b.elaborationDate || '1970-01-01';
         }
         
         if (valA < valB) return modalSortOrder === 'asc' ? -1 : 1;
@@ -710,7 +713,9 @@ export const POSView: React.FC = () => {
       ? crypto.randomUUID()
       : `idem_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
-    // Simulated cloud delay for high visual impact
+    // Short UI delay so the "procesando" state is visually perceptible without
+    // adding meaningful latency to every sale. Was 1000ms+1500ms — purely
+    // theatrical, now trimmed to a single perceptible frame each.
     safeTimeout(() => {
       setProcessingStatusText(`Autorizando cargo con ${gatewayNames[paymentMethod]}...`);
       playBeep(650, 0.1);
@@ -749,8 +754,8 @@ export const POSView: React.FC = () => {
           const msg = result.error?.message ?? 'Error de validación al procesar la venta.';
           addSystemNotification('❌ Venta no procesada', msg, 'error');
         }
-      }, 1500);
-    }, 1000);
+      }, 150);
+    }, 150);
   };
 
   // Filter products list
@@ -1363,7 +1368,7 @@ export const POSView: React.FC = () => {
                   <span>{formatCurrency(latestInvoice.total - latestInvoice.tax)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>IVA Incluido (21%):</span>
+                  <span>{`IVA Incluido (${(getSettings().fiscal.ivaRate * 100).toFixed(0)}%):`}</span>
                   <span>{formatCurrency(latestInvoice.tax)}</span>
                 </div>
                 <div className="flex justify-between text-base font-extrabold border-t pt-1.5 border-amber-200">

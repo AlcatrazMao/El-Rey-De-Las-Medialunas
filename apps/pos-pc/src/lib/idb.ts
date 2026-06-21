@@ -25,6 +25,10 @@ export interface IDBSaleQueueItem {
   origin: 'web' | 'local';
   synced: boolean;
   retries: number;
+  // 4xx payload errors must not be retried forever — the flush loop skips
+  // items with this flag set. Optional for backward compat with old entries.
+  permanentlyFailed?: boolean;
+  permanentFailReason?: string;
 }
 
 export interface IDBOffer {
@@ -206,7 +210,30 @@ export const salesQueueStore = {
   async getUnsynced(): Promise<IDBSaleQueueItem[]> {
     const db = await openDB();
     const all = (await request(tx(db, STORE_SALES_QUEUE, 'readonly').getAll())) as IDBSaleQueueItem[];
-    return all.filter(i => !i.synced);
+    // Skip items the server already rejected as invalid (4xx) — retrying them
+    // would loop forever inflating the retries counter without any chance of
+    // success until the admin manually fixes the payload.
+    return all.filter(i => !i.synced && !i.permanentlyFailed);
+  },
+
+  async markPermanentlyFailed(id: string, reason?: string): Promise<void> {
+    const db = await openDB();
+    return new Promise<void>((resolve, reject) => {
+      const txn = db.transaction(STORE_SALES_QUEUE, 'readwrite');
+      const store = txn.objectStore(STORE_SALES_QUEUE);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as IDBSaleQueueItem | undefined;
+        if (!existing) return;
+        existing.permanentlyFailed = true;
+        if (reason) existing.permanentFailReason = reason;
+        store.put(existing);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      txn.oncomplete = () => resolve();
+      txn.onerror = () => reject(txn.error);
+      txn.onabort = () => reject(new Error('Transaction aborted'));
+    });
   },
 
   async markSynced(id: string): Promise<void> {

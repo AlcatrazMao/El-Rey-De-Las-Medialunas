@@ -2,25 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 
 import { INITIAL_NOTIFICATIONS } from '../initialData';
 import type { PushNotification } from '../types';
-import { safeSetItem } from '../utils/safeStorage';
-
-const safeParse = <T,>(key: string, fallback: T): T => {
-  try {
-    const saved = localStorage.getItem(key);
-    if (!saved) return fallback;
-    const parsed = JSON.parse(saved);
-    if (parsed === null || parsed === undefined) return fallback;
-    return parsed as T;
-  } catch (e) {
-    console.error(`Error parsing localStorage key "${key}":`, e);
-    localStorage.removeItem(key);
-    return fallback;
-  }
-};
+import { safeSetItem, safeParseLocalStorage } from '../utils/safeStorage';
 
 export function useNotifications() {
   const [notifications, setNotifications] = useState<PushNotification[]>(() =>
-    safeParse<PushNotification[]>('pan_erp_notifications', INITIAL_NOTIFICATIONS)
+    safeParseLocalStorage<PushNotification[]>('pan_erp_notifications', INITIAL_NOTIFICATIONS)
   );
 
   useEffect(() => {

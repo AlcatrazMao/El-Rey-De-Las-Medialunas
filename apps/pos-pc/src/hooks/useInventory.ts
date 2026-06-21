@@ -3,33 +3,19 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
 import { fetchProductsFromD1, syncProductToD1 } from '../services/d1-sync';
 import type { Ingredient, Product, PaymentGateway, ProductGroup } from '../types';
-import { safeSetItem } from '../utils/safeStorage';
+import { safeSetItem, safeParseLocalStorage } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
-const safeParse = <T,>(key: string, fallback: T): T => {
-  try {
-    const saved = localStorage.getItem(key);
-    if (!saved) return fallback;
-    const parsed = JSON.parse(saved);
-    if (parsed === null || parsed === undefined) return fallback;
-    return parsed as T;
-  } catch (e) {
-    console.error(`Error parsing localStorage key "${key}":`, e);
-    localStorage.removeItem(key);
-    return fallback;
-  }
-};
-
 export function useInventory(notify: NotifyFn) {
   const [ingredients, setIngredients] = useState<Ingredient[]>(() =>
-    safeParse<Ingredient[]>('pan_erp_ingredients', INITIAL_INGREDIENTS)
+    safeParseLocalStorage<Ingredient[]>('pan_erp_ingredients', INITIAL_INGREDIENTS)
   );
   const [products, setProducts] = useState<Product[]>(() =>
-    safeParse<Product[]>('pan_erp_products', INITIAL_PRODUCTS)
+    safeParseLocalStorage<Product[]>('pan_erp_products', INITIAL_PRODUCTS)
   );
   const [gateways, setGateways] = useState<PaymentGateway[]>(() =>
-    safeParse<PaymentGateway[]>('pan_erp_gateways', PAYMENT_GATEWAYS)
+    safeParseLocalStorage<PaymentGateway[]>('pan_erp_gateways', PAYMENT_GATEWAYS)
   );
 
   useEffect(() => {
@@ -96,7 +82,15 @@ export function useInventory(notify: NotifyFn) {
       cost: productInstance.cost ?? 0,
       minStock: productInstance.minStock ?? 5,
       category: productInstance.category,
-    }).catch(() => {});
+    }).catch(() => {
+      // Surface the failure: the product lives locally but the backend never
+      // received it. Background sync engine will retry, but the user should know.
+      notify(
+        '⚠️ Producto sin sincronizar',
+        `"${productInstance.name}" se guardó localmente, pero no pudo sincronizarse. Se reintentará automáticamente.`,
+        'warning'
+      );
+    });
     notify(
       '🥐 Nuevo Producto',
       `Se agregó "${productInstance.name}" al catálogo de panadería.`,

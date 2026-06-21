@@ -47,6 +47,8 @@ export const SalesHistoryView: React.FC = () => {
 
   // Void/Cancel Sale (gently restores stock!)
   const handleVoidSale = (sale: Sale) => {
+    // Guard against double-void (UI hides the button but defensive check here)
+    if (sale.paymentStatus !== 'completed') return;
     // Restore products stock & ingredients in one pass
     sale.items.forEach(item => {
       const dbProd = products.find(p => p.id === item.productId);
@@ -79,9 +81,11 @@ export const SalesHistoryView: React.FC = () => {
       return updated;
     });
 
-    // Remove sale or change status to voided/failed
+    // Mark sale as voided. Do NOT mutate invoiceNumber — backend only flips status,
+    // so prefixing locally desyncs the field on next fetch. The visual VOID label
+    // is derived from paymentStatus === 'voided' in the render below.
     setSales(prev =>
-      prev.map(s => (s.id === sale.id ? { ...s, paymentStatus: 'voided' as const, invoiceNumber: `VOID-${s.invoiceNumber.slice(5)}` } : s))
+      prev.map(s => (s.id === sale.id ? { ...s, paymentStatus: 'voided' as const } : s))
     );
 
     syncVoidSaleToD1(sale.id, 'Anulación manual desde historial de ventas').catch(() => {});
@@ -106,7 +110,7 @@ export const SalesHistoryView: React.FC = () => {
   }).sort((a, b) => {
     const dir = sortDir === 'asc' ? 1 : -1;
     if (sortCol === 'date') return dir * (new Date(a.date).getTime() - new Date(b.date).getTime());
-    if (sortCol === 'total') return dir * (b.total - a.total);
+    if (sortCol === 'total') return dir * (a.total - b.total);
     return dir * a.invoiceNumber.localeCompare(b.invoiceNumber);
   });
 
@@ -215,7 +219,7 @@ export const SalesHistoryView: React.FC = () => {
               ) : (
                 paginatedSales.map(sale => {
                   const isSuccess = sale.paymentStatus === 'completed';
-                  const isVoided = sale.invoiceNumber.startsWith('VOID-');
+                  const isVoided = sale.paymentStatus === 'voided';
 
                   return (
                     <tr

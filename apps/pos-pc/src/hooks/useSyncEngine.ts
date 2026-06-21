@@ -60,11 +60,20 @@ export async function flushSalesQueue(): Promise<{ flushed: number; failed: numb
       if (response.ok) {
         await salesQueueStore.markSynced(item.id);
         flushed++;
+      } else if (response.status >= 400 && response.status < 500) {
+        // 4xx → payload-side error (invalid data, unauthorized, etc.). Retrying
+        // will never succeed, so mark permanently failed and stop pumping retries.
+        let reason = `HTTP ${response.status}`;
+        try { reason = (await response.text()) || reason; } catch { /* ignore body read errors */ }
+        await salesQueueStore.markPermanentlyFailed(item.id, reason);
+        failed++;
       } else {
+        // 5xx → transient server error. Bump the counter and try again later.
         await salesQueueStore.incrementRetries(item.id);
         failed++;
       }
     } catch {
+      // Network/transport failure → retry later, no permanent flag.
       await salesQueueStore.incrementRetries(item.id);
       failed++;
     }

@@ -249,8 +249,10 @@ export async function fetchInventoryFromD1(branchId?: string): Promise<any[]> {
 export async function syncCustomerToD1(customer: any): Promise<void> {
   await getApi().customers.create({
     name: customer.name,
-    email: customer.email ?? null,
-    phone: customer.phone ?? null,
+    // Coerce empty strings to null so the backend stores absent contact info
+    // consistently (?? alone lets '' through because '' is not nullish).
+    email: customer.email?.trim() || null,
+    phone: customer.phone?.trim() || null,
     type: customer.type ?? "consumer",
     credit_limit: customer.credit_limit ?? 0,
     current_debt: 0,
