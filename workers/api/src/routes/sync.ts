@@ -12,12 +12,19 @@ export const syncRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 // NaN/Infinity por bugs en serialización (ej. Number(undefined)). Si dejamos
 // que lleguen al INSERT, contaminamos totales financieros y stock con valores
 // inválidos. assertFinitePositive lanza para abortar la operación.
+//
+// Nota: el cliente puede serializar NaN como el string "NaN" o enviar null.
+// Number("NaN") === NaN pasa el typeof check pero sí falla Number.isFinite;
+// sin embargo el guard explícito de typeof evita coerciones silenciosas para
+// string/null/undefined que podrían enmascarar bugs en el cliente.
 export function assertFinitePositive(v: unknown, field: string): number {
-  const n = typeof v === "number" ? v : Number(v);
-  if (!Number.isFinite(n) || n < 0) {
+  if (typeof v !== "number") {
+    throw new Error(`INVALID_NUMERIC: ${field}=${String(v)} (expected number, got ${typeof v})`);
+  }
+  if (!Number.isFinite(v) || v < 0) {
     throw new Error(`INVALID_NUMERIC: ${field}=${String(v)}`);
   }
-  return n;
+  return v;
 }
 
 const VOID_ALLOWED_ROLES = new Set(["admin", "owner", "supervisor"]);

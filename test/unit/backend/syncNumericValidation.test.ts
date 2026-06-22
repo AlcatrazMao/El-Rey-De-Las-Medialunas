@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-// Exact replica from workers/api/src/routes/sync.ts — assertFinitePositive.
-// Lanza si el valor no es un número finito >= 0. Acepta strings convertibles
-// (Number(string)) y coerciona internamente.
+// Replica from workers/api/src/routes/sync.ts — assertFinitePositive.
+// Con el typeof guard: rechaza cualquier valor que no sea number nativo primero,
+// luego verifica isFinite y >= 0.
 function assertFinitePositive(v: unknown, field: string): number {
-  const n = typeof v === 'number' ? v : Number(v);
-  if (!Number.isFinite(n) || n < 0) {
+  if (typeof v !== 'number') {
+    throw new Error(`INVALID_NUMERIC: ${field}=${String(v)} (expected number, got ${typeof v})`);
+  }
+  if (!Number.isFinite(v) || v < 0) {
     throw new Error(`INVALID_NUMERIC: ${field}=${String(v)}`);
   }
-  return n;
+  return v;
 }
 
 describe('assertFinitePositive (sync.ts)', () => {
@@ -36,11 +38,11 @@ describe('assertFinitePositive (sync.ts)', () => {
     expect(() => assertFinitePositive(-1, 'credit_limit')).toThrow(/INVALID_NUMERIC/);
   });
 
-  it('accepts a numeric string ("5") because Number() converts it', () => {
-    expect(assertFinitePositive('5', 'quantity')).toBe(5);
+  it('throws for a numeric string ("5") — typeof guard rejects non-number types', () => {
+    expect(() => assertFinitePositive('5', 'quantity')).toThrow(/INVALID_NUMERIC/);
   });
 
-  it('throws for a non-numeric string ("abc") because Number() yields NaN', () => {
+  it('throws for a non-numeric string ("abc")', () => {
     expect(() => assertFinitePositive('abc', 'quantity')).toThrow(/INVALID_NUMERIC/);
   });
 
@@ -48,9 +50,8 @@ describe('assertFinitePositive (sync.ts)', () => {
     expect(() => assertFinitePositive(undefined, 'amount')).toThrow(/INVALID_NUMERIC/);
   });
 
-  it('throws for null only if Number(null)=0 path is not taken — null actually is 0', () => {
-    // Number(null) === 0, so it passes; this documents the (acceptable) edge.
-    expect(assertFinitePositive(null, 'amount')).toBe(0);
+  it('throws for null — typeof guard cierra el edge case donde Number(null)=0 antes pasaba', () => {
+    expect(() => assertFinitePositive(null, 'amount')).toThrow(/INVALID_NUMERIC/);
   });
 
   it('error message contains the field name for debugging', () => {

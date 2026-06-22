@@ -101,17 +101,25 @@ export function authMiddleware() {
 
     const branchHeader = c.req.header("X-Branch-Id") ?? "";
 
-    // TODO(SECURITY/HIGH): el header X-Branch-Id se acepta sin verificar que el
-    // usuario pertenezca a esa sucursal. Hoy mitigamos el riesgo más serio en los
-    // endpoints sensibles (ver sync.ts POST /push: chequea user_branches). Sin
-    // embargo cualquier route que confíe en `c.get("branchId")` para resolver
-    // ámbito (reports, dashboard, etc.) puede ser inducida a leer/escribir en
-    // otra sucursal por un cajero malicioso simplemente cambiando el header.
-    //
-    // Fix correcto: query a user_branches en cada request — invasivo (un round-trip
-    // a D1 por request) y requiere o caché por uid o moverlo al JWT (claim
-    // `branches[]`) para evitar el costo. Se difiere a una migración de schema
-    // dedicada que agregue ese claim al issue del token.
+    // SECURITY: validate X-Branch-Id membership. admin/owner can operate in any
+    // branch; all other roles must belong to the requested branch via user_branches.
+    // Empty branchHeader skips the check (routes that don't need branch context).
+    if (branchHeader && role !== "admin" && role !== "owner") {
+      const rows = await c.env.DB
+        .prepare("SELECT 1 FROM user_branches WHERE user_id = ? AND branch_id = ? LIMIT 1")
+        .bind(sub, branchHeader)
+        .all<{ 1: number }>();
+      if (!assertUserInBranch(sub, branchHeader, rows.results ?? [])) {
+        return c.json(
+          {
+            success: false,
+            error: { code: "BRANCH_ACCESS_DENIED", message: "No tenés acceso a esta sucursal" },
+          },
+          403,
+        );
+      }
+    }
+
     c.set("userId", sub);
     c.set("userRole", role);
     c.set("branchId", branchHeader);
@@ -121,6 +129,16 @@ export function authMiddleware() {
 
     await next();
   });
+}
+
+// Pure helper — testeable sin DB. Recibe los rows del SELECT sobre user_branches
+// y retorna true si hay al menos un registro (membresía confirmada).
+export function assertUserInBranch(
+  _userId: string,
+  _branchId: string,
+  rows: unknown[],
+): boolean {
+  return rows.length > 0;
 }
 
 export async function verifyFirebaseToken(token: string, env: Env): Promise<DecodedToken> {
