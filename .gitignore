@@ -55,7 +55,7 @@ Thumbs.db
 .cache/
 tmp/
 temp/
-test/
+test/*
 !test/unit/
 
 firebase-key.json
