@@ -29,6 +29,56 @@ const COLORS: Record<StickyNote['category'], string> = {
 
 const STORAGE_KEY = 'erp_sticky_notes_v2';
 const ADD_NOTE_EVENT = 'sticky-note-add';
+const QUEUE_STORAGE_KEY = 'pan_erp_notes_queue';
+
+export interface QueuedNote {
+  title: string;
+  content: string;
+  category: StickyNote['category'];
+  priority: StickyNote['priority'];
+  queuedAt?: string;
+}
+
+// Lee y vacía atómicamente el queue de notas persistidas en localStorage.
+// Exportado para tests aislados.
+export function drainQueuedNotes(): QueuedNote[] {
+  try {
+    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      localStorage.removeItem(QUEUE_STORAGE_KEY);
+      return [];
+    }
+    localStorage.removeItem(QUEUE_STORAGE_KEY);
+    return parsed.filter((item): item is QueuedNote => {
+      if (!item || typeof item !== 'object') return false;
+      const q = item as Record<string, unknown>;
+      return typeof q.title === 'string' && typeof q.content === 'string'
+        && typeof q.category === 'string' && typeof q.priority === 'string';
+    });
+  } catch {
+    return [];
+  }
+}
+
+// Convierte una QueuedNote en StickyNote completa con coordenadas calculadas.
+export function buildStickyFromQueued(item: QueuedNote, offsetIdx: number): StickyNote {
+  return {
+    id: `auto_q_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    x: 40 + offsetIdx * 20,
+    y: 40 + offsetIdx * 20,
+    width: 260,
+    height: 180,
+    title: item.title,
+    content: item.content,
+    color: COLORS[item.category],
+    category: item.category,
+    status: 'active',
+    created: new Date().toISOString(),
+    priority: item.priority,
+  };
+}
 
 // Despacha la nota vía evento — el hook la aplica al state directamente,
 // evitando el race condition de lectura/escritura paralela en localStorage.
@@ -48,9 +98,9 @@ export function addAutoNote(title: string, content: string, category: StickyNote
 
   // Also persist to a queue in localStorage so notes survive if view isn't mounted
   try {
-    const queue = JSON.parse(localStorage.getItem('pan_erp_notes_queue') ?? '[]');
+    const queue = JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY) ?? '[]');
     queue.push({ title, content, category, priority, queuedAt: new Date().toISOString() });
-    localStorage.setItem('pan_erp_notes_queue', JSON.stringify(queue));
+    localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
   } catch {
     // ignore quota errors
   }
@@ -90,53 +140,51 @@ export function useStickyNotes() {
     };
   }, [notes]);
 
+  // Drena el queue persistido y aplica notas pendientes al state.
+  // Se llama al mount Y cuando llega un CustomEvent — evita el race donde el
+  // listener no estaba listo cuando la nota se persistió al queue, y previene
+  // duplicación si la misma nota llegó por evento y queue al mismo tiempo.
+  const drainQueueIntoState = useCallback(() => {
+    const queue = drainQueuedNotes();
+    if (queue.length === 0) return;
+    setNotes(prev => {
+      let next = prev;
+      queue.forEach((item, i) => {
+        // Deduplicar por título+contenido (las notas de queue no tienen id estable).
+        if (next.some(n => n.title === item.title && n.content === item.content)) return;
+        const newNote = buildStickyFromQueued(item, next.length + i);
+        next = [newNote, ...next];
+      });
+      return next;
+    });
+  }, []);
+
   // Recibe notas del evento ADD_NOTE_EVENT con los datos en detail,
   // sin tocar localStorage — el useEffect de arriba persiste solo.
+  // Además aprovecha la llegada de un evento para drenar el queue, cubriendo
+  // el caso de que `addAutoNote` haya despachado el evento antes de que este
+  // listener estuviera registrado: la nota igual queda persistida en el queue
+  // y el siguiente drain la recupera sin duplicarla.
   useEffect(() => {
     const onAdd = (e: Event) => {
       const note = (e as CustomEvent<StickyNote>).detail;
-      if (!note?.id) return;
+      if (!note?.id) {
+        // Evento sin payload — sólo drena queue.
+        drainQueueIntoState();
+        return;
+      }
       setNotes(prev => {
         if (prev.some(n => n.id === note.id)) return prev;
         return [{ ...note, x: 40 + prev.length * 20, y: 40 + prev.length * 20 }, ...prev];
       });
+      // Cualquier evento es señal para drenar; idempotente porque el queue se vacía.
+      drainQueueIntoState();
     };
     window.addEventListener(ADD_NOTE_EVENT, onAdd);
+    // Drain inicial al montar — captura todo lo que llegó mientras estaba unmounted.
+    drainQueueIntoState();
     return () => window.removeEventListener(ADD_NOTE_EVENT, onAdd);
-  }, []);
-
-  // Drain the queue of notes that were dispatched while this view was unmounted
-  useEffect(() => {
-    try {
-      const queue = JSON.parse(localStorage.getItem('pan_erp_notes_queue') ?? '[]');
-      if (queue.length > 0) {
-        localStorage.removeItem('pan_erp_notes_queue');
-        queue.forEach((item: { title: string; content: string; category: StickyNote['category']; priority: StickyNote['priority'] }) => {
-          setNotes(prev => {
-            const newNote: StickyNote = {
-              id: `auto_q_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-              x: 40 + prev.length * 20,
-              y: 40 + prev.length * 20,
-              width: 260,
-              height: 180,
-              title: item.title,
-              content: item.content,
-              color: COLORS[item.category],
-              category: item.category,
-              status: 'active',
-              created: new Date().toISOString(),
-              priority: item.priority,
-            };
-            if (prev.some(n => n.title === newNote.title && n.content === newNote.content)) return prev;
-            return [newNote, ...prev];
-          });
-        });
-      }
-    } catch {
-      // ignore
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // only on mount
+  }, [drainQueueIntoState]);
 
   const addNote = useCallback((note: Partial<StickyNote> = {}) => {
     const newNote: StickyNote = {

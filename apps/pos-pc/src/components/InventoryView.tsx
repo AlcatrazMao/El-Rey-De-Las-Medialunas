@@ -15,6 +15,7 @@ import * as React from 'react'
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
+import { useProductForm } from '../hooks/useProductForm';
 import type { Ingredient, Product, ProductGroup, CategoryType} from '../types';
 import { exportIngredientsToCSV } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
@@ -135,26 +136,17 @@ export const InventoryView: React.FC = () => {
     setShowInsumoModal(false);
   };
 
-  // Product creation form modal & dynamic recipe builder
+  // Product creation form modal & dynamic recipe builder — state encapsulado
+  // en `useProductForm`. La visibilidad del modal sigue siendo state local
+  // porque la usa el render de InventoryView, no la lógica del formulario.
   const [showProductModal, setShowProductModal] = useState(false);
-  const [prodName, setProdName] = useState('');
-  const [prodCategory, setProdCategory] = useState<CategoryType>('panes');
-  const [prodPrice, setProdPrice] = useState(1.5);
-  const [prodCost, setProdCost] = useState(0.5);
-  const [prodStock, setProdStock] = useState(50);
-  const [prodMinStock, setProdMinStock] = useState(10);
-  const [prodImage, setProdImage] = useState('🥖');
-  const [selectedRecipeIngredients, setSelectedRecipeIngredients] = useState<{ ingredientId: string; quantity: number }[]>([]);
+  const productForm = useProductForm((payload) => {
+    addProduct(payload);
+    setShowProductModal(false);
+  });
 
   const closeProductModal = () => {
-    setProdName('');
-    setProdCategory('panes');
-    setProdPrice(1.5);
-    setProdCost(0.5);
-    setProdStock(50);
-    setProdMinStock(10);
-    setProdImage('🥖');
-    setSelectedRecipeIngredients([]);
+    productForm.reset();
     setShowProductModal(false);
   };
 
@@ -178,54 +170,6 @@ export const InventoryView: React.FC = () => {
     setInsumoMinStock(5);
     setInsumoCost(1.5);
     setShowInsumoModal(false);
-  };
-
-  // Add ingredient requirement line to Product recipe builder
-  const toggleRecipeIngredientItem = (ingredientId: string, quantity: number) => {
-    setSelectedRecipeIngredients(prev => {
-      const exists = prev.find(i => i.ingredientId === ingredientId);
-      if (exists) {
-        return prev.filter(i => i.ingredientId !== ingredientId);
-      } else {
-        return [...prev, { ingredientId, quantity }];
-      }
-    });
-  };
-
-  const updateRecipeIngredientQuantity = (ingredientId: string, val: number) => {
-    setSelectedRecipeIngredients(prev =>
-      prev.map(item =>
-        item.ingredientId === ingredientId ? { ...item, quantity: val } : item
-      )
-    );
-  };
-
-  // Handle product addition
-  const handleCreateProductSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prodName.trim()) return;
-
-    addProduct({
-      name: prodName,
-      category: prodCategory,
-      price: Number(prodPrice),
-      cost: Number(prodCost),
-      stock: Number(prodStock),
-      minStock: Number(prodMinStock),
-      image: prodImage,
-      ingredients: selectedRecipeIngredients
-    });
-
-    // Reset controls
-    setProdName('');
-    setProdCategory('panes');
-    setProdPrice(1.5);
-    setProdCost(0.5);
-    setProdStock(50);
-    setProdMinStock(10);
-    setProdImage('🥖');
-    setSelectedRecipeIngredients([]);
-    setShowProductModal(false);
   };
 
   // Quick replenish helper
@@ -1278,7 +1222,7 @@ export const InventoryView: React.FC = () => {
       {showProductModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-55 p-4 animate-fade-in dialog-overlay">
           <form
-            onSubmit={handleCreateProductSubmit}
+            onSubmit={productForm.handleSubmit}
             className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-zinc-800 max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto"
           >
             <div className="flex items-center justify-between border-b pb-2.5 border-gray-100 dark:border-zinc-800">
@@ -1303,8 +1247,8 @@ export const InventoryView: React.FC = () => {
                   type="text"
                   required
                   placeholder="Por ej: Pan Dulce Especial"
-                  value={prodName}
-                  onChange={(e) => setProdName(e.target.value)}
+                  value={productForm.fields.name}
+                  onChange={(e) => productForm.setters.setName(e.target.value)}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100 font-semibold"
                 />
               </div>
@@ -1315,8 +1259,8 @@ export const InventoryView: React.FC = () => {
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Categoría</label>
                 <select
                   id="modal-prod-category"
-                  value={prodCategory}
-                  onChange={(e) => setProdCategory(e.target.value as CategoryType)}
+                  value={productForm.fields.category}
+                  onChange={(e) => productForm.setters.setCategory(e.target.value as CategoryType)}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
                 >
                   <option value="panes">Panes Artesanales</option>
@@ -1329,7 +1273,7 @@ export const InventoryView: React.FC = () => {
 
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Ícono / Imagen</label>
-                <ImagePicker value={prodImage} onChange={setProdImage} />
+                <ImagePicker value={productForm.fields.image} onChange={productForm.setters.setImage} />
               </div>
             </div>
 
@@ -1342,8 +1286,8 @@ export const InventoryView: React.FC = () => {
                   step="0.01"
                   required
                   min="0.05"
-                  value={prodPrice}
-                  onChange={(e) => setProdPrice(Number(e.target.value))}
+                  value={productForm.fields.price}
+                  onChange={(e) => productForm.setters.setPrice(Number(e.target.value))}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
                 />
               </div>
@@ -1356,8 +1300,8 @@ export const InventoryView: React.FC = () => {
                   step="0.01"
                   required
                   min="0.01"
-                  value={prodCost}
-                  onChange={(e) => setProdCost(Number(e.target.value))}
+                  value={productForm.fields.cost}
+                  onChange={(e) => productForm.setters.setCost(Number(e.target.value))}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
                 />
               </div>
@@ -1371,8 +1315,8 @@ export const InventoryView: React.FC = () => {
                   type="number"
                   required
                   min="0"
-                  value={prodStock}
-                  onChange={(e) => setProdStock(Number(e.target.value))}
+                  value={productForm.fields.stock}
+                  onChange={(e) => productForm.setters.setStock(Number(e.target.value))}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
                 />
               </div>
@@ -1384,8 +1328,8 @@ export const InventoryView: React.FC = () => {
                   type="number"
                   required
                   min="1"
-                  value={prodMinStock}
-                  onChange={(e) => setProdMinStock(Number(e.target.value))}
+                  value={productForm.fields.minStock}
+                  onChange={(e) => productForm.setters.setMinStock(Number(e.target.value))}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
                 />
               </div>
@@ -1399,7 +1343,7 @@ export const InventoryView: React.FC = () => {
               
               <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-zinc-800 p-3 rounded-xl divide-y divide-gray-100 dark:divide-zinc-850 space-y-1 bg-gray-50/50 dark:bg-zinc-950/40">
                 {ingredients.map(ing => {
-                  const activeRecipeItem = selectedRecipeIngredients.find(r => r.ingredientId === ing.id);
+                  const activeRecipeItem = productForm.recipe.items.find(r => r.ingredientId === ing.id);
                   const isChecked = !!activeRecipeItem;
 
                   return (
@@ -1409,7 +1353,7 @@ export const InventoryView: React.FC = () => {
                           id={`modal-recipe-check-${ing.id}`}
                           type="checkbox"
                           checked={isChecked}
-                          onChange={() => toggleRecipeIngredientItem(ing.id, 1)}
+                          onChange={() => productForm.recipe.toggle(ing.id, 1)}
                           className="rounded text-amber-500 border-gray-300 focus:ring-amber-500 h-3.5 w-3.5"
                         />
                         <span className="font-semibold text-gray-800 dark:text-zinc-200">{ing.name} ({ing.unit})</span>
@@ -1424,7 +1368,7 @@ export const InventoryView: React.FC = () => {
                             step="0.001"
                             min="0.001"
                             value={activeRecipeItem.quantity}
-                            onChange={(e) => updateRecipeIngredientQuantity(ing.id, Number(e.target.value))}
+                            onChange={(e) => productForm.recipe.setQuantity(ing.id, Number(e.target.value))}
                             className="w-20 font-mono bg-white dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 py-1 px-2 rounded-lg text-xs leading-none"
                           />
                         </div>

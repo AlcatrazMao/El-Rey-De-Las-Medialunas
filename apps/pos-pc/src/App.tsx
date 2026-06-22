@@ -120,7 +120,11 @@ function ERPLayout() {
     setSavedSessions(sessions);
   }, [activeUser?.email, activeUser?.name, activeUser?.role]);
 
-  const switchSession = async (session: SavedSession) => {
+  // Nota: no hay implementación real de multi-sesión en cliente (Firebase Auth no
+  // soporta múltiples cuentas activas simultáneas). Si el usuario clickea otra
+  // sesión guardada se hace logout para que pueda re-loguearse manualmente.
+  // El nombre original `switchSession` era engañoso.
+  const handleLogout = async (session: SavedSession) => {
     if (session.email === activeUser.email) return;
     await auth.signOut();
     setShowSessionMenu(false);
@@ -227,7 +231,7 @@ function ERPLayout() {
                   <div className="text-[10px] font-bold text-gray-400 uppercase px-2 py-1">Sesiones</div>
                   {savedSessions.map(s => (
                     <div key={s.email} className={`flex items-center gap-2 px-2 py-2 rounded-lg text-xs ${s.email === activeUser.email ? 'bg-amber-500/10' : 'hover:bg-gray-50 dark:hover:bg-zinc-800'}`}>
-                      <button onClick={() => switchSession(s)} className="flex-1 flex items-center gap-2 text-left">
+                      <button onClick={() => handleLogout(s)} className="flex-1 flex items-center gap-2 text-left">
                         <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center text-[10px] font-bold text-amber-700">{s.name[0]}</div>
                         <div>
                           <div className="font-bold text-gray-700 dark:text-zinc-200">{s.name}</div>

@@ -8,8 +8,10 @@ import * as React from 'react'
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
-import { formatCurrency } from '../utils/format';
 
+import { AccountingWidget } from './dashboard/AccountingWidget';
+import { InventoryWidget } from './dashboard/InventoryWidget';
+import { PresentationsWidget } from './dashboard/PresentationsWidget';
 import { RecentSalesTable } from './dashboard/RecentSalesTable';
 import { SalesSummaryCard } from './dashboard/SalesSummaryCard';
 import { StockAlertList } from './dashboard/StockAlertList';
@@ -145,112 +147,14 @@ export const Dashboard: React.FC = () => {
   );
 
   {/* RENDER INDIVIDUAL WIDGET: ANALYTICAL INTERACTIVE HISTOGRAM */}
-  const renderWidgetContabilidad = () => {
-    // We will build a beautiful pixel perfect pure React-SVG bar chart tracking sales popularity
-    // categories count: Panes, facturas, repostería, salados, bebidas
-    const categoryStats = {
-      panes: 0,
-      facturas: 0,
-      pasteleria: 0,
-      salados: 0,
-      bebidas: 0
-    };
-
-    successfulSales.forEach(sale => {
-      sale.items.forEach(item => {
-        // Find Category in original product catalog
-        const cat = products.find(p => p.id === item.productId)?.category;
-        if (cat && cat in categoryStats) {
-          categoryStats[cat] += item.subtotal;
-        }
-      });
-    });
-
-    const categories = Object.keys(categoryStats) as (keyof typeof categoryStats)[];
-    const maxVal = Math.max(...Object.values(categoryStats), 20);
-
-    return (
-      <div key="contabilidad" className="bg-white dark:bg-zinc-900 border border-orange-100/45 dark:border-zinc-800 rounded-2xl p-5 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-extrabold text-sm text-gray-850 dark:text-zinc-100 flex items-center gap-2">
-            📊 Volumen de Facturación por Categoría de Panificados
-          </h3>
-          <span className="text-[10px] text-gray-400 font-bold">MONITOREO EN VIVO</span>
-        </div>
-
-        {/* SVG graph container */}
-        <div className="relative h-56 w-full flex items-end justify-between gap-2 border-b border-gray-200 dark:border-zinc-800 pb-2 pt-4">
-          {categories.map((catKey, idx) => {
-            const val = categoryStats[catKey];
-            const heightPct = Math.max((val / maxVal) * 80, 5); // at least 5% bar for nice visual baseline
-            
-            const titles: Record<string, string> = {
-              panes: '🥖 Panes',
-              facturas: '🥐 Facturas',
-              pasteleria: '🍰 Pastelería',
-              salados: '🥪 Salados',
-              bebidas: '☕ Bebidas'
-            };
-
-            const colors: Record<string, string> = {
-              panes: 'bg-amber-500',
-              facturas: 'bg-orange-500',
-              pasteleria: 'bg-rose-500',
-              salados: 'bg-emerald-500',
-              bebidas: 'bg-sky-500'
-            };
-
-            return (
-              <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full">
-                {/* Popover value */}
-                <span className="text-[10px] font-mono font-bold text-gray-700 dark:text-zinc-300 mb-1.5">{formatCurrency(val)}</span>
-                {/* Column block */}
-                <div
-                  className={`w-11 md:w-16 rounded-t-lg transition-all duration-500 ${colors[catKey]} shadow-xs hover:opacity-90 cursor-pointer`}
-                  style={{ height: `${heightPct}%` }}
-                  title={`${titles[catKey]}: ${formatCurrency(val)}`}
-                />
-                {/* Name label */}
-                <span className="text-[10px] font-bold text-gray-500 mt-2 truncate max-w-full text-center">
-                  {titles[catKey].split(' ')[1]}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
+  const renderWidgetContabilidad = () => (
+    <AccountingWidget products={products} successfulSales={successfulSales} />
+  );
 
   {/* RENDER INDIVIDUAL WIDGET: RAW MATERIALS STOCK STATUS TRACKER */}
-  const renderWidgetInventario = () => {
-    return (
-      <div key="inventario" className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl p-5 shadow-xs">
-        <h3 className="font-extrabold text-sm text-gray-850 dark:text-zinc-100 flex items-center gap-2 mb-4">
-          🌾 Monitor de Materia Prima en Silos
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {ingredients.slice(0, 6).map(ing => {
-            const isAlert = ing.stock <= ing.minStock;
-            return (
-              <div key={ing.id} className={`p-3 rounded-xl border ${isAlert ? 'bg-red-50/15 border-red-200 dark:bg-red-950/10' : 'bg-gray-50/50 dark:bg-zinc-950/30'}`}>
-                <p className="text-[10px] text-gray-500 font-bold truncate">{ing.name}</p>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className={`text-base font-black ${isAlert ? 'text-red-500' : 'text-gray-800 dark:text-zinc-100'}`}>
-                    {ing.stock.toFixed(1)}
-                  </span>
-                  <span className="text-[9px] text-gray-400 font-bold">{ing.unit}</span>
-                </div>
-                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${isAlert ? 'bg-red-100 text-red-800 dark:bg-red-950/30' : 'bg-emerald-100 text-emerald-850 dark:bg-emerald-950/30'}`}>
-                  {isAlert ? 'Comprar ya' : 'Suficiente'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
+  const renderWidgetInventario = () => (
+    <InventoryWidget ingredients={ingredients} />
+  );
 
   {/* RENDER INDIVIDUAL WIDGET: CRITICAL NOTIFICATIONS LOGS LIST */}
   const renderWidgetAlertas = () => (
@@ -263,98 +167,16 @@ export const Dashboard: React.FC = () => {
   );
 
   // ── Desglose por presentación ──────────────────────────────────────────
-  // Agrupa todas las ventas exitosas por producto y dentro de cada producto
-  // separa cuántas unidades / monto se vendieron como "Unidad" vs cada grupo
-  // (Docena, Media docena, etc.). Si no hay ventas con presentation, la
-  // sección entera no se renderiza (regla T5.2).
-  const renderWidgetPresentaciones = () => {
-    type PresentationStat = { units: number; revenue: number };
-    type ProductStat = { name: string; image: string; presentations: Map<string, PresentationStat>; totalUnits: number; totalRevenue: number; hasPresentation: boolean };
-    const byProduct = new Map<string, ProductStat>();
+  // T5.2: si no hay ventas con presentation, el widget devuelve null.
+  // Lógica extraída a `PresentationsWidget` para reducir el tamaño de Dashboard.
+  const renderWidgetPresentaciones = () => (
+    <PresentationsWidget products={products} successfulSales={successfulSales} />
+  );
 
-    successfulSales.forEach(sale => {
-      sale.items.forEach(item => {
-        const prod = products.find(p => p.id === item.productId);
-        if (!prod) return;
-        const stat = byProduct.get(prod.id) ?? {
-          name: prod.name,
-          image: prod.image,
-          presentations: new Map(),
-          totalUnits: 0,
-          totalRevenue: 0,
-          hasPresentation: false,
-        };
-        const key = item.presentation ?? 'Unidad';
-        if (item.presentation) stat.hasPresentation = true;
-        const presStat = stat.presentations.get(key) ?? { units: 0, revenue: 0 };
-        presStat.units += item.quantity;
-        presStat.revenue += item.subtotal;
-        stat.presentations.set(key, presStat);
-        stat.totalUnits += item.quantity;
-        stat.totalRevenue += item.subtotal;
-        byProduct.set(prod.id, stat);
-      });
-    });
-
-    const productsWithPresentation = Array.from(byProduct.entries())
-      .filter(([, s]) => s.hasPresentation)
-      .sort((a, b) => b[1].totalRevenue - a[1].totalRevenue);
-
-    // T5.2: si no hay ventas con presentation, ocultar todo el widget.
-    if (productsWithPresentation.length === 0) {
-      return <React.Fragment key="presentaciones" />;
-    }
-
-    return (
-      <div key="presentaciones" className="bg-white dark:bg-zinc-900 border border-orange-100/45 dark:border-zinc-800 rounded-2xl p-5 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-extrabold text-sm text-gray-850 dark:text-zinc-100 flex items-center gap-2">
-            📦 Desglose de Ventas por Presentación
-          </h3>
-          <span className="text-[10px] text-gray-400 font-bold">{productsWithPresentation.length} ARTÍCULOS</span>
-        </div>
-
-        <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
-          {productsWithPresentation.map(([prodId, stat]) => (
-            <div key={prodId} className="border border-gray-100 dark:border-zinc-800 rounded-xl p-3 bg-gray-50/40 dark:bg-zinc-950/30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xl" role="img" aria-hidden="true">{stat.image}</span>
-                  <h4 className="font-extrabold text-xs text-gray-800 dark:text-zinc-100 truncate">{stat.name}</h4>
-                </div>
-                <span className="text-[10px] text-amber-600 dark:text-amber-500 font-extrabold font-mono">
-                  {formatCurrency(stat.totalRevenue)}
-                </span>
-              </div>
-              <div className="space-y-1">
-                {Array.from(stat.presentations.entries())
-                  .sort((a, b) => b[1].revenue - a[1].revenue)
-                  .map(([presName, presStat]) => {
-                    const pct = stat.totalRevenue > 0 ? (presStat.revenue / stat.totalRevenue) * 100 : 0;
-                    return (
-                      <div key={presName} className="flex items-center justify-between gap-2 text-[10px]">
-                        <span className="flex items-center gap-1.5 font-bold text-gray-600 dark:text-zinc-300 truncate min-w-0">
-                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${presName === 'Unidad' ? 'bg-gray-400' : 'bg-amber-500'}`} />
-                          <span className="truncate">{presName}</span>
-                        </span>
-                        <div className="flex items-center gap-2 shrink-0 font-mono">
-                          <span className="text-gray-500">{presStat.units} u.</span>
-                          <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">{formatCurrency(presStat.revenue)}</span>
-                          <span className="text-gray-400 text-[9px]">({pct.toFixed(0)}%)</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  // Map of keys to actual renderer components
-  const widgetMapping: Record<string, () => React.JSX.Element> = {
+  // Map of keys to actual renderer components.
+  // ReactNode (no JSX.Element) — `PresentationsWidget` puede devolver `null`
+  // cuando no hay ventas con presentación (regla T5.2).
+  const widgetMapping: Record<string, () => React.ReactNode> = {
     widget_facturacion: renderWidgetFacturacion,
     widget_contabilidad: renderWidgetContabilidad,
     widget_inventario: renderWidgetInventario,
