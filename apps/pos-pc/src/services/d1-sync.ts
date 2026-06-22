@@ -400,6 +400,40 @@ export async function updateSupplyRequestStatusInD1(
   });
 }
 
+// ── Withdrawal Requests ───────────────────────────────────────────────
+
+export async function syncWithdrawalRequestToD1(req: {
+  id: string;
+  batchId: string;
+  productId: string;
+  productName: string;
+  batchNumber: string;
+  quantity: number;
+  reason: string;
+  requestedBy: string;
+}): Promise<void> {
+  const payload = {
+    id: req.id,
+    batch_id: req.batchId,
+    product_id: req.productId,
+    product_name: req.productName,
+    batch_number: req.batchNumber,
+    quantity: req.quantity,
+    reason: req.reason,
+    requested_by: req.requestedBy,
+    branch_id: getSettings().business.branchId,
+  };
+  try {
+    await getApi().client.post('/api/v2/withdrawal-requests', payload);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueue('withdrawal_request', payload);
+    } else {
+      throw err;
+    }
+  }
+}
+
 // ── User Preferences ──────────────────────────────────────────────────
 
 export async function syncUserPreferencesToD1(customPanels: string[]): Promise<void> {

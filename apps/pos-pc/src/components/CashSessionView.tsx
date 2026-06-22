@@ -475,7 +475,7 @@ export const CashSessionView: React.FC = () => {
                             /* TODO: requiere arqueo manual — al abrir el modal se prefilltea con expectedAmount, lo que sugiere discrepancy=0 al admin si no edita. Considerar dejar el campo vacío para forzar el conteo real. */
                             <button
                               type="button"
-                              onClick={() => { setClosingHistoricalId(sess.id); setHistoricalClosingAmount(sess.expectedAmount); }}
+                              onClick={() => { setClosingHistoricalId(sess.id); setHistoricalClosingAmount(0); }}
                               className="w-full py-2 bg-orange-100 hover:bg-orange-200 dark:bg-orange-900/20 dark:hover:bg-orange-900/40 text-orange-800 dark:text-orange-300 border border-orange-300/50 dark:border-orange-700/40 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors"
                             >
                               🔒 Cerrar sesión pendiente

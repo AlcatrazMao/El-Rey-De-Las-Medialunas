@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 import { INITIAL_PRODUCTS } from '../initialData';
+import { syncWithdrawalRequestToD1 } from '../services/d1-sync';
 import type { ProductBatch, BatchWithdrawalRequest, Product } from '../types';
 import { safeSetItem } from '../utils/safeStorage';
 
@@ -222,9 +223,19 @@ export function useBatches({ notify, products }: UseBatchesParams) {
       date: new Date().toISOString(),
     };
     setWithdrawalRequests((prev) => [request, ...prev]);
-    // TODO(Bug B): sync withdrawal request to D1. No dedicated sync function exists
-    // in d1-sync.ts yet. Add `syncWithdrawalRequestToD1` there and call it here
-    // once implemented, similar to how useSupplyRequests calls syncSupplyRequestToD1.
+    syncWithdrawalRequestToD1({
+      id: request.id,
+      batchId: request.batchId,
+      productId: request.productId,
+      productName: request.productName,
+      batchNumber: request.batchNumber,
+      quantity: request.quantity,
+      reason: request.reason,
+      requestedBy: request.requestedBy,
+    }).catch(() => {
+      // Fire-and-forget: si falla la red el request queda en la cola offline
+      // (enqueue dentro de syncWithdrawalRequestToD1) y no se pierde.
+    });
     notify(
       '🔔 Solicitud de Baja Registrada',
       `Se solicitó retirar ${quantity} u. del lote ${batch.batchNumber} de "${request.productName}".`,
