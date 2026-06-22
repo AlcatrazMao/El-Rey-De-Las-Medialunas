@@ -4,6 +4,7 @@ import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const batchRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 // SECURITY: cap monetary and quantity inputs.
@@ -284,6 +285,11 @@ batchRoutes.put("/:id", async (c) => {
   if (setClauses.length === 0) {
     return c.json(errBody("VALIDATION_ERROR", "No hay campos para actualizar"), 400);
   }
+
+  // FIX: incluir updated_at en el SET para que el sync diferencial detecte
+  // cambios y propague el lote modificado a los clientes offline.
+  setClauses.push("updated_at = ?");
+  values.push(nowSqliteTs());
 
   values.push(id);
   await db
