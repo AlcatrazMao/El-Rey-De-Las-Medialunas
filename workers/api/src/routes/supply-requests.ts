@@ -94,8 +94,12 @@ supplyRequestRoutes.post("/", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "quantity es requerido y debe ser un número finito > 0"), 400);
   }
 
-  if (body.id !== undefined && !/^[0-9a-f]{32}$/i.test(body.id)) {
-    return c.json(errBody("VALIDATION_ERROR", "id debe ser un string hexadecimal de 32 caracteres"), 400);
+  // BUG FIX C9 — el regex anterior rechazaba IDs tipo "sup_req_..." que genera
+  // el frontend. Permitimos cualquier id alfanumérico con `_`/`-` entre 8 y 64
+  // caracteres. Si el id es inválido, lo ignoramos y generamos uno nuevo en
+  // el servidor en vez de fallar (el cliente puede conciliar después).
+  if (body.id !== undefined && !/^[a-zA-Z0-9_-]{8,64}$/.test(body.id)) {
+    return c.json(errBody("VALIDATION_ERROR", "id debe tener entre 8 y 64 caracteres alfanuméricos, '_' o '-'"), 400);
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;

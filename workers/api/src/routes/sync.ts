@@ -8,6 +8,20 @@ import { nowSqliteTs } from "../utils/time";
 
 export const syncRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// SECURITY: numeric inputs vienen de la cola offline del cliente y pueden ser
+// NaN/Infinity por bugs en serialización (ej. Number(undefined)). Si dejamos
+// que lleguen al INSERT, contaminamos totales financieros y stock con valores
+// inválidos. assertFinitePositive lanza para abortar la operación.
+export function assertFinitePositive(v: unknown, field: string): number {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`INVALID_NUMERIC: ${field}=${String(v)}`);
+  }
+  return n;
+}
+
+const VOID_ALLOWED_ROLES = new Set(["admin", "owner", "supervisor"]);
+
 // ── PULL — differential sync, server → client ─────────────────────────
 // GET /pull?last_sync_timestamp=&branch_id=&entity_types=
 syncRoutes.get("/pull", async (c) => {
@@ -128,6 +142,7 @@ syncRoutes.post("/push", async (c) => {
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
   const operations = body.operations ?? [];
+  const userRole = c.get("userRole") ?? "";
 
   // SECURITY: cap the batch size to prevent a single client from queueing
   // thousands of statements against D1 in one request (DoS surface and
@@ -152,7 +167,7 @@ syncRoutes.post("/push", async (c) => {
 
   for (const op of operations) {
     try {
-      await applyOperation(db, op, user.id, branchId);
+      await applyOperation(db, op, user.id, branchId, userRole);
       processed++;
     } catch (e) {
       failed++;
@@ -180,6 +195,7 @@ async function applyOperation(
   },
   userId: string,
   branchId: string,
+  userRole: string,
 ): Promise<void> {
   const now = nowSqliteTs();
   const id = String(op.data.id ?? op.client_id);
@@ -189,7 +205,14 @@ async function applyOperation(
     case "sale": {
       if (op.operation !== "create") break;
 
-      // Idempotency: si llega idempotency_key y ya existe la venta, no re-procesar.
+      // BUG FIX C1 — replay doble-descuento:
+      // Antes del fix, si bien el chequeo por idempotency_key abortaba el batch,
+      // un replay sin idempotency_key (cliente legacy) podía llegar con el mismo
+      // `id`. En ese caso el INSERT INTO sales fallaba con UNIQUE en id, pero el
+      // batch incluía `INSERT OR IGNORE INTO sale_items` y `UPDATE inventory`
+      // (este último NO tiene OR IGNORE) — si el INSERT principal se hubiera
+      // ejecutado por separado, el inventario habría sido descontado dos veces.
+      // Ahora deduplicamos también por `id` antes de armar cualquier statement.
       const idempotencyKey = typeof d.idempotency_key === "string" && d.idempotency_key.trim() !== ""
         ? d.idempotency_key.trim()
         : null;
@@ -199,29 +222,62 @@ async function applyOperation(
           .bind(idempotencyKey)
           .first<{ id: string }>();
         if (existing) {
-          // Ya procesada — replay silencioso, no romper sync.
+          // Ya procesada — replay silencioso, no descontar inventario otra vez.
           break;
         }
       }
+      // Defensa adicional: replay por mismo id de cliente sin idempotency_key.
+      const existingById = await db
+        .prepare("SELECT id FROM sales WHERE id = ? LIMIT 1")
+        .bind(id)
+        .first<{ id: string }>();
+      if (existingById) {
+        break;
+      }
 
-      const subtotal = Number(d.subtotal ?? 0);
-      const discountTotal = Number(d.discount_total ?? 0);
-      const taxTotal = Number(d.tax_total ?? 0);
-      const total = Number(d.total ?? subtotal + taxTotal);
+      // BUG FIX C4 — validar valores numéricos finitos antes de tocar el batch.
+      const subtotal = assertFinitePositive(d.subtotal ?? 0, "subtotal");
+      const discountTotal = assertFinitePositive(d.discount_total ?? 0, "discount_total");
+      const taxTotal = assertFinitePositive(d.tax_total ?? 0, "tax_total");
+      const total = assertFinitePositive(d.total ?? subtotal + taxTotal, "total");
 
       const items = Array.isArray(d.items) ? d.items as Record<string, unknown>[] : [];
       const payments = Array.isArray(d.payments) ? d.payments as Record<string, unknown>[] : [];
+
+      // Validar items antes de armar statements — un NaN en quantity rompe stock.
+      for (const item of items) {
+        assertFinitePositive(item.quantity ?? 0, "item.quantity");
+        assertFinitePositive(item.unit_price ?? 0, "item.unit_price");
+        if (item.discount !== undefined && item.discount !== null) {
+          assertFinitePositive(item.discount, "item.discount");
+        }
+        if (item.tax_rate !== undefined && item.tax_rate !== null) {
+          assertFinitePositive(item.tax_rate, "item.tax_rate");
+        }
+        if (item.tax_amount !== undefined && item.tax_amount !== null) {
+          assertFinitePositive(item.tax_amount, "item.tax_amount");
+        }
+      }
+      for (const pay of payments) {
+        assertFinitePositive(pay.amount ?? 0, "payment.amount");
+      }
 
       const itemStmts = items.flatMap(item => {
         const itemId = genId();
         const movId = genId();
         const qty = Number(item.quantity ?? 0);
         const price = Number(item.unit_price ?? 0);
+        // BUG FIX C3 — discount estaba hardcodeado a 0; ahora respetamos el
+        // payload del cliente (con fallback a 0 si no viene).
+        const discount = item.discount !== undefined && item.discount !== null
+          ? Number(item.discount)
+          : 0;
+        const lineTotal = qty * price - discount;
         return [
           db.prepare(
             `INSERT OR IGNORE INTO sale_items (id, sale_id, product_id, quantity, unit_price, discount, tax_rate, tax_amount, total, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).bind(itemId, id, String(item.product_id ?? ""), qty, price, 0, Number(item.tax_rate ?? 0), Number(item.tax_amount ?? 0), qty * price, now),
+          ).bind(itemId, id, String(item.product_id ?? ""), qty, price, discount, Number(item.tax_rate ?? 0), Number(item.tax_amount ?? 0), lineTotal, now),
           db.prepare(
             `INSERT OR IGNORE INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
              VALUES (?, ?, ?, 'sale_out', ?, 'Venta sync offline', ?, ?)`
@@ -296,27 +352,81 @@ async function applyOperation(
     }
 
     case "void_sale": {
-      await db.prepare(
-        `UPDATE sales SET status = 'voided', voided_at = ?, voided_by = ?, void_reason = ?, sync_status = 'synced' WHERE id = ? AND status = 'completed'`
-      ).bind(now, userId, String(d.void_reason ?? ""), id).run();
+      // BUG FIX C2 — antes solo cambiaba el status; ahora:
+      //   1) chequea RBAC (C5),
+      //   2) valida que la venta esté en 'completed' antes de anular,
+      //   3) restituye inventario y genera stock_movements 'return_in'
+      //      (mismo patrón que POST /sales/:id/void en sales.ts).
+      if (!VOID_ALLOWED_ROLES.has(userRole)) {
+        throw new Error("FORBIDDEN: rol sin permisos para anular ventas");
+      }
+
+      const sale = await db
+        .prepare("SELECT id, status, branch_id FROM sales WHERE id = ? LIMIT 1")
+        .bind(id)
+        .first<{ id: string; status: string; branch_id: string }>();
+      if (!sale) {
+        // Venta inexistente — replay raro; no-op silencioso para no romper sync.
+        break;
+      }
+      if (sale.status === "voided") {
+        // Replay del void: ya estaba anulada, no restituir inventario otra vez.
+        break;
+      }
+      if (sale.status !== "completed") {
+        throw new Error(`CONFLICT: no se puede anular venta en estado '${sale.status}'`);
+      }
+
+      const saleBranchId = sale.branch_id ?? branchId;
+      const saleItems = await db
+        .prepare("SELECT product_id, quantity FROM sale_items WHERE sale_id = ?")
+        .bind(id)
+        .all<{ product_id: string; quantity: number }>();
+
+      const voidStmts = [
+        db.prepare(
+          `UPDATE sales SET status = 'voided', voided_at = ?, voided_by = ?, void_reason = ?, sync_status = 'synced'
+           WHERE id = ? AND status = 'completed'`
+        ).bind(now, userId, String(d.void_reason ?? ""), id),
+        ...(saleItems.results ?? []).flatMap(item => {
+          const movementId = genId();
+          return [
+            db.prepare(
+              `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+               VALUES (?, ?, ?, 'return_in', ?, 'Anulación de venta (sync)', ?, ?)`
+            ).bind(movementId, item.product_id, saleBranchId, item.quantity, userId, now),
+            db.prepare(
+              `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+               WHERE product_id = ? AND branch_id = ?`
+            ).bind(item.quantity, now, item.product_id, saleBranchId),
+          ];
+        }),
+      ];
+
+      await db.batch(voidStmts);
       break;
     }
 
     case "expense": {
       if (op.operation !== "create") break;
+      // BUG FIX C4 — validar amount antes de persistir.
+      const amount = assertFinitePositive(d.amount ?? 0, "expense.amount");
       await db.prepare(
         `INSERT OR IGNORE INTO expenses (id, branch_id, user_id, concept, category, amount, payment_method, invoice_url, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(id, branchId, userId, String(d.concept ?? ""), String(d.category ?? "otros"), Number(d.amount ?? 0), String(d.payment_method ?? "cash"), d.invoice_url ?? null, now).run();
+      ).bind(id, branchId, userId, String(d.concept ?? ""), String(d.category ?? "otros"), amount, String(d.payment_method ?? "cash"), d.invoice_url ?? null, now).run();
       break;
     }
 
     case "customer": {
       if (op.operation === "delete") break;
+      // BUG FIX C4 — validar credit_limit; un Infinity en el límite habilita
+      // crédito ilimitado a un cliente arbitrario.
+      const creditLimit = assertFinitePositive(d.credit_limit ?? 0, "customer.credit_limit");
       await db.prepare(
         `INSERT OR IGNORE INTO customers (id, name, email, phone, type, credit_limit, current_debt, is_active, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
-      ).bind(id, String(d.name ?? ""), d.email ?? null, d.phone ?? null, String(d.type ?? "consumer"), Number(d.credit_limit ?? 0), now, now).run();
+      ).bind(id, String(d.name ?? ""), d.email ?? null, d.phone ?? null, String(d.type ?? "consumer"), creditLimit, now, now).run();
       break;
     }
 

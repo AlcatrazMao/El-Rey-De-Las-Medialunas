@@ -19,6 +19,30 @@ function canManageOffers(role: string | undefined): boolean {
   return role === "admin" || role === "owner" || role === "supervisor";
 }
 
+// BUG FIX C8 — validación de fechas y coherencia.
+// - starts_at debe ser parseable.
+// - ends_at, si viene, debe ser parseable y > starts_at.
+// Retorna mensaje de error en caso de inconsistencia, o null si todo OK.
+export function validateOfferDates(
+  startsAt: string,
+  endsAt: string | null | undefined,
+): string | null {
+  const startMs = Date.parse(startsAt);
+  if (!Number.isFinite(startMs)) {
+    return "starts_at no es una fecha válida";
+  }
+  if (endsAt !== null && endsAt !== undefined && endsAt !== "") {
+    const endMs = Date.parse(endsAt);
+    if (!Number.isFinite(endMs)) {
+      return "ends_at no es una fecha válida";
+    }
+    if (endMs <= startMs) {
+      return "ends_at debe ser posterior a starts_at";
+    }
+  }
+  return null;
+}
+
 interface OfferRow {
   id: string;
   branch_id: string;
@@ -149,6 +173,12 @@ offerRoutes.post("/", async (c) => {
   const now = nowSqliteTs();
   const startsAt = body.starts_at ?? now;
 
+  // BUG FIX C8 — validar fechas antes de insertar.
+  const dateError = validateOfferDates(startsAt, body.ends_at);
+  if (dateError) {
+    return c.json(errBody("VALIDATION_ERROR", dateError), 400);
+  }
+
   await db
     .prepare(
       `INSERT INTO offers
@@ -196,10 +226,22 @@ offerRoutes.put("/:id/status", async (c) => {
   }
 
   const existing = await db
-    .prepare("SELECT id FROM offers WHERE id = ? LIMIT 1")
+    .prepare("SELECT id, ends_at FROM offers WHERE id = ? LIMIT 1")
     .bind(id)
-    .first<{ id: string }>();
+    .first<{ id: string; ends_at: string | null }>();
   if (!existing) return c.json(errBody("NOT_FOUND", "Oferta no encontrada"), 404);
+
+  // BUG FIX C8 — si quieren activar una oferta cuyo ends_at ya pasó,
+  // rechazamos: activar algo expirado induce a errores en el POS.
+  if (body.status === "active" && existing.ends_at) {
+    const endsMs = Date.parse(existing.ends_at);
+    if (Number.isFinite(endsMs) && endsMs <= Date.now()) {
+      return c.json(
+        errBody("VALIDATION_ERROR", "No se puede activar una oferta cuyo ends_at ya pasó"),
+        400,
+      );
+    }
+  }
 
   const now = nowSqliteTs();
   await db

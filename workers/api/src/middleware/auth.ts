@@ -4,13 +4,21 @@ import { createMiddleware } from "hono/factory";
 import type { Env, Variables } from "../types/bindings";
 import { verifyJWT } from "../utils/jwt";
 
-// Public routes that bypass JWT auth. Keep this list MINIMAL and exact —
-// using prefix match below means anything starting with these strings skips auth.
-const PUBLIC_ROUTES = [
+// BUG FIX M2 — antes el match era `path === route || path.startsWith(route + '/')`,
+// lo que hacía que cualquier sub-path de una ruta pública también fuera público
+// (por ejemplo `/api/v1/health/db-dump` bypasseaba auth si existiera). Las
+// rutas que necesitamos públicas son SOLO estos paths exactos; no hay sub-paths
+// legítimos. Las separamos en exactas vs prefijos por si algún día agregamos
+// una pública que sí requiera prefix-match.
+const PUBLIC_ROUTES_EXACT: ReadonlySet<string> = new Set([
   "/api/v1/health",
   "/api/v1/auth/login",
   "/api/v1/auth/refresh",
-];
+]);
+
+// Lista vacía por ahora. Agregar acá rutas que LEGÍTIMAMENTE requieran que
+// todos sus sub-paths sean públicos (ej. estáticos servidos por el worker).
+const PUBLIC_ROUTES_PREFIX: readonly string[] = [];
 
 interface DecodedToken {
   uid: string;
@@ -22,7 +30,10 @@ export function authMiddleware() {
   return createMiddleware<{ Bindings: Env; Variables: Variables }>(async (c, next) => {
     const path = new URL(c.req.url).pathname;
 
-    if (PUBLIC_ROUTES.some((route) => path === route || path.startsWith(route + '/'))) {
+    if (
+      PUBLIC_ROUTES_EXACT.has(path) ||
+      PUBLIC_ROUTES_PREFIX.some((route) => path.startsWith(route + "/"))
+    ) {
       await next();
       return;
     }
