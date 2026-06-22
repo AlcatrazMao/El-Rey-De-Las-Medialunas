@@ -15,39 +15,45 @@ function handleLogout(): void {
   signOut(auth).catch(() => {});
 }
 
-async function refreshAccessToken(): Promise<boolean> {
-  if (refreshInFlight) return refreshInFlight;
+// Exported for testing: the actual network call that exchanges the refresh token
+// for new tokens. Isolated so tests can mock it without touching the singleton logic.
+export async function doTokenRefresh(): Promise<boolean> {
   const refreshToken = localStorage.getItem("refresh_token");
   if (!refreshToken) {
     handleLogout();
     return false;
   }
-  refreshInFlight = (async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-      if (!res.ok) {
-        handleLogout();
-        return false;
-      }
-      const data = await res.json();
-      const tokens = data?.data?.tokens;
-      if (!tokens?.access_token || !tokens?.refresh_token) {
-        handleLogout();
-        return false;
-      }
-      sessionStorage.setItem("access_token", tokens.access_token);
-      localStorage.setItem("refresh_token", tokens.refresh_token);
-      return true;
-    } catch {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!res.ok) {
+      handleLogout();
       return false;
-    } finally {
-      refreshInFlight = null;
     }
-  })();
+    const data = await res.json();
+    const tokens = data?.data?.tokens;
+    if (!tokens?.access_token || !tokens?.refresh_token) {
+      handleLogout();
+      return false;
+    }
+    sessionStorage.setItem("access_token", tokens.access_token);
+    localStorage.setItem("refresh_token", tokens.refresh_token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Singleton-promise refresh: if a refresh is already in flight, all concurrent
+// callers await the same promise instead of triggering multiple network requests.
+export async function refreshAccessToken(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = doTokenRefresh().finally(() => {
+    refreshInFlight = null;
+  });
   return refreshInFlight;
 }
 

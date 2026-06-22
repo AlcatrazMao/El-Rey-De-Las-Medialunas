@@ -4,6 +4,18 @@ import { INITIAL_NOTIFICATIONS } from '../initialData';
 import type { PushNotification } from '../types';
 import { safeSetItem, safeParseLocalStorage } from '../utils/safeStorage';
 
+export const MAX_NOTIFICATIONS = 50;
+
+// Pure function — exported for unit testing without React.
+// Prepends a new notification and caps the array to MAX_NOTIFICATIONS,
+// keeping the most recent entries (newest-first order).
+export function addNotification(
+  prev: PushNotification[],
+  notification: PushNotification,
+): PushNotification[] {
+  return [notification, ...prev].slice(0, MAX_NOTIFICATIONS);
+}
+
 export function useNotifications() {
   const [notifications, setNotifications] = useState<PushNotification[]>(() =>
     safeParseLocalStorage<PushNotification[]>('pan_erp_notifications', INITIAL_NOTIFICATIONS)
@@ -89,7 +101,7 @@ export function useNotifications() {
       timestamp: new Date().toISOString(),
       read: false,
     };
-    setNotifications(prev => [newNot, ...prev].slice(0, 50));
+    setNotifications(prev => addNotification(prev, newNot));
     playAlertSound(type);
   }, []);
 
