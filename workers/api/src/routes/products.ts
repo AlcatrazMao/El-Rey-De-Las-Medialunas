@@ -2,15 +2,12 @@ import { Hono } from "hono";
 
 import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
+import { escapeLike } from "../lib/sql-escape";
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
 import { nowSqliteTs } from "../utils/time";
 
 export const productRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-function escapeLike(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
 // SECURITY: cap monetary fields so a malicious client cannot persist Infinity.
 const MAX_PRICE = 10_000_000;
 const MAX_TAX_RATE = 100;

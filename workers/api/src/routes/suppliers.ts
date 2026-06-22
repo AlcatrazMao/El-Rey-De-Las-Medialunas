@@ -1,20 +1,12 @@
 import { Hono } from "hono";
 
 import { resolveUser } from "../lib/resolve-user";
+import { escapeLike } from "../lib/sql-escape";
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
 import { nowSqliteTs } from "../utils/time";
 
 export const supplierRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-// SECURITY: sin escape, un cliente puede pasar `%` o `_` en `search` y forzar
-// match contra cualquier fila (LIKE trata esos chars como wildcards), o
-// degradar el plan de query a un full scan. Backslash escapa los wildcards,
-// y la query usa ESCAPE '\\' para reconocerlo. Mismo patrón inline que
-// products.ts y customers.ts.
-export function escapeLike(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-}
 
 const errBody = (code: string, message: string) => ({
   success: false as const,
