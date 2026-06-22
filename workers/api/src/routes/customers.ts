@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { resolveUser } from "../lib/resolve-user";
+import { escapeLike } from "../lib/sql-escape";
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
 import { nowSqliteTs } from "../utils/time";
@@ -13,10 +14,6 @@ const errBody = (code: string, message: string) => ({
   success: false as const,
   error: { code, message },
 });
-
-function escapeLike(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
 
 // GET / — Listar clientes activos con paginación y búsqueda opcional
 customerRoutes.get("/", async (c) => {

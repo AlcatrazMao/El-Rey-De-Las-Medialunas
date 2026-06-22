@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 
 import type { Env, Variables } from "../types/bindings";
+import { genId } from "../utils/id";
+import { nowSqliteTs } from "../utils/time";
 
 export const uploadRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -13,6 +15,10 @@ const CONTENT_TYPE_TO_EXT: Record<string, string> = {
 };
 const MAX_SIZE_BYTES = 2 * 1024 * 1024;
 const IMAGES_WORKER_URL = "https://imagenes-cf-r2.isosistemas2.workers.dev";
+
+// SECURITY: rate-limit per user — 30 uploads per hour.
+const UPLOAD_RATE_LIMIT = 30;
+const UPLOAD_RATE_WINDOW_S = 3600; // 1 hora en segundos
 
 const errBody = (code: string, message: string) => ({
   success: false as const,
@@ -51,6 +57,41 @@ uploadRoutes.post("/product-image", async (c) => {
   const userId = c.get("userId");
   if (!userId) {
     return c.json(errBody("UNAUTHORIZED", "Token de acceso requerido"), 401);
+  }
+
+  // SECURITY: rate-limit — máximo 30 uploads por hora por usuario.
+  // KV key: ratelimit:upload:{userId}, valor: JSON { count, resetAt (epoch s) }
+  {
+    const rlKey = `ratelimit:upload:${userId}`;
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    const raw = await c.env.RATE_LIMIT.get(rlKey);
+    let rlEntry: { count: number; resetAt: number } = { count: 0, resetAt: nowEpoch + UPLOAD_RATE_WINDOW_S };
+
+    if (raw) {
+      try {
+        rlEntry = JSON.parse(raw) as { count: number; resetAt: number };
+        // Si la ventana ya expiró, reiniciar
+        if (nowEpoch >= rlEntry.resetAt) {
+          rlEntry = { count: 0, resetAt: nowEpoch + UPLOAD_RATE_WINDOW_S };
+        }
+      } catch {
+        rlEntry = { count: 0, resetAt: nowEpoch + UPLOAD_RATE_WINDOW_S };
+      }
+    }
+
+    if (rlEntry.count >= UPLOAD_RATE_LIMIT) {
+      const retryAfter = Math.max(1, rlEntry.resetAt - nowEpoch);
+      return c.json(
+        errBody("RATE_LIMITED", `Límite de ${UPLOAD_RATE_LIMIT} uploads/hora superado. Reintentá en ${retryAfter}s.`),
+        429,
+        { "Retry-After": String(retryAfter) },
+      );
+    }
+
+    // Incrementar contador y persistir con TTL hasta el final de la ventana
+    rlEntry.count += 1;
+    const ttl = Math.max(1, rlEntry.resetAt - nowEpoch);
+    await c.env.RATE_LIMIT.put(rlKey, JSON.stringify(rlEntry), { expirationTtl: ttl });
   }
 
   let formData: FormData;
@@ -129,6 +170,23 @@ uploadRoutes.post("/product-image", async (c) => {
 
   if (!data?.url || typeof data.url !== 'string') {
     return c.json(errBody("BAD_GATEWAY", "Respuesta inválida del servicio de carga"), 502);
+  }
+
+  // AUDIT: registrar el upload exitoso en la tabla uploaded_files para
+  // trazabilidad (quién, qué, cuándo, qué clave R2).
+  try {
+    const auditId = genId();
+    const uploadedAt = nowSqliteTs();
+    const branchId = c.get("branchId") ?? null;
+    await c.env.DB.prepare(
+      `INSERT INTO uploaded_files (id, user_id, file_name, file_size, mime_type, r2_key, uploaded_at, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(auditId, userId, file.name, file.size, file.type, key, uploadedAt, branchId)
+      .run();
+  } catch (err) {
+    // No fallar el upload por un error de auditoría — loguear y continuar.
+    console.error("[uploads] audit insert failed:", err);
   }
 
   return c.json({ success: true, data: { url: data.url } }, 201);

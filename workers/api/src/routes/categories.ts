@@ -59,7 +59,8 @@ categoryRoutes.get("/", async (c) => {
     bindings.push(isActive === "false" ? 0 : 1);
   }
 
-  query += " ORDER BY sort_order ASC, name ASC";
+  // SECURITY: cap the result set to prevent DoS via unbounded SELECT.
+  query += " ORDER BY sort_order ASC, name ASC LIMIT 500";
 
   const results = await db.prepare(query).bind(...bindings).all();
   return c.json({ success: true, data: results.results ?? [] });
