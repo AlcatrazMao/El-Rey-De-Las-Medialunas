@@ -101,6 +101,17 @@ export function authMiddleware() {
 
     const branchHeader = c.req.header("X-Branch-Id") ?? "";
 
+    // TODO(SECURITY/HIGH): el header X-Branch-Id se acepta sin verificar que el
+    // usuario pertenezca a esa sucursal. Hoy mitigamos el riesgo más serio en los
+    // endpoints sensibles (ver sync.ts POST /push: chequea user_branches). Sin
+    // embargo cualquier route que confíe en `c.get("branchId")` para resolver
+    // ámbito (reports, dashboard, etc.) puede ser inducida a leer/escribir en
+    // otra sucursal por un cajero malicioso simplemente cambiando el header.
+    //
+    // Fix correcto: query a user_branches en cada request — invasivo (un round-trip
+    // a D1 por request) y requiere o caché por uid o moverlo al JWT (claim
+    // `branches[]`) para evitar el costo. Se difiere a una migración de schema
+    // dedicada que agregue ese claim al issue del token.
     c.set("userId", sub);
     c.set("userRole", role);
     c.set("branchId", branchHeader);
