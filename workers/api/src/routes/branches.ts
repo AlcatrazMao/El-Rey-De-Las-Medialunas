@@ -7,6 +7,12 @@ import { nowSqliteTs } from "../utils/time";
 
 export const branchRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// SECURITY/CONSISTENCY: opening_time / closing_time se persisten como TEXT
+// y se usan más adelante para reportes y filtros de POS. Si dejamos que el
+// cliente mande strings arbitrarias ("8am", "abc", "25:99") rompe parseos
+// downstream. Forzamos formato HH:MM 24h.
+export const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 // GET /
 branchRoutes.get("/", async (c) => {
   const db = c.env.DB;
@@ -56,6 +62,13 @@ branchRoutes.post("/", async (c) => {
 
   if (!body.name?.trim()) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "name es requerido" } }, 400);
   if (!body.code?.trim()) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "code es requerido" } }, 400);
+
+  if (body.opening_time !== undefined && !TIME_REGEX.test(body.opening_time)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "opening_time debe tener formato HH:MM" } }, 400);
+  }
+  if (body.closing_time !== undefined && !TIME_REGEX.test(body.closing_time)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "closing_time debe tener formato HH:MM" } }, 400);
+  }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
@@ -130,6 +143,13 @@ branchRoutes.put("/:id", async (c) => {
     return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para modificar sucursales" } }, 403);
   }
 
+  if (body.opening_time !== undefined && !TIME_REGEX.test(body.opening_time)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "opening_time debe tener formato HH:MM" } }, 400);
+  }
+  if (body.closing_time !== undefined && !TIME_REGEX.test(body.closing_time)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "closing_time debe tener formato HH:MM" } }, 400);
+  }
+
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
   const now = nowSqliteTs();
@@ -173,18 +193,25 @@ branchRoutes.delete("/:id", async (c) => {
     return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para eliminar sucursales" } }, 403);
   }
 
-  const activeCount = await db
-    .prepare("SELECT COUNT(*) as cnt FROM branches WHERE deleted_at IS NULL AND is_active = 1")
-    .first<{ cnt: number }>();
-  if ((activeCount?.cnt ?? 0) <= 1) {
-    return c.json({ success: false, error: { code: "CONFLICT", message: "No se puede eliminar la última sucursal activa" } }, 409);
-  }
-
+  // SECURITY: atomic guard contra race condition de "última sucursal activa".
+  // Antes hacíamos: (1) SELECT COUNT activas, (2) UPDATE soft-delete.
+  // Entre 1 y 2, dos admins pueden borrar las dos últimas simultáneamente,
+  // dejando el sistema sin sucursales operativas. Lo resolvemos en un único
+  // UPDATE con subquery: el WHERE solo dispara si quedan > 1 activas en el
+  // mismo statement, lo que SQLite serializa.
   const now = nowSqliteTs();
-  await db
-    .prepare("UPDATE branches SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id = ?")
+  const result = await db
+    .prepare(
+      `UPDATE branches SET deleted_at = ?, is_active = 0, updated_at = ?
+       WHERE id = ?
+         AND (SELECT COUNT(*) FROM branches WHERE deleted_at IS NULL AND is_active = 1) > 1`,
+    )
     .bind(now, now, id)
     .run();
+
+  if (result.meta.changes === 0) {
+    return c.json({ success: false, error: { code: "CONFLICT", message: "No podés eliminar la única sucursal activa" } }, 409);
+  }
 
   return c.json({ success: true, data: { id, deleted_at: now } });
 });

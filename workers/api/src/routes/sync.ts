@@ -144,6 +144,25 @@ syncRoutes.post("/push", async (c) => {
   const operations = body.operations ?? [];
   const userRole = c.get("userRole") ?? "";
 
+  // SECURITY: cross-branch privilege escalation guard.
+  // El cliente puede mandar `branch_id` arbitrario en el body. Sin este check,
+  // un cajero de sucursal A podría inyectar operaciones (ventas, gastos, batches)
+  // marcadas con `branch_id` de sucursal B y contaminar sus métricas y stock.
+  // admin/owner pueden operar en cualquier sucursal; el resto solo en las suyas
+  // (membresía via tabla user_branches, ya que users no tiene branch_id directo).
+  if (userRole !== "admin" && userRole !== "owner") {
+    const membership = await db
+      .prepare("SELECT 1 AS ok FROM user_branches WHERE user_id = ? AND branch_id = ? LIMIT 1")
+      .bind(user.id, branchId)
+      .first<{ ok: number }>();
+    if (!membership) {
+      return c.json(
+        { success: false, error: { code: "FORBIDDEN", message: "No podés operar en otra sucursal" } },
+        403,
+      );
+    }
+  }
+
   // SECURITY: cap the batch size to prevent a single client from queueing
   // thousands of statements against D1 in one request (DoS surface and
   // D1 batch limit of ~100 statements). Clients should chunk pushes.

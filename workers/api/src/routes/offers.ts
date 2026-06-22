@@ -179,6 +179,38 @@ offerRoutes.post("/", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", dateError), 400);
   }
 
+  // SECURITY: batch_ids y product_ids se persisten como JSON sin FK. Si no
+  // validamos existencia, el cliente puede sembrar ids inexistentes (o ya
+  // borrados) y la oferta nunca aplica — peor: la UI los muestra como
+  // válidos y el operador toma decisiones sobre data fantasma. Validamos
+  // contra DB antes del INSERT.
+  if (body.batch_ids.length > 0) {
+    const placeholders = body.batch_ids.map(() => "?").join(",");
+    const row = await db
+      .prepare(
+        // inventory_batches no tiene deleted_at (ver migración 0001/0006);
+        // como existencia válida usamos COUNT distintos por id.
+        `SELECT COUNT(DISTINCT id) as cnt FROM inventory_batches WHERE id IN (${placeholders})`,
+      )
+      .bind(...body.batch_ids)
+      .first<{ cnt: number }>();
+    if ((row?.cnt ?? 0) !== body.batch_ids.length) {
+      return c.json(errBody("INVALID_BATCH_IDS", "Uno o más batch_ids no existen"), 400);
+    }
+  }
+  if (body.product_ids.length > 0) {
+    const placeholders = body.product_ids.map(() => "?").join(",");
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) as cnt FROM products WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      )
+      .bind(...body.product_ids)
+      .first<{ cnt: number }>();
+    if ((row?.cnt ?? 0) !== body.product_ids.length) {
+      return c.json(errBody("INVALID_PRODUCT_IDS", "Uno o más product_ids no existen"), 400);
+    }
+  }
+
   await db
     .prepare(
       `INSERT INTO offers

@@ -1,3 +1,4 @@
+import type { D1Database } from "@cloudflare/workers-types";
 import { Hono } from "hono";
 
 import { DEFAULT_BRANCH_ID } from "../config/constants";
@@ -15,6 +16,33 @@ const errBody = (code: string, message: string) => ({
 
 function canManageCategories(role: string | undefined): boolean {
   return role === "admin" || role === "owner" || role === "supervisor";
+}
+
+// SECURITY: subir por la cadena de parents desde `newParentId` y detectar
+// si en algún momento aparece `categoryId` (ciclo A→…→A). Antes solo se
+// bloqueaba el self-reference directo (A→A); ciclos de 2+ saltos (A→B→A)
+// quebraban el tree builder de GET /tree y hacían que el frontend ciclara.
+// Devolvemos true también si encontramos una visita repetida (ciclo
+// preexistente en la base) para no entrar en loop infinito.
+export async function wouldCreateCycle(
+  db: D1Database,
+  categoryId: string,
+  newParentId: string,
+): Promise<boolean> {
+  let currentId: string | null = newParentId;
+  const visited = new Set<string>();
+  while (currentId !== null) {
+    if (currentId === categoryId) return true;
+    if (visited.has(currentId)) return true; // ciclo preexistente
+    visited.add(currentId);
+    const row: { parent_id: string | null } | null = await db
+      .prepare("SELECT parent_id FROM categories WHERE id = ? AND deleted_at IS NULL")
+      .bind(currentId)
+      .first<{ parent_id: string | null }>();
+    if (!row) break;
+    currentId = row.parent_id;
+  }
+  return false;
 }
 
 // GET / — flat list
@@ -170,6 +198,16 @@ categoryRoutes.put("/:id", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "Una categoría no puede ser su propio padre"), 400);
   }
 
+  // SECURITY: prevent multi-hop cycles (A→B→A). El check self-reference de arriba
+  // solo cubre el caso trivial. Si el nuevo parent_id sube por la cadena hasta
+  // toparse con la categoría actual, estamos por crear un ciclo.
+  if (body.parent_id !== undefined && body.parent_id !== null && body.parent_id !== id) {
+    const cycle = await wouldCreateCycle(db, id, body.parent_id);
+    if (cycle) {
+      return c.json(errBody("CYCLE_DETECTED", "Esa relación crearía un ciclo en el árbol de categorías"), 400);
+    }
+  }
+
   const fields: string[] = [];
   const vals: (string | number | null)[] = [];
   const now = nowSqliteTs();
@@ -215,13 +253,27 @@ categoryRoutes.delete("/:id", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para eliminar categorías"), 403);
   }
 
+  // SECURITY: orphan guard — si la categoría tiene subcategorías activas,
+  // borrarla las dejaría apuntando a un parent soft-deleted (huérfanas en el
+  // tree builder). Pedimos al usuario que las elimine/reasigne primero.
+  const children = await db
+    .prepare("SELECT COUNT(*) as cnt FROM categories WHERE parent_id = ? AND deleted_at IS NULL")
+    .bind(id)
+    .first<{ cnt: number }>();
+  if ((children?.cnt ?? 0) > 0) {
+    return c.json(
+      errBody("HAS_CHILDREN", "No podés eliminar una categoría con subcategorías activas. Eliminá las hijas primero."),
+      409,
+    );
+  }
+
   const inUse = await db
     .prepare("SELECT id FROM products WHERE category_id = ? AND deleted_at IS NULL LIMIT 1")
     .bind(id)
     .first<{ id: string }>();
 
   if (inUse) {
-    return c.json(errBody("CONFLICT", "No se puede eliminar la categoría: tiene productos activos"), 409);
+    return c.json(errBody("HAS_PRODUCTS", "No podés eliminar una categoría con productos activos."), 409);
   }
 
   const now = nowSqliteTs();
