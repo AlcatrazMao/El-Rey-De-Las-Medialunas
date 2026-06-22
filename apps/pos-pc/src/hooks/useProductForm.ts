@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import type { CategoryType } from '../types';
 
@@ -59,17 +59,22 @@ export function useProductForm(
   const [image, setImage] = useState(initial.image);
   const [recipeIngredients, setRecipeIngredients] = useState<{ ingredientId: string; quantity: number }[]>([]);
 
+  // Ref que siempre apunta al último `initial`. El callback `reset` lee de la
+  // ref en lugar de capturar `initial` del primer render — así si el padre
+  // pasa defaults nuevos, el reset usa los valores actualizados.
+  const initialRef = useRef(initial);
+  initialRef.current = initial;
+
   const reset = useCallback(() => {
-    setName(initial.name);
-    setCategory(initial.category);
-    setPrice(initial.price);
-    setCost(initial.cost);
-    setStock(initial.stock);
-    setMinStock(initial.minStock);
-    setImage(initial.image);
+    const i = initialRef.current;
+    setName(i.name);
+    setCategory(i.category);
+    setPrice(i.price);
+    setCost(i.cost);
+    setStock(i.stock);
+    setMinStock(i.minStock);
+    setImage(i.image);
     setRecipeIngredients([]);
-    // initial es estable dentro del closure del hook — no requiere deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleRecipeIngredient = useCallback((ingredientId: string, quantity = 1) => {

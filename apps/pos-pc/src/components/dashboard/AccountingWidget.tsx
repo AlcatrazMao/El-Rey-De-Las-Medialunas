@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useMemo } from 'react';
 
 import type { Product, Sale } from '../../types';
 import { buildCategoryStats } from '../../utils/dashboardStats';
@@ -31,7 +32,13 @@ const titleFor = (key: string) => KNOWN_TITLES[key] ?? `📦 ${key.charAt(0).toU
 const colorFor = (key: string) => KNOWN_COLORS[key] ?? 'bg-slate-500';
 
 export const AccountingWidget: React.FC<AccountingWidgetProps> = ({ products, successfulSales }) => {
-  const categoryStats = buildCategoryStats(products, successfulSales);
+  // buildCategoryStats recorre todas las ventas exitosas y todos los productos.
+  // Sin memo, se recomputaba en cada render del Dashboard aunque las refs no
+  // cambiaran (p.ej. al abrir un modal en otro widget).
+  const categoryStats = useMemo(
+    () => buildCategoryStats(products, successfulSales),
+    [products, successfulSales],
+  );
   const categories = Object.keys(categoryStats);
   const values = Object.values(categoryStats);
   const maxVal = Math.max(...values, 20);

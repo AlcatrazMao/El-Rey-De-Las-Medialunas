@@ -5,8 +5,15 @@ import type { Sale, Product, CategoryType, CashSession as LocalCashSession, Sync
 import { getApi } from "./api";
 import { dbAdapter } from "./db-adapter";
 
-function isNetworkError(err: unknown): boolean {
-  return err instanceof TypeError && /fetch|network|failed/i.test((err as TypeError).message);
+export function isNetworkError(err: unknown): boolean {
+  // TypeError: fetch lanza este tipo cuando hay problemas DNS / TCP / CORS.
+  if (err instanceof TypeError) return true;
+  // DOMException: típico de aborts y otros errores de plataforma.
+  if (typeof DOMException !== 'undefined' && err instanceof DOMException) return true;
+  // AbortError: timeout o cancelación manual (no es ni TypeError ni DOMException
+  // en algunas plataformas — verificamos por nombre).
+  if (err instanceof Error && err.name === 'AbortError') return true;
+  return false;
 }
 
 // ── Backoff & classification (sync-error-console) ────────────────────────
@@ -498,17 +505,35 @@ export async function fetchProductsFromD1(
   existing: Product[],
   branchId?: string,
 ): Promise<Product[]> {
-  const [productsRes, categoriesRes] = await Promise.all([
+  // El endpoint GET /products NO hace JOIN con la tabla `inventory`, así que
+  // los productos nuevos venían con stock=0 (y el merge silenciaba la realidad
+  // del server). Traemos el inventario en paralelo y mergeamos current_quantity
+  // → stock por product_id como clave.
+  const [productsRes, categoriesRes, inventoryRows] = await Promise.all([
     getApi().products.getAll(branchId ? { branch_id: branchId, limit: 200 } : { limit: 200 }),
     getApi().categories.getAll(branchId, undefined, true),
+    fetchInventoryFromD1(branchId).catch(() => [] as unknown[]),
   ]);
 
   const d1Products = (productsRes.data ?? []) as unknown as Record<string, unknown>[];
   const d1Categories = (Array.isArray(categoriesRes) ? categoriesRes : []) as unknown as Record<string, unknown>[];
+  const d1Inventory = (Array.isArray(inventoryRows) ? inventoryRows : []) as unknown as Record<string, unknown>[];
 
   const categoryNameById = new Map<string, string>(
     d1Categories.map(c => [String(c.id ?? ""), String(c.name ?? "")])
   );
+
+  // product_id → current_quantity. Un producto puede tener múltiples rows de
+  // inventario (p.ej. branches distintos), pero la query ya viene filtrada por
+  // branch así que sumamos defensivamente para cubrir filas duplicadas.
+  const stockByProductId = new Map<string, number>();
+  for (const inv of d1Inventory) {
+    const pid = String(inv.product_id ?? "");
+    if (!pid) continue;
+    const qty = Number(inv.current_quantity ?? 0);
+    if (Number.isNaN(qty)) continue;
+    stockByProductId.set(pid, (stockByProductId.get(pid) ?? 0) + qty);
+  }
 
   const existingById = new Map<string, Product>(existing.map(p => [p.id, p]));
   const merged: Product[] = [...existing];
@@ -520,6 +545,9 @@ export async function fetchProductsFromD1(
 
     const categoryName = categoryNameById.get(String(d1.category_id ?? ""));
     const category = normalizeCategoryName(categoryName);
+    // Si inventory trae la fila → es la fuente de verdad. Si no, conservamos
+    // el stock local (para productos en cola de sync) o 0 (productos nuevos).
+    const serverStock = stockByProductId.get(id);
 
     if (existingById.has(id)) {
       const local = existingById.get(id)!;
@@ -532,6 +560,7 @@ export async function fetchProductsFromD1(
         minStock: Number(d1.min_stock ?? local.minStock),
         code: String(d1.code ?? local.code),
         category,
+        stock: serverStock ?? local.stock,
       };
     } else if (!seenIds.has(id)) {
       seenIds.add(id);
@@ -541,7 +570,7 @@ export async function fetchProductsFromD1(
         category,
         price: Number(d1.price ?? 0),
         cost: Number(d1.cost ?? 0),
-        stock: 0,
+        stock: serverStock ?? 0,
         minStock: Number(d1.min_stock ?? 5),
         image: "🥐",
         code: String(d1.code ?? ""),

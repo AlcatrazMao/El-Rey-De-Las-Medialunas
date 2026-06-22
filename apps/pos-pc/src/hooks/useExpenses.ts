@@ -18,12 +18,19 @@ export function useExpenses(notify: NotifyFn) {
   }, [expenses]);
 
   const addExpense = (newExp: Omit<Expense, 'id' | 'date'>) => {
+    // UUID hex sin guiones — consistente con el resto del proyecto y compatible
+    // con el formato que valida el backend (Date.now() colisiona si el cajero
+    // dispara dos altas en el mismo ms, p.ej. doble-click).
     const expenseInstance: Expense = {
       ...newExp,
-      id: `exp_${Date.now()}`,
+      id: crypto.randomUUID().replace(/-/g, ''),
       date: new Date().toISOString(),
     };
-    setExpenses(prev => [expenseInstance, ...prev]);
+    setExpenses(prev => {
+      // Guard defensivo: si por algún motivo el UUID ya existía, no duplicamos.
+      if (prev.some(e => e.id === expenseInstance.id)) return prev;
+      return [expenseInstance, ...prev];
+    });
     syncExpenseToD1(expenseInstance).catch(() =>
       notify(
         '⚠️ Sync fallido',

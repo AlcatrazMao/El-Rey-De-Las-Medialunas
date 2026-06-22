@@ -170,24 +170,28 @@ export const batchStore = {
     });
   },
 
-  async markSynced(id: string): Promise<void> {
+  async markSynced(id: string): Promise<boolean> {
     const db = await openDB();
     // Bug fix: IDB transactions auto-commit when the event loop yields after an
     // await. Issuing get() then put() with an await between them throws
     // TransactionInactiveError. We must issue both requests synchronously inside
     // the same transaction via callbacks, or use separate transactions.
-    return new Promise<void>((resolve, reject) => {
+    // Returns true si efectivamente actualizó el registro; false si el id no
+    // existía (antes era un silent miss — el caller no podía distinguirlo).
+    return new Promise<boolean>((resolve, reject) => {
       const txn = db.transaction(STORE_BATCHES, 'readwrite');
       const store = txn.objectStore(STORE_BATCHES);
       const getReq = store.get(id);
+      let updated = false;
       getReq.onsuccess = () => {
         const existing = getReq.result as IDBBatch | undefined;
-        if (!existing) return; // txn will auto-commit with no writes
+        if (!existing) return; // txn auto-commits sin writes; updated queda en false
         existing.synced = true;
         store.put(existing); // fire synchronously; txn.oncomplete confirms commit
+        updated = true;
       };
       getReq.onerror = () => reject(getReq.error);
-      txn.oncomplete = () => resolve();
+      txn.oncomplete = () => resolve(updated);
       txn.onerror = () => reject(txn.error);
       txn.onabort = () => reject(new Error('Transaction aborted'));
     });
@@ -236,21 +240,25 @@ export const salesQueueStore = {
     });
   },
 
-  async markSynced(id: string): Promise<void> {
+  async markSynced(id: string): Promise<boolean> {
     const db = await openDB();
     // Bug fix: same TransactionInactiveError pattern as batchStore.markSynced.
-    return new Promise<void>((resolve, reject) => {
+    // Devuelve true si actualizó el item; false si el id no existía (antes era
+    // silent miss y el caller creía haber marcado un item inexistente).
+    return new Promise<boolean>((resolve, reject) => {
       const txn = db.transaction(STORE_SALES_QUEUE, 'readwrite');
       const store = txn.objectStore(STORE_SALES_QUEUE);
       const getReq = store.get(id);
+      let updated = false;
       getReq.onsuccess = () => {
         const existing = getReq.result as IDBSaleQueueItem | undefined;
         if (!existing) return;
         existing.synced = true;
         store.put(existing);
+        updated = true;
       };
       getReq.onerror = () => reject(getReq.error);
-      txn.oncomplete = () => resolve();
+      txn.oncomplete = () => resolve(updated);
       txn.onerror = () => reject(txn.error);
       txn.onabort = () => reject(new Error('Transaction aborted'));
     });
@@ -320,21 +328,24 @@ export const offerStore = {
     await request(tx(db, STORE_OFFERS, 'readwrite').put(offer));
   },
 
-  async markSynced(id: string): Promise<void> {
+  async markSynced(id: string): Promise<boolean> {
     const db = await openDB();
     // Bug fix: same TransactionInactiveError pattern as batchStore.markSynced.
-    return new Promise<void>((resolve, reject) => {
+    // Devuelve true si actualizó el item; false si el id no existía.
+    return new Promise<boolean>((resolve, reject) => {
       const txn = db.transaction(STORE_OFFERS, 'readwrite');
       const store = txn.objectStore(STORE_OFFERS);
       const getReq = store.get(id);
+      let updated = false;
       getReq.onsuccess = () => {
         const existing = getReq.result as IDBOffer | undefined;
         if (!existing) return;
         existing.synced = true;
         store.put(existing);
+        updated = true;
       };
       getReq.onerror = () => reject(getReq.error);
-      txn.oncomplete = () => resolve();
+      txn.oncomplete = () => resolve(updated);
       txn.onerror = () => reject(txn.error);
       txn.onabort = () => reject(new Error('Transaction aborted'));
     });

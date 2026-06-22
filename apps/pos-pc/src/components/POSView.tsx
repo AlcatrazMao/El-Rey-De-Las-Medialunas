@@ -101,9 +101,34 @@ export const POSView: React.FC = () => {
   };
   useEffect(() => () => { pendingTimeoutsRef.current.forEach(clearTimeout); }, []);
 
+  // Refs para todos los flags de modales abiertos — el handler de scanner no
+  // debe procesar teclas mientras hay un overlay capturando la atención del
+  // operador (selección masiva, alta de cliente, ticket impreso). Usamos refs
+  // para no re-suscribir el listener cada vez que cambia un modal.
+  const showSelectionModalRef = useRef(showSelectionModal);
+  const showNewCustomerModalRef = useRef(showNewCustomerModal);
+  const showInvoiceModalRef = useRef(showInvoiceModal);
+  const showCustomerDropdownRef = useRef(showCustomerDropdown);
+  showSelectionModalRef.current = showSelectionModal;
+  showNewCustomerModalRef.current = showNewCustomerModal;
+  showInvoiceModalRef.current = showInvoiceModal;
+  showCustomerDropdownRef.current = showCustomerDropdown;
+
   // Real barcode scanner: HID scanners emulate keyboard, spitting digits at ~5ms/char then Enter
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Guard: si hay un modal/overlay abierto, no procesamos el scanner.
+      // El usuario está interactuando con otro flujo y agregar al carrito
+      // sería sorpresivo / corrompería el modal abierto.
+      if (
+        showSelectionModalRef.current ||
+        showNewCustomerModalRef.current ||
+        showInvoiceModalRef.current ||
+        showCustomerDropdownRef.current
+      ) {
+        return;
+      }
+
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
@@ -984,7 +1009,17 @@ export const POSView: React.FC = () => {
                     className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800 flex items-center gap-2">
                     👤 Consumidor Final (Anónimo)
                   </button>
-                  {customers.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.tax_id.includes(customerSearch) || c.email.includes(customerSearch)).slice(0, 5).map(c => (
+                  {customers.filter(c => {
+                    // Null-safe filter: tax_id, email, phone pueden ser null/
+                    // undefined para Consumidor Final → `.includes()` crashea.
+                    const q = customerSearch.toLowerCase();
+                    return (
+                      (c.name ?? '').toLowerCase().includes(q) ||
+                      (c.tax_id ?? '').toLowerCase().includes(q) ||
+                      (c.email ?? '').toLowerCase().includes(q) ||
+                      (c.phone ?? '').toLowerCase().includes(q)
+                    );
+                  }).slice(0, 5).map(c => (
                     <button key={c.id} onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800">
                       <div className="font-bold">{c.name}</div>
@@ -1109,14 +1144,14 @@ export const POSView: React.FC = () => {
 
         {/* Payment Gateways / Methods Picker */}
         <PaymentMethodSelector
-          paymentMethods={getSettings().paymentMethods}
+          paymentMethods={posSettings.paymentMethods}
           paymentMethod={paymentMethod}
           setPaymentMethod={setPaymentMethod}
           gateways={gateways}
         />
 
         {/* Descuento */}
-        {getSettings().discountConfig?.availablePercents?.length > 0 && (
+        {posSettings.discountConfig?.availablePercents?.length > 0 && (
           <div className="mb-4">
             <label className="block text-[10px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Descuento</label>
             <div className="flex flex-wrap gap-1.5">
@@ -1131,7 +1166,7 @@ export const POSView: React.FC = () => {
               >
                 Sin desc.
               </button>
-              {getSettings().discountConfig.availablePercents.map(pct => (
+              {posSettings.discountConfig.availablePercents.map(pct => (
                 <button
                   key={pct}
                   type="button"
@@ -1156,7 +1191,7 @@ export const POSView: React.FC = () => {
           disabled={cart.length === 0 || isProcessingPayment}
           className={`w-full py-4 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
             cart.length === 0 
-              ? 'bg-gray-200 dark:bg-zinc-800 text-gray-400 dark:text-zinc-650 cursor-not-allowed shadow-none border-transparent'
+              ? 'bg-gray-200 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none border-transparent'
               : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white border-b-4 border-amber-700'
           }`}
         >
@@ -1247,7 +1282,7 @@ export const POSView: React.FC = () => {
                   <span>{formatCurrency(latestInvoice.total - latestInvoice.tax)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>{`IVA Incluido (${(getSettings().fiscal.ivaRate * 100).toFixed(0)}%):`}</span>
+                  <span>{`IVA Incluido (${(posSettings.fiscal.ivaRate * 100).toFixed(0)}%):`}</span>
                   <span>{formatCurrency(latestInvoice.tax)}</span>
                 </div>
                 <div className="flex justify-between text-base font-extrabold border-t pt-1.5 border-amber-200">

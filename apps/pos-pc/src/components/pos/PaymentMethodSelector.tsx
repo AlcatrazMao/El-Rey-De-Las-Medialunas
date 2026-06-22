@@ -55,7 +55,7 @@ export const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({
                   matchesSelected
                     ? 'bg-amber-100 hover:bg-amber-100/90 text-amber-900 border-amber-400'
                     : !isGatewayActive
-                    ? 'bg-gray-100 dark:bg-zinc-950/20 text-gray-400 dark:text-zinc-650 border-gray-200 dark:border-zinc-800 opacity-40 cursor-not-allowed'
+                    ? 'bg-gray-100 dark:bg-zinc-950/20 text-gray-400 dark:text-zinc-600 border-gray-200 dark:border-zinc-800 opacity-40 cursor-not-allowed'
                     : 'bg-white dark:bg-zinc-850 hover:bg-gray-50 dark:hover:bg-zinc-800 text-gray-700 dark:text-zinc-300 border-gray-200 dark:border-zinc-800'
                 }`}
               >

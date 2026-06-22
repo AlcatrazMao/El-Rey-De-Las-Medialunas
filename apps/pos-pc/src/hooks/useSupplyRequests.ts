@@ -30,32 +30,10 @@ export function useSupplyRequests({
     } catch {
       localStorage.removeItem('pan_erp_supply_requests');
     }
-    return [
-      {
-        id: 'sup_req_1',
-        type: 'ingredient',
-        itemId: 'ing_harina',
-        itemName: 'Harina de Trigo 0000',
-        quantity: 50,
-        unit: 'kg',
-        reason: 'Reposición urgente para elaboración de pan del fin de semana.',
-        requestedBy: 'Laura (Panadero)',
-        status: 'pending',
-        date: new Date(Date.now() - 5400000).toISOString(),
-      },
-      {
-        id: 'sup_req_2',
-        type: 'product',
-        itemId: 'prod_pan_flauta',
-        itemName: 'Pan Flauta (Baguette)',
-        quantity: 40,
-        unit: 'unidades',
-        reason: 'Lote fresco caliente listo para transferir a mostrador.',
-        requestedBy: 'Laura (Panadero)',
-        status: 'pending',
-        date: new Date(Date.now() - 1800000).toISOString(),
-      },
-    ];
+    // Sin demo data: las solicitudes con ids no-hex (`sup_req_1`, `sup_req_2`)
+    // eran rechazadas por el backend. En prod arrancamos con lista vacía y la
+    // panadería va creando solicitudes reales.
+    return [];
   });
 
   useEffect(() => {
@@ -86,7 +64,9 @@ export function useSupplyRequests({
         : activeUser.role === 'cajero'
         ? 'Cajero'
         : 'Panadero';
-    const reqId = `sup_req_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+    // UUID hex (32 chars, sin guiones) — formato esperado por el backend; el
+    // prefijo `sup_req_` + base36 era rechazado por la validación.
+    const reqId = crypto.randomUUID().replace(/-/g, '');
     const request: SupplyRequest = {
       id: reqId,
       type,
@@ -122,23 +102,28 @@ export function useSupplyRequests({
   };
 
   const rejectSupplyRequest = (requestId: string, adminMemo: string): void => {
-    // Compute updated list synchronously so we can check whether anything changed
-    // before deciding to call D1 (avoids spurious remote updates for unknown IDs).
-    let wasUpdated = false;
-    const updatedRequests = supplyRequests.map((r) => {
-      if (r.id !== requestId || r.status !== 'pending') return r;
-      wasUpdated = true;
-      return { ...r, status: 'rejected' as const, adminMemo };
+    // Trabajamos siempre sobre `prev` dentro del setState para evitar leer
+    // un `supplyRequests` stale del closure (típico si el caller dispara
+    // varias acciones seguidas o si vino de un handler diferido).
+    let rejectedReq: SupplyRequest | null = null;
+    setSupplyRequests((prev) => {
+      const target = prev.find((r) => r.id === requestId && r.status === 'pending');
+      if (!target) return prev; // nada que cambiar → no triggerea re-render
+      rejectedReq = { ...target, status: 'rejected' as const, adminMemo };
+      return prev.map((r) => (r.id === requestId ? rejectedReq! : r));
     });
 
-    if (!wasUpdated) return;
+    // El setState es asíncrono pero el callback se ejecuta sincrónicamente, así
+    // que después de este punto `rejectedReq` ya está poblado (o es null y
+    // no hicimos cambios — abortamos).
+    if (!rejectedReq) return;
 
-    setSupplyRequests(updatedRequests);
-
-    const rejectedReq = updatedRequests.find((r) => r.id === requestId)!;
+    // Operamos sobre la copia capturada para que la notificación y el sync
+    // remoto reflejen la versión recién actualizada, no el estado anterior.
+    const finalReq = rejectedReq as SupplyRequest;
     notify(
       '❌ Abastecimiento Desestimado',
-      `Se rechazó la solicitud para "${rejectedReq.itemName}". Comentario: ${adminMemo}`,
+      `Se rechazó la solicitud para "${finalReq.itemName}". Comentario: ${adminMemo}`,
       'error',
     );
 

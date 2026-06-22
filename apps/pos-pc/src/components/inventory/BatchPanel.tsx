@@ -220,10 +220,26 @@ export const BatchPanel: React.FC<BatchPanelProps> = ({ product, onClose }) => {
             ) : (
               <div className="space-y-3.5">
                 {activeProductBatches.map((b) => {
-                  const todayStr = new Date().toISOString().split('T')[0];
-                  const todayTime = new Date(todayStr + 'T00:00:00').getTime();
-                  const expTime = new Date(b.expiryDate + 'T00:00:00').getTime();
-                  const remainingDays = Math.ceil((expTime - todayTime) / (1000 * 60 * 60 * 24));
+                  // Comparamos sólo fechas (YYYY-MM-DD) — sin construir Date —
+                  // para evitar drift por timezone. `new Date('2026-06-21')`
+                  // se interpreta como UTC y un cliente en ARG (-03) ve la
+                  // expiración un día antes/después según la hora.
+                  // Today en ARG (UTC-3): restamos 3hs antes de cortar la
+                  // parte de fecha para que cambie a las 00:00 ART, no 00:00 UTC.
+                  const todayStr = new Date(Date.now() - 3 * 60 * 60 * 1000)
+                    .toISOString()
+                    .split('T')[0];
+                  const expStr = (b.expiryDate ?? '').split('T')[0];
+                  // Diferencia en días entre dos YYYY-MM-DD. Construimos Dates
+                  // en UTC explícito (Date.UTC) para que la división por 86_400_000
+                  // sea siempre un entero exacto.
+                  const toUtcMs = (s: string): number => {
+                    const [y, m, d] = s.split('-').map(Number);
+                    return Date.UTC(y, (m ?? 1) - 1, d ?? 1);
+                  };
+                  const remainingDays = expStr
+                    ? Math.round((toUtcMs(expStr) - toUtcMs(todayStr)) / (1000 * 60 * 60 * 24))
+                    : 0;
 
                   let colorClass = 'bg-emerald-500 text-white';
                   let badgeText = 'Excelente';

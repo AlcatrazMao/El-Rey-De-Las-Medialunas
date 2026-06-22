@@ -16,8 +16,8 @@ export const RecentSalesTable: React.FC<RecentSalesTableProps> = ({ successfulSa
         🧾 Últimas Transacciones del Día
       </h3>
       <div className="divide-y divide-gray-100 dark:divide-zinc-800 space-y-2">
-        {successfulSales.slice(0, 4).map((sale, i) => (
-          <div key={i} className="pt-2 flex items-center justify-between text-xs">
+        {successfulSales.slice(0, 4).map((sale) => (
+          <div key={sale.id} className="pt-2 flex items-center justify-between text-xs">
             <div>
               <p className="font-bold text-gray-800 dark:text-zinc-200">{sale.invoiceNumber}</p>
               <p className="text-[9px] text-gray-400 capitalize">{sale.customerName || 'Consumidor Final'} • {sale.paymentMethod.replace('_', ' ')}</p>
