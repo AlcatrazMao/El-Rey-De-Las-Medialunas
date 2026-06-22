@@ -309,49 +309,58 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
     return c.json({ success: true, data: { id, status: "received", already_received: true } });
   }
 
-  // BUG FIX C6 (overshoot guard): rechazar si recibido + entrante > pedido.
+  // Consolidar items por product_id antes de validar — si el cliente manda el
+  // mismo product_id dos veces, el guard por-item los pasaría individualmente
+  // pero el batch los aplicaría en acumulado, produciendo overshoot real.
+  const consolidatedItems = new Map<string, { received_quantity: number; unit_cost?: number | null }>();
   for (const item of items) {
-    const orderRow = orderItemsByProduct.get(item.product_id);
+    const prev = consolidatedItems.get(item.product_id);
+    consolidatedItems.set(item.product_id, {
+      received_quantity: (prev?.received_quantity ?? 0) + Number(item.received_quantity),
+      unit_cost: item.unit_cost ?? prev?.unit_cost,
+    });
+  }
+
+  // BUG FIX C6 (overshoot guard): rechazar si recibido + entrante > pedido.
+  for (const [productId, incoming] of consolidatedItems) {
+    const orderRow = orderItemsByProduct.get(productId);
     if (!orderRow) {
-      return c.json(errBody("VALIDATION_ERROR", `El producto ${item.product_id} no pertenece a esta orden`), 400);
+      return c.json(errBody("VALIDATION_ERROR", `El producto ${productId} no pertenece a esta orden`), 400);
     }
-    const incoming = Number(item.received_quantity);
-    if (orderRow.received_quantity + incoming > orderRow.quantity) {
+    if (orderRow.received_quantity + incoming.received_quantity > orderRow.quantity) {
       return c.json(
-        errBody("OVERSHOOT", `Cantidad recibida (${orderRow.received_quantity + incoming}) excede la pedida (${orderRow.quantity}) para el producto ${item.product_id}`),
+        errBody("OVERSHOOT", `Cantidad recibida (${orderRow.received_quantity + incoming.received_quantity}) excede la pedida (${orderRow.quantity}) para el producto ${productId}`),
         409,
       );
     }
   }
 
-  const receiveStatements = items.flatMap(item => {
-    if (!item.product_id || !item.received_quantity || item.received_quantity <= 0) return [];
+  const receiveStatements = [...consolidatedItems.entries()].flatMap(([productId, incoming]) => {
+    if (!productId || incoming.received_quantity <= 0) return [];
     const movementId = genId();
-    // BUG FIX C6 (cost fallback): si el cliente no mandó unit_cost, usamos el
-    // de purchase_order_items para que stock_movements quede con el costo real.
-    const orderRow = orderItemsByProduct.get(item.product_id);
-    const unitCostAtTime = item.unit_cost !== undefined && item.unit_cost !== null
-      ? Number(item.unit_cost)
+    const orderRow = orderItemsByProduct.get(productId);
+    const unitCostAtTime = incoming.unit_cost !== undefined && incoming.unit_cost !== null
+      ? Number(incoming.unit_cost)
       : (orderRow ? orderRow.unit_cost : null);
     return [
       db.prepare(
         `UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE purchase_order_id = ? AND product_id = ?`,
-      ).bind(item.received_quantity, id, item.product_id),
+      ).bind(incoming.received_quantity, id, productId),
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, unit_cost_at_time, reason, user_id, created_at)
          VALUES (?, ?, ?, 'purchase_in', ?, ?, 'Recepción OC ' || ?, ?, ?)`,
-      ).bind(movementId, item.product_id, order.branch_id, item.received_quantity, unitCostAtTime, id, user.id, now),
+      ).bind(movementId, productId, order.branch_id, incoming.received_quantity, unitCostAtTime, id, user.id, now),
       db.prepare(
         `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
          WHERE product_id = ? AND branch_id = ?`,
-      ).bind(item.received_quantity, now, item.product_id, order.branch_id),
+      ).bind(incoming.received_quantity, now, productId, order.branch_id),
     ];
   });
 
   const simulatedItems = (allItems.results ?? []).map(row => {
-    const incoming = items.find(i => i.product_id === row.product_id);
-    return incoming
-      ? { quantity: row.quantity, received: row.received_quantity + incoming.received_quantity }
+    const inc = consolidatedItems.get(row.product_id);
+    return inc
+      ? { quantity: row.quantity, received: row.received_quantity + inc.received_quantity }
       : { quantity: row.quantity, received: row.received_quantity };
   });
 
