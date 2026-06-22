@@ -98,6 +98,13 @@ export function useBatches({ notify, products }: UseBatchesParams) {
   const productsRef = useRef(products);
   useEffect(() => { productsRef.current = products; }, [products]);
 
+  // Bug fix race-condition: si checkExpiry corre dos veces en paralelo (mount
+  // + interval que coincide), dos updaters de setBatches/setWithdrawalRequests
+  // podrían procesar el mismo batch generando una solicitud duplicada en el
+  // window entre el primer scheduling y el commit del setter. Trackear los
+  // batchIds "en vuelo" garantiza idempotencia por id durante el procesamiento.
+  const inFlightRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     safeSetItem('pan_erp_batches', JSON.stringify(batches));
   }, [batches]);
@@ -117,15 +124,22 @@ export function useBatches({ notify, products }: UseBatchesParams) {
       setBatches((prevBatches) => {
         // Bug C fix: derive expiredAutoBatches inside the updater so it always
         // uses the latest state and never closes over a stale snapshot.
+        // Race fix: filtramos los batchIds que ya están siendo procesados por
+        // otra llamada en vuelo para no duplicar requests / commits.
         const expiredAutoBatches = prevBatches.filter(
           (b) =>
             b.withdrawalMode === 'automatic' &&
             b.status === 'active' &&
             b.stock > 0 &&
-            new Date(b.expiryDate + 'T00:00:00').getTime() < todayTime,
+            new Date(b.expiryDate + 'T00:00:00').getTime() < todayTime &&
+            !inFlightRef.current.has(b.id),
         );
 
         if (expiredAutoBatches.length === 0) return prevBatches;
+
+        // Reservar los ids antes de schedulear el siguiente setter para que una
+        // llamada concurrente los vea como "in flight" y los saltee.
+        expiredAutoBatches.forEach((b) => inFlightRef.current.add(b.id));
 
         // Schedule the withdrawal-requests update in the next microtask so it
         // runs after this setter has committed — standard trick to break nesting.
@@ -158,6 +172,9 @@ export function useBatches({ notify, products }: UseBatchesParams) {
                 );
               }
             });
+            // Liberar los ids procesados — la transición ya está commiteada en
+            // ambos setters cuando este updater retorna.
+            expiredAutoBatches.forEach((b) => inFlightRef.current.delete(b.id));
             return addedAny ? updated : prevRequests;
           });
         }, 0);

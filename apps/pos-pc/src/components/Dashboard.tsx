@@ -1,5 +1,4 @@
 import {
-  TrendingUp,
   LayoutDashboard,
   Settings2,
   AlertTriangle,
@@ -10,6 +9,10 @@ import { useState } from 'react';
 
 import { useApp } from '../AppContext';
 import { formatCurrency } from '../utils/format';
+
+import { RecentSalesTable } from './dashboard/RecentSalesTable';
+import { SalesSummaryCard } from './dashboard/SalesSummaryCard';
+import { StockAlertList } from './dashboard/StockAlertList';
 
 export const Dashboard: React.FC = () => {
   const {
@@ -133,61 +136,13 @@ export const Dashboard: React.FC = () => {
   const totalExpenses = expenses.reduce((acc, e) => acc + e.amount, 0);
   const totalInsumosSobrantesValue = ingredients.reduce((sum, ing) => sum + (ing.stock * ing.unitCost), 0);
   {/* RENDER INDIVIDUAL WIDGET: FINANCIAL SUMMARY BENTO DECORATORS */}
-  const renderWidgetFacturacion = () => {
-    return (
-      <div key="facturacion" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        
-        {/* Rev */}
-        <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 p-5 rounded-2xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-505 rounded-xl border border-emerald-100">
-              <TrendingUp className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">Ventas Cobradas</p>
-              <p className="text-lg font-black text-gray-805 dark:text-zinc-50 mt-0.5">{formatCurrency(totalRevenue)}</p>
-            </div>
-          </div>
-          <span className="text-xs text-emerald-500 font-bold bg-emerald-50 dark:bg-emerald-950/10 px-2 py-1 rounded">
-            —
-          </span>
-        </div>
-
-        {/* Exp */}
-        <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 p-5 rounded-2xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-505 rounded-xl border border-red-100 font-bold">
-              📉
-            </div>
-            <div>
-              <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">Egresos / Gastos</p>
-              <p className="text-lg font-black text-gray-850 dark:text-zinc-50 mt-0.5">{formatCurrency(totalExpenses)}</p>
-            </div>
-          </div>
-          <span className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/10 px-2 py-1 rounded">
-            —
-          </span>
-        </div>
-
-        {/* Insumos */}
-        <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 p-5 rounded-2xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/20 text-amber-650 rounded-xl border border-amber-100">
-              🌾
-            </div>
-            <div>
-              <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">Valorización Insumo</p>
-              <p className="text-lg font-black text-gray-850 dark:text-zinc-50 mt-0.5">{formatCurrency(totalInsumosSobrantesValue)}</p>
-            </div>
-          </div>
-          <span className="text-xs text-amber-600 dark:text-amber-500 font-bold bg-amber-50 dark:bg-amber-950/10 px-2 py-1 rounded">
-            Reserva
-          </span>
-        </div>
-
-      </div>
-    );
-  };
+  const renderWidgetFacturacion = () => (
+    <SalesSummaryCard
+      totalRevenue={totalRevenue}
+      totalExpenses={totalExpenses}
+      totalInsumosSobrantesValue={totalInsumosSobrantesValue}
+    />
+  );
 
   {/* RENDER INDIVIDUAL WIDGET: ANALYTICAL INTERACTIVE HISTOGRAM */}
   const renderWidgetContabilidad = () => {
@@ -298,71 +253,14 @@ export const Dashboard: React.FC = () => {
   };
 
   {/* RENDER INDIVIDUAL WIDGET: CRITICAL NOTIFICATIONS LOGS LIST */}
-  const renderWidgetAlertas = () => {
-    // Alerts lists
-    const lowStockItems = ingredients.filter(i => i.stock <= i.minStock);
-    const failedPaymentsCount = sales.filter(s => s.paymentStatus === 'failed').length;
-
-    return (
-      <div key="alertas" className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl p-5 shadow-xs">
-        <h3 className="font-extrabold text-sm text-gray-[850] dark:text-zinc-100 flex items-center gap-2 mb-3">
-          🚨 Monitor de Alertas de Producción
-        </h3>
-        
-        {lowStockItems.length === 0 && failedPaymentsCount === 0 ? (
-          <div className="text-center py-8 text-emerald-600">
-            <Check className="h-8 w-8 mx-auto mb-1 animate-bounce" />
-            <p className="text-xs font-bold leading-none">Cero alertas activas</p>
-            <p className="text-[10px] text-gray-400 mt-1">Todas las harinas y balanzas están óptimas</p>
-          </div>
-        ) : (
-          <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-            {lowStockItems.map(item => (
-              <div key={item.id} className="p-2 bg-red-50 dark:bg-red-950/15 border border-red-200/50 rounded-xl text-xs flex gap-2">
-                <AlertTriangle className="h-4 w-4 text-red-550 mt-0.5 shrink-0" />
-                <div>
-                  <p className="font-bold text-red-850 dark:text-red-300 leading-snug">Stock crítico: {item.name}</p>
-                  <p className="text-[10px] text-gray-500">Quedan {item.stock.toFixed(2)} {item.unit} (Umbral de aviso: {item.minStock} {item.unit})</p>
-                </div>
-              </div>
-            ))}
-
-            {failedPaymentsCount > 0 && (
-              <div className="p-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 rounded-xl text-xs flex gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                <div>
-                  <p className="font-bold text-amber-800 dark:text-amber-350 leading-snug">{failedPaymentsCount} Rechazos Financieros</p>
-                  <p className="text-[10px] text-gray-500">Operaciones con PayPal o Stripe fueron canceladas por falta de fondos simulada.</p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
+  const renderWidgetAlertas = () => (
+    <StockAlertList ingredients={ingredients} sales={sales} />
+  );
 
   {/* RENDER INDIVIDUAL WIDGET: RECENT TELLER COMPROBANTES EXP LOG */}
-  const renderWidgetHistorico = () => {
-    return (
-      <div key="historico" className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl p-5 shadow-xs">
-        <h3 className="font-extrabold text-sm text-gray-850 dark:text-zinc-100 flex items-center gap-2 mb-3">
-          🧾 Últimas Transacciones del Día
-        </h3>
-        <div className="divide-y divide-gray-100 dark:divide-zinc-800 space-y-2">
-          {successfulSales.slice(0, 4).map((sale, i) => (
-            <div key={i} className="pt-2 flex items-center justify-between text-xs">
-              <div>
-                <p className="font-bold text-gray-800 dark:text-zinc-200">{sale.invoiceNumber}</p>
-                <p className="text-[9px] text-gray-400 capitalize">{sale.customerName || 'Consumidor Final'} • {sale.paymentMethod.replace('_', ' ')}</p>
-              </div>
-              <span className="font-mono font-black text-amber-600 dark:text-amber-500">{formatCurrency(sale.total)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+  const renderWidgetHistorico = () => (
+    <RecentSalesTable successfulSales={successfulSales} />
+  );
 
   // ── Desglose por presentación ──────────────────────────────────────────
   // Agrupa todas las ventas exitosas por producto y dentro de cada producto

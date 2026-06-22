@@ -1,6 +1,6 @@
 import type { User as FirebaseUser } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 
 import { auth } from '../config/firebase';
 import { API_URL } from '../services/api';
@@ -18,14 +18,21 @@ interface UseUsersParams {
 }
 
 export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: UseUsersParams) {
-  const defaultPanels =
-    firestoreRole === 'admin' || firestoreRole === 'owner'
-      ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
-      : firestoreRole === 'cajero'
-        ? ['widget_facturacion', 'widget_alertas']
-        : ['widget_inventario', 'widget_alertas'];
+  // Memoizado para que el array no cambie de identidad en cada render — antes
+  // disparaba el warning react-hooks/exhaustive-deps en el useMemo de abajo.
+  const defaultPanels = useMemo<string[]>(
+    () =>
+      firestoreRole === 'admin' || firestoreRole === 'owner'
+        ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
+        : firestoreRole === 'cajero'
+          ? ['widget_facturacion', 'widget_alertas']
+          : ['widget_inventario', 'widget_alertas'],
+    [firestoreRole],
+  );
 
-  const persistedPanels = (() => {
+  // Memoizado por la misma razón. Sólo cambia cuando cambia el uid del usuario
+  // de Firebase; la lectura de localStorage ya es idempotente.
+  const persistedPanels = useMemo<string[] | null>(() => {
     try {
       const raw = localStorage.getItem(`pan_erp_widgets_${firebaseUser.uid}`);
       if (raw) return JSON.parse(raw) as string[];
@@ -33,16 +40,31 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
       /* ignore */
     }
     return null;
-  })();
+  }, [firebaseUser.uid]);
 
-  const firebaseMappedUser: User = {
+  // Bug fix: memoizar para evitar que cada render genere un nuevo objeto que
+  // dispara recálculos innecesarios en useState initializers (defensa) y en
+  // cualquier consumidor que reciba `activeUser` como dep. Las deps cubren
+  // todos los inputs reales del mapping; defaultPanels/persistedPanels se
+  // recalculan en cada render por diseño (lectura de localStorage) pero el
+  // objeto identidad solo cambia cuando alguna entrada relevante cambia.
+  const firebaseMappedUser: User = useMemo<User>(() => ({
     id: firebaseUser.uid,
     name: firebaseUser.displayName || firebaseUser.email || 'Usuario',
     email: firebaseUser.email || '',
     role: (firestoreRole || 'panadero') as UserRole,
     avatar: firebaseUser.photoURL || '',
     customPanels: serverPanels ?? persistedPanels ?? defaultPanels,
-  };
+  }), [
+    firebaseUser.uid,
+    firebaseUser.displayName,
+    firebaseUser.email,
+    firebaseUser.photoURL,
+    firestoreRole,
+    serverPanels,
+    persistedPanels,
+    defaultPanels,
+  ]);
 
   const [users, setUsers] = useState<User[]>(() =>
     safeParseLocalStorage<User[]>('pan_erp_users', [firebaseMappedUser])
