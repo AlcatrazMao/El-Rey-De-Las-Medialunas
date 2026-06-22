@@ -134,31 +134,55 @@ purchaseRoutes.post("/orders", async (c) => {
   const id = genId();
   const now = nowSqliteTs();
 
-  const orderNumberRow = await db
-    .prepare("SELECT COALESCE(MAX(CAST(SUBSTR(order_number, 4) AS INTEGER)), 0) + 1 AS next FROM purchase_orders WHERE branch_id = ?")
-    .bind(branchId)
-    .first<{ next: number }>();
-  const orderNumber = `OC-${String(orderNumberRow?.next ?? 1).padStart(6, "0")}`;
-
   const subtotal = body.items.reduce((acc, i) => acc + Number(i.quantity) * Number(i.unit_cost), 0);
   const total = parseFloat(subtotal.toFixed(2));
 
-  const statements = [
-    db.prepare(
+  const itemStatements = body.items.map(item => {
+    const itemId = genId();
+    const itemTotal = parseFloat((Number(item.quantity) * Number(item.unit_cost)).toFixed(2));
+    return db.prepare(
+      `INSERT INTO purchase_order_items (id, purchase_order_id, product_id, quantity, unit_cost, received_quantity, total, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+    ).bind(itemId, id, item.product_id, item.quantity, item.unit_cost, itemTotal, item.notes ?? null, now);
+  });
+
+  // BUG FIX C7 — bajo concurrencia, dos OCs leyendo el mismo MAX+1 colisionarían
+  // en el UNIQUE de order_number (o duplicarían sin UNIQUE). Mismo patrón
+  // retry-loop que sale_number en sales.ts.
+  const MAX_ORDER_NUMBER_RETRIES = 5;
+  let attempts = 0;
+  let inserted = false;
+  let orderNumber = "";
+
+  while (attempts < MAX_ORDER_NUMBER_RETRIES && !inserted) {
+    const orderNumberRow = await db
+      .prepare("SELECT COALESCE(MAX(CAST(SUBSTR(order_number, 4) AS INTEGER)), 0) + 1 AS next FROM purchase_orders WHERE branch_id = ?")
+      .bind(branchId)
+      .first<{ next: number }>();
+    orderNumber = `OC-${String(orderNumberRow?.next ?? 1).padStart(6, "0")}`;
+
+    const orderInsert = db.prepare(
       `INSERT INTO purchase_orders (id, supplier_id, branch_id, user_id, order_number, subtotal, tax_total, total, expected_delivery_date, notes, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-    ).bind(id, body.supplier_id, branchId, user.id, orderNumber, total, total, body.expected_delivery_date ?? null, body.notes ?? null, now, now),
-    ...body.items.map(item => {
-      const itemId = genId();
-      const itemTotal = parseFloat((Number(item.quantity) * Number(item.unit_cost)).toFixed(2));
-      return db.prepare(
-        `INSERT INTO purchase_order_items (id, purchase_order_id, product_id, quantity, unit_cost, received_quantity, total, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-      ).bind(itemId, id, item.product_id, item.quantity, item.unit_cost, itemTotal, item.notes ?? null, now);
-    }),
-  ];
+    ).bind(id, body.supplier_id, branchId, user.id, orderNumber, total, total, body.expected_delivery_date ?? null, body.notes ?? null, now, now);
 
-  await db.batch(statements);
+    try {
+      await db.batch([orderInsert, ...itemStatements]);
+      inserted = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isOrderNumberConflict = /UNIQUE/i.test(message) && /order_number/i.test(message);
+      if (isOrderNumberConflict) {
+        attempts++;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (!inserted) {
+    return c.json(errBody("ORDER_NUMBER_CONFLICT", "No se pudo generar número de orden único tras varios reintentos"), 500);
+  }
   return c.json({ success: true, data: { id, order_number: orderNumber } }, 201);
 });
 
@@ -257,9 +281,58 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
     }
   }
 
+  // BUG FIX C6 — necesitamos el estado actual de la orden ANTES de aplicar:
+  //   1) para validar overshoot (recibido + entrante > pedido),
+  //   2) para detectar idempotency (ya 100% recibida → no re-ejecutar),
+  //   3) para usar unit_cost de purchase_order_items como fallback si el
+  //      cliente no manda unit_cost (BUG FIX C6 fallback de cost).
+  const allItems = await db
+    .prepare("SELECT product_id, quantity, received_quantity, unit_cost FROM purchase_order_items WHERE purchase_order_id = ?")
+    .bind(id)
+    .all<{ product_id: string; quantity: number; received_quantity: number; unit_cost: number }>();
+
+  const orderItemsByProduct = new Map<string, { quantity: number; received_quantity: number; unit_cost: number }>();
+  for (const row of allItems.results ?? []) {
+    orderItemsByProduct.set(row.product_id, {
+      quantity: Number(row.quantity),
+      received_quantity: Number(row.received_quantity),
+      unit_cost: Number(row.unit_cost),
+    });
+  }
+
+  // BUG FIX C6 (idempotency): si la OC ya está 100% recibida antes de sumar,
+  // un segundo POST (doble-click) generaría stock_movements duplicados e
+  // inflaría inventario. Devolvemos 200 con el estado actual sin re-ejecutar.
+  const alreadyFullyReceived = (allItems.results ?? []).length > 0 &&
+    (allItems.results ?? []).every(row => Number(row.received_quantity) >= Number(row.quantity));
+  if (alreadyFullyReceived) {
+    return c.json({ success: true, data: { id, status: "received", already_received: true } });
+  }
+
+  // BUG FIX C6 (overshoot guard): rechazar si recibido + entrante > pedido.
+  for (const item of items) {
+    const orderRow = orderItemsByProduct.get(item.product_id);
+    if (!orderRow) {
+      return c.json(errBody("VALIDATION_ERROR", `El producto ${item.product_id} no pertenece a esta orden`), 400);
+    }
+    const incoming = Number(item.received_quantity);
+    if (orderRow.received_quantity + incoming > orderRow.quantity) {
+      return c.json(
+        errBody("OVERSHOOT", `Cantidad recibida (${orderRow.received_quantity + incoming}) excede la pedida (${orderRow.quantity}) para el producto ${item.product_id}`),
+        409,
+      );
+    }
+  }
+
   const receiveStatements = items.flatMap(item => {
     if (!item.product_id || !item.received_quantity || item.received_quantity <= 0) return [];
     const movementId = genId();
+    // BUG FIX C6 (cost fallback): si el cliente no mandó unit_cost, usamos el
+    // de purchase_order_items para que stock_movements quede con el costo real.
+    const orderRow = orderItemsByProduct.get(item.product_id);
+    const unitCostAtTime = item.unit_cost !== undefined && item.unit_cost !== null
+      ? Number(item.unit_cost)
+      : (orderRow ? orderRow.unit_cost : null);
     return [
       db.prepare(
         `UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE purchase_order_id = ? AND product_id = ?`,
@@ -267,19 +340,13 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, unit_cost_at_time, reason, user_id, created_at)
          VALUES (?, ?, ?, 'purchase_in', ?, ?, 'Recepción OC ' || ?, ?, ?)`,
-      ).bind(movementId, item.product_id, order.branch_id, item.received_quantity, item.unit_cost ?? null, id, user.id, now),
+      ).bind(movementId, item.product_id, order.branch_id, item.received_quantity, unitCostAtTime, id, user.id, now),
       db.prepare(
         `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
          WHERE product_id = ? AND branch_id = ?`,
       ).bind(item.received_quantity, now, item.product_id, order.branch_id),
     ];
   });
-
-  // Determine final status: received vs partially_received
-  const allItems = await db
-    .prepare("SELECT product_id, quantity, received_quantity FROM purchase_order_items WHERE purchase_order_id = ?")
-    .bind(id)
-    .all<{ product_id: string; quantity: number; received_quantity: number }>();
 
   const simulatedItems = (allItems.results ?? []).map(row => {
     const incoming = items.find(i => i.product_id === row.product_id);

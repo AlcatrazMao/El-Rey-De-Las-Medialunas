@@ -57,8 +57,11 @@ function extractEntityType(path: string): string {
   return parts[0] ?? "unknown";
 }
 
-function extractEntityId(path: string): string | null {
-  const match = path.match(/\/([a-f0-9-]{36})(?:\/|$)/);
+// BUG FIX M1 — el regex anterior requería UUID con guiones (36 chars), pero
+// `genId()` genera IDs hex de 32 chars sin guiones. Resultado: TODOS los audit
+// logs quedaban con entity_id = null. Aceptamos ambos formatos.
+export function extractEntityId(path: string): string | null {
+  const match = path.match(/\/([a-f0-9]{32}|[a-f0-9-]{36})(?:\/|$)/);
   return match ? (match[1] ?? null) : null;
 }
 
