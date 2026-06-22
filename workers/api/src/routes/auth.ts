@@ -14,7 +14,32 @@ interface UserRow {
   email: string;
   name: string;
   role: string;
-  custom_panels: string | null;
+  // En DB siempre es un JSON string. En caché puede llegar string (formato
+  // canónico) o ya parseado a array (si alguna escritura previa lo serializó
+  // así). Normalizamos en lectura con `parseCustomPanels`.
+  custom_panels: string | string[] | null;
+}
+
+// Normaliza `custom_panels` a `string[] | null` sin importar si vino como
+// string (formato DB) o ya como array (formato cacheado en versiones viejas).
+export function parseCustomPanels(value: unknown): string[] | null {
+  if (value == null) return null;
+  if (Array.isArray(value)) {
+    return value.filter((v): v is string => typeof v === "string");
+  }
+  if (typeof value === "string") {
+    if (value.trim() === "") return null;
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((v): v is string => typeof v === "string");
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 interface RefreshSession {
@@ -162,7 +187,16 @@ authRoutes.post("/login", async (c) => {
       }
 
       try {
-        await c.env.CACHE.put(`user:${uid}`, JSON.stringify(user), { expirationTtl: 3600 });
+        // Guardamos siempre el row con custom_panels como string (formato DB)
+        // para mantener el caché en un único shape canónico.
+        const cachedUser: UserRow = {
+          ...user,
+          custom_panels:
+            typeof user.custom_panels === "string" || user.custom_panels === null
+              ? user.custom_panels
+              : JSON.stringify(user.custom_panels),
+        };
+        await c.env.CACHE.put(`user:${uid}`, JSON.stringify(cachedUser), { expirationTtl: 3600 });
       } catch (err) {
         console.warn('[auth] cache write failed for user:', err);
       }
@@ -178,12 +212,9 @@ authRoutes.post("/login", async (c) => {
 
     const tokens = await issueTokens(c.env, { id: user.id, email: user.email, role: user.role });
 
-    let customPanels: string[] | null = null;
-    try {
-      if (user.custom_panels) customPanels = JSON.parse(user.custom_panels);
-    } catch (err) {
-      console.warn('[auth] failed to parse custom_panels JSON on login:', err);
-    }
+    // `parseCustomPanels` acepta string (DB) o string[] (caché legacy) y
+    // siempre devuelve string[] | null — elimina la inconsistencia.
+    const customPanels = parseCustomPanels(user.custom_panels);
 
     return c.json({
       success: true,
@@ -282,12 +313,7 @@ authRoutes.get("/me", async (c) => {
     return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   }
 
-  let customPanels: string[] | null = null;
-  try {
-    if (user.custom_panels) customPanels = JSON.parse(user.custom_panels);
-  } catch (err) {
-    console.warn('[auth] failed to parse custom_panels JSON on /me:', err);
-  }
+  const customPanels = parseCustomPanels(user.custom_panels);
 
   return c.json({
     success: true,

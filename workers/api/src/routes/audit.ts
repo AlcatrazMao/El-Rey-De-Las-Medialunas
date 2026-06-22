@@ -27,27 +27,31 @@ auditRoutes.get("/", async (c) => {
   const limit = Math.min(100, parseInt(c.req.query("limit") ?? "50", 10));
   const offset = (page - 1) * limit;
 
-  let query = `
-    SELECT al.*, u.name as user_name, u.email as user_email
-    FROM audit_log al
-    LEFT JOIN users u ON u.id = al.user_id
-    WHERE 1=1`;
+  // Construimos las condiciones WHERE una sola vez y las reutilizamos para la
+  // query principal y la query de count. Evita el regex frágil que rompe el
+  // count si alguien edita el SELECT base.
+  let whereClause = " WHERE 1=1";
   const bindings: (string | number)[] = [];
 
-  if (userId) { query += " AND al.user_id = ?"; bindings.push(userId); }
-  if (entityType) { query += " AND al.entity_type = ?"; bindings.push(entityType); }
-  if (entityId) { query += " AND al.entity_id = ?"; bindings.push(entityId); }
-  if (action) { query += " AND al.action LIKE ?"; bindings.push(`%${action}%`); }
-  if (fromDate) { query += " AND al.created_at >= ?"; bindings.push(`${fromDate} 00:00:00`); }
-  if (toDate) { query += " AND al.created_at <= ?"; bindings.push(`${toDate} 23:59:59`); }
+  if (userId) { whereClause += " AND al.user_id = ?"; bindings.push(userId); }
+  if (entityType) { whereClause += " AND al.entity_type = ?"; bindings.push(entityType); }
+  if (entityId) { whereClause += " AND al.entity_id = ?"; bindings.push(entityId); }
+  if (action) { whereClause += " AND al.action LIKE ?"; bindings.push(`%${action}%`); }
+  if (fromDate) { whereClause += " AND al.created_at >= ?"; bindings.push(`${fromDate} 00:00:00`); }
+  if (toDate) { whereClause += " AND al.created_at <= ?"; bindings.push(`${toDate} 23:59:59`); }
 
-  const countQuery = query.replace(
-    /SELECT al\.\*.*?FROM audit_log al/s,
-    "SELECT COUNT(*) as total FROM audit_log al"
-  );
+  const dataQuery =
+    `SELECT al.*, u.name as user_name, u.email as user_email
+     FROM audit_log al
+     LEFT JOIN users u ON u.id = al.user_id${whereClause}`;
+
+  const countQuery =
+    `SELECT COUNT(*) as total
+     FROM audit_log al
+     LEFT JOIN users u ON u.id = al.user_id${whereClause}`;
 
   const [results, countRow] = await Promise.all([
-    db.prepare(`${query} ORDER BY al.created_at DESC LIMIT ? OFFSET ?`)
+    db.prepare(`${dataQuery} ORDER BY al.created_at DESC LIMIT ? OFFSET ?`)
       .bind(...bindings, limit, offset)
       .all(),
     db.prepare(countQuery).bind(...bindings).first<{ total: number }>(),

@@ -68,6 +68,48 @@ cashRoutes.get("/sessions/current", async (c) => {
 // poison cash session totals with Infinity-adjacent values.
 const MAX_CASH_AMOUNT = 10_000_000; // 10 millones — más que suficiente
 
+// Calcula el delta neto de los movements intra-sesión contra la caja:
+//   income     → suma (entró plata)
+//   expense    → resta (salió plata)
+//   adjustment → suma o resta según el signo del amount
+// Devuelve un número finito (puede ser negativo).
+export function computeMovementsDelta(
+  movements: { type: string; amount: number }[]
+): number {
+  let delta = 0;
+  for (const m of movements) {
+    const amt = Number(m.amount);
+    if (!Number.isFinite(amt)) continue;
+    if (m.type === "income") {
+      delta += amt;
+    } else if (m.type === "expense") {
+      delta -= amt;
+    } else if (m.type === "adjustment") {
+      // Para adjustment respetamos el signo: valores negativos restan.
+      delta += amt;
+    }
+  }
+  return delta;
+}
+
+// Calcula el expected_amount de cierre incluyendo movements:
+//   expected = opening + salesDelta + movementsDelta
+// Si el cliente envía un expected_amount explícito, asumimos que ya incluye
+// ventas pero no movements, y le sumamos el delta de movements.
+export function computeExpectedAmount(params: {
+  openingAmount: number;
+  salesTotal?: number;
+  clientExpected?: number | null;
+  movements: { type: string; amount: number }[];
+}): number {
+  const movementsDelta = computeMovementsDelta(params.movements);
+  if (params.clientExpected !== undefined && params.clientExpected !== null) {
+    return Number(params.clientExpected) + movementsDelta;
+  }
+  const sales = Number(params.salesTotal ?? 0);
+  return Number(params.openingAmount) + sales + movementsDelta;
+}
+
 // POST /sessions/open
 cashRoutes.post("/sessions/open", async (c) => {
   const db = c.env.DB;
@@ -168,10 +210,10 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
 
   const session = await db
     .prepare(
-      "SELECT id FROM cash_sessions WHERE id = ? AND status = 'open' LIMIT 1"
+      "SELECT id, opening_amount FROM cash_sessions WHERE id = ? AND status = 'open' LIMIT 1"
     )
     .bind(sessionId)
-    .first<{ id: string }>();
+    .first<{ id: string; opening_amount: number }>();
 
   if (!session) {
     return c.json(
@@ -215,9 +257,29 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
   }
 
   const closingAmount = body.closing_amount;
-  const expectedAmount = body.expected_amount ?? null;
-  const difference =
-    expectedAmount !== null ? closingAmount - expectedAmount : null;
+
+  // Los movements intra-sesión (income/expense/adjustment) deben reflejarse
+  // en el expected_amount. Antes este cálculo ignoraba los retiros de caja y
+  // el cierre esperado quedaba inflado.
+  const movementsResult = await db
+    .prepare(
+      "SELECT type, amount FROM cash_movements WHERE cash_session_id = ?"
+    )
+    .bind(sessionId)
+    .all<{ type: string; amount: number }>();
+  const movements = movementsResult.results ?? [];
+
+  const clientExpected =
+    body.expected_amount !== undefined && body.expected_amount !== null
+      ? Number(body.expected_amount)
+      : null;
+
+  const expectedAmount = computeExpectedAmount({
+    openingAmount: Number(session.opening_amount ?? 0),
+    clientExpected,
+    movements,
+  });
+  const difference = closingAmount - expectedAmount;
   const closedAt = nowSqliteTs();
 
   await db

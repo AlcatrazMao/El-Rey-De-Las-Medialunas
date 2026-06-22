@@ -11,15 +11,32 @@ export const reportRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 // `created_at` en UTC, así que convertimos el rango argentino a UTC antes de
 // querear: medianoche ARG de un día = 03:00:00 UTC del mismo día, y el final
 // 23:59:59 ARG = 02:59:59 UTC del día siguiente.
-function dateRange(c: { req: { query: (k: string) => string | undefined } }) {
+
+// Validamos el formato YYYY-MM-DD ANTES de concatenar en SQL. Si bien D1 usa
+// bindings, un valor mal formado rompe DATETIME() de SQLite y produce 500 o
+// resultados silenciosamente incorrectos. Sólo aceptamos fechas calendario.
+export const isValidReportDate = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+// Sentinel para diferenciar "no llegó" vs "llegó pero inválido".
+const DATE_RANGE_INVALID = Symbol("invalid_date");
+type DateRangeInvalid = typeof DATE_RANGE_INVALID;
+
+function dateRange(
+  c: { req: { query: (k: string) => string | undefined } }
+): { branchId: string; from: string; to: string } | DateRangeInvalid {
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   // Por defecto últimos 30 días en hora ARG. Calculamos el "hoy" argentino
   // desplazando el reloj UTC -3 horas.
   const argNowMs = Date.now() - 3 * 3600 * 1000;
   const fromDefault = new Date(argNowMs - 30 * 86400000).toISOString().slice(0, 10);
   const toDefault = new Date(argNowMs).toISOString().slice(0, 10);
-  const from = c.req.query("from_date") ?? fromDefault;
-  const to = c.req.query("to_date") ?? toDefault;
+  const fromRaw = c.req.query("from_date");
+  const toRaw = c.req.query("to_date");
+  // Si el cliente mandó algo, debe cumplir YYYY-MM-DD; de lo contrario, default.
+  if (fromRaw !== undefined && !isValidReportDate(fromRaw)) return DATE_RANGE_INVALID;
+  if (toRaw !== undefined && !isValidReportDate(toRaw)) return DATE_RANGE_INVALID;
+  const from = fromRaw ?? fromDefault;
+  const to = toRaw ?? toDefault;
   // ARG midnight (00:00 -03:00) → 03:00 UTC del mismo día.
   // ARG 23:59:59 (-03:00) → 02:59:59 UTC del día siguiente.
   const toDateObj = new Date(`${to}T00:00:00Z`);
@@ -30,6 +47,12 @@ function dateRange(c: { req: { query: (k: string) => string | undefined } }) {
     from: `${from} 03:00:00`,
     to: `${toNextDay} 02:59:59`,
   };
+}
+
+function isInvalidDateRange(
+  r: { branchId: string; from: string; to: string } | DateRangeInvalid
+): r is DateRangeInvalid {
+  return r === DATE_RANGE_INVALID;
 }
 
 // GET /sales/summary
@@ -43,7 +66,11 @@ reportRoutes.get("/sales/summary", async (c) => {
   }
 
   const db = c.env.DB;
-  const { branchId, from, to } = dateRange(c);
+  const range = dateRange(c);
+  if (isInvalidDateRange(range)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Formato de fecha inválido" } }, 400);
+  }
+  const { branchId, from, to } = range;
 
   const [summary, byPayment] = await Promise.all([
     db.prepare(
@@ -89,7 +116,11 @@ reportRoutes.get("/sales/by-hour", async (c) => {
   }
 
   const db = c.env.DB;
-  const { branchId, from, to } = dateRange(c);
+  const range = dateRange(c);
+  if (isInvalidDateRange(range)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Formato de fecha inválido" } }, 400);
+  }
+  const { branchId, from, to } = range;
 
   // strftime('%H', created_at, '-3 hours') → hora argentina (UTC-3).
   // Sin el offset, una venta hecha a las 22:00 ARG aparecería como hora 1 UTC.
@@ -125,7 +156,11 @@ reportRoutes.get("/sales/by-product", async (c) => {
   }
 
   const db = c.env.DB;
-  const { branchId, from, to } = dateRange(c);
+  const range = dateRange(c);
+  if (isInvalidDateRange(range)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Formato de fecha inválido" } }, 400);
+  }
+  const { branchId, from, to } = range;
   const rawLimit = parseInt(c.req.query("limit") ?? "20", 10);
   const limit = Math.min(Math.max(isNaN(rawLimit) ? 20 : rawLimit, 1), 100);
 
@@ -161,7 +196,11 @@ reportRoutes.get("/sales/by-category", async (c) => {
   }
 
   const db = c.env.DB;
-  const { branchId, from, to } = dateRange(c);
+  const range = dateRange(c);
+  if (isInvalidDateRange(range)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Formato de fecha inválido" } }, 400);
+  }
+  const { branchId, from, to } = range;
 
   const results = await db.prepare(
     `SELECT
@@ -245,9 +284,13 @@ reportRoutes.get("/cash/summary", async (c) => {
   }
 
   const db = c.env.DB;
-  const { branchId, from, to } = dateRange(c);
+  const range = dateRange(c);
+  if (isInvalidDateRange(range)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Formato de fecha inválido" } }, 400);
+  }
+  const { branchId, from, to } = range;
 
-  const [sessions, summary] = await Promise.all([
+  const [sessions, summary, movementsAgg] = await Promise.all([
     db.prepare(
       `SELECT cs.*, u.name as user_name
        FROM cash_sessions cs
@@ -266,13 +309,38 @@ reportRoutes.get("/cash/summary", async (c) => {
        FROM cash_sessions
        WHERE branch_id = ? AND status = 'closed' AND opened_at BETWEEN ? AND ?`
     ).bind(branchId, from, to).first(),
+
+    // Agregamos movements para que el reporte de tesorería refleje los
+    // retiros/depósitos intra-sesión (antes ignorados en el closing esperado).
+    db.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN cm.type = 'income' THEN cm.amount ELSE 0 END), 0) as total_income,
+         COALESCE(SUM(CASE WHEN cm.type = 'expense' THEN cm.amount ELSE 0 END), 0) as total_expense,
+         COALESCE(SUM(CASE WHEN cm.type = 'adjustment' THEN cm.amount ELSE 0 END), 0) as total_adjustment
+       FROM cash_movements cm
+       INNER JOIN cash_sessions cs ON cs.id = cm.cash_session_id
+       WHERE cs.branch_id = ? AND cs.opened_at BETWEEN ? AND ?`
+    ).bind(branchId, from, to).first<{ total_income: number; total_expense: number; total_adjustment: number }>(),
   ]);
+
+  const movementsSummary = movementsAgg ?? { total_income: 0, total_expense: 0, total_adjustment: 0 };
+  const movementsNet =
+    Number(movementsSummary.total_income ?? 0) -
+    Number(movementsSummary.total_expense ?? 0) +
+    Number(movementsSummary.total_adjustment ?? 0);
+  const summaryWithMovements = {
+    ...(summary ?? {}),
+    movements_income: movementsSummary.total_income,
+    movements_expense: movementsSummary.total_expense,
+    movements_adjustment: movementsSummary.total_adjustment,
+    movements_net: movementsNet,
+  };
 
   return c.json({
     success: true,
     data: {
       period: { from, to },
-      summary,
+      summary: summaryWithMovements,
       sessions: sessions.results ?? [],
     },
   });
