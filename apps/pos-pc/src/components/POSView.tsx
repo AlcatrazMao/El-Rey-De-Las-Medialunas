@@ -101,6 +101,15 @@ export const POSView: React.FC = () => {
   };
   useEffect(() => () => { pendingTimeoutsRef.current.forEach(clearTimeout); }, []);
 
+  // Mount guard: si el componente se desmonta durante un flujo asíncrono
+  // (delays del pago, scanner demo) evitamos efectos secundarios como
+  // commitear una venta sobre estado ya inválido.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
+
   // Refs para todos los flags de modales abiertos — el handler de scanner no
   // debe procesar teclas mientras hay un overlay capturando la atención del
   // operador (selección masiva, alta de cliente, ticket impreso). Usamos refs
@@ -633,6 +642,7 @@ export const POSView: React.FC = () => {
     playBeep(350, 0.1);
 
     safeTimeout(() => {
+      if (!isMountedRef.current) return;
       const randomProduct = products[Math.floor(Math.random() * products.length)];
       if (randomProduct) {
         addToCart(randomProduct);
@@ -744,10 +754,16 @@ export const POSView: React.FC = () => {
     // adding meaningful latency to every sale. Was 1000ms+1500ms — purely
     // theatrical, now trimmed to a single perceptible frame each.
     safeTimeout(() => {
+      // Si el componente se desmontó durante el delay (usuario navegó a otra
+      // vista), abortamos el flujo: no toquemos state ni emitamos efectos.
+      if (!isMountedRef.current) return;
       setProcessingStatusText(`Autorizando cargo con ${gatewayNames[paymentMethod]}...`);
       playBeep(650, 0.1);
 
       safeTimeout(() => {
+        // Componente desmontado: NO commiteamos la venta. Sería sorpresivo
+        // descontar stock / generar comprobante sin operador presente.
+        if (!isMountedRef.current) return;
         // Execute sale operations using the snapshot taken at payment start
         const result = addSale(
           cartSnapshot,

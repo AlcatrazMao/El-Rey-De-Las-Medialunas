@@ -31,18 +31,30 @@ export function useExpenses(notify: NotifyFn) {
       if (prev.some(e => e.id === expenseInstance.id)) return prev;
       return [expenseInstance, ...prev];
     });
-    syncExpenseToD1(expenseInstance).catch(() =>
-      notify(
-        '⚠️ Sync fallido',
-        'El gasto se guardó localmente pero no se sincronizó con el servidor.',
-        'warning'
-      )
-    );
+    // UX: avisamos "en curso" antes de pegarle a la red, y resolvemos a un
+    // success / warning único según el resultado del sync. Antes mostrábamos
+    // "registrado" optimistamente y, si el sync fallaba, llegaba además un
+    // warning — el cajero veía dos notifs contradictorias.
     notify(
-      '📉 Gasto Registrado',
-      `Se registró un egreso por ${formatCurrency(expenseInstance.amount)} bajo el concepto: ${expenseInstance.concept}`,
+      '⏳ Guardando gasto…',
+      `Procesando egreso por ${formatCurrency(expenseInstance.amount)} (${expenseInstance.concept})`,
       'info'
     );
+    syncExpenseToD1(expenseInstance)
+      .then(() =>
+        notify(
+          '📉 Gasto Registrado',
+          `Se registró un egreso por ${formatCurrency(expenseInstance.amount)} bajo el concepto: ${expenseInstance.concept}`,
+          'success'
+        )
+      )
+      .catch(() =>
+        notify(
+          '💾 Gasto guardado localmente',
+          'No se pudo sincronizar con el servidor. Se reintentará automáticamente cuando vuelva la conexión.',
+          'warning'
+        )
+      );
   };
 
   return { expenses, setExpenses, addExpense };

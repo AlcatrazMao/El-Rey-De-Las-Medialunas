@@ -56,7 +56,22 @@ export const BatchPanel: React.FC<BatchPanelProps> = ({ product, onClose }) => {
       return;
     }
 
-    const createdBatchNumber = newBatchNumber;
+    // Garantía de unicidad por producto: si el operador edita el código y
+    // colisiona con un lote existente del mismo producto, agregamos sufijo
+    // aleatorio. No bloqueamos el submit para no perder UX, pero avisamos.
+    let createdBatchNumber = newBatchNumber.trim();
+    const collides = batches.some(
+      (b) => b.productId === product.id && b.batchNumber === createdBatchNumber
+    );
+    if (collides) {
+      const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
+      createdBatchNumber = `${createdBatchNumber}-${suffix}`;
+      addSystemNotification(
+        '🔁 Lote renombrado',
+        `Ya existía "${newBatchNumber.trim()}" para este producto. Se guardó como "${createdBatchNumber}".`,
+        'info'
+      );
+    }
     const createdQuantity = newQuantity;
 
     addBatch({
