@@ -6,6 +6,7 @@ import { salesQueueStore, syncErrorStore } from "../lib/idb";
 import type { IDBSyncError } from "../lib/idb";
 import { fetchWithAuth, getApi, API_URL as API_URL_CONST } from "../services/api";
 import { calcNextRetry, classifyError, persistSyncError } from "../services/d1-sync";
+import type { SalePayload } from "../services/d1-sync";
 import { dbAdapter } from "../services/db-adapter";
 import type { SyncStatus, SyncLedState } from "../types";
 
@@ -140,9 +141,14 @@ async function attemptRetry(errorId: number, opts?: { forceTokenRefresh?: boolea
     }
   }
 
+  // Validación mínima antes del cast: items debe ser un array.
+  if (typeof payloadParsed.items !== 'object' || !Array.isArray(payloadParsed.items)) {
+    await syncErrorStore.incrementAttempt(errorId, null, "permanent_fail");
+    return;
+  }
+
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- payload super-set del tipo CreateSaleRequest oficial
-    await getApi().sales.create(payloadParsed as any);
+    await getApi().sales.create(payloadParsed as unknown as SalePayload);
     await syncErrorStore.markResolved(errorId);
   } catch (err) {
     const maybeResponse =

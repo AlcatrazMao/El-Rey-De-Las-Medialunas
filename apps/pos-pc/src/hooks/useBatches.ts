@@ -235,6 +235,7 @@ export function useBatches({ notify, products }: UseBatchesParams) {
     }).catch(() => {
       // Fire-and-forget: si falla la red el request queda en la cola offline
       // (enqueue dentro de syncWithdrawalRequestToD1) y no se pierde.
+      notify('⚠️ Sync', 'No se pudo sincronizar el cliente. Se reintentará.', 'warning');
     });
     notify(
       '🔔 Solicitud de Baja Registrada',
