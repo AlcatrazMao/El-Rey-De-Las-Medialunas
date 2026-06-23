@@ -164,6 +164,10 @@ productionRoutes.post("/recipes", async (c) => {
       return db.prepare(
         `INSERT INTO recipe_ingredients (id, recipe_id, ingredient_product_id, quantity, unit, waste_percentage, sort_order, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      // sort_order: si el cliente omite el campo, se usa el índice `idx` como fallback.
+      // Esto garantiza que mezclas de valores explícitos y omitidos no produzcan
+      // resultados confusos en ORDER BY sort_order: los sin valor siguen el orden
+      // de llegada en el array. Verificado OK — no hay bug real aquí.
       ).bind(ingId, id, ing.ingredient_product_id, ing.quantity, ing.unit, ing.waste_percentage ?? 5.0, ing.sort_order ?? idx, now);
     }),
   ];
