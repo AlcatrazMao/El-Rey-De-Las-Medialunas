@@ -1,6 +1,6 @@
 import type { User as FirebaseUser } from 'firebase/auth';
 import * as React from 'react';
-import { createContext, useContext, useEffect, useMemo } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 
 import { useBatches } from './hooks/useBatches';
 import { useCashSession } from './hooks/useCashSession';
@@ -108,6 +108,11 @@ export const AppProvider: React.FC<{
   const sup = useSupplyRequests({ notify: notif.addSystemNotification, getActiveUser: () => usr.activeUser, ingredients: inv.ingredients, products: inv.products });
   const sal = useSales();
 
+  // Fix 2: lock against concurrent addSale calls (double-click / rapid scanner).
+  // A boolean ref is the correct primitive here — it's synchronous (no async gap
+  // between read and write), unlike a state variable that would need a re-render.
+  const isProcessingSaleRef = useRef(false);
+
   useEffect(() => {
     const loadFromD1 = () => {
       cust.loadCustomersFromD1();
@@ -120,6 +125,16 @@ export const AppProvider: React.FC<{
   }, []);
 
   const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string) => {
+    // Fix 2: prevent double-click / rapid-scanner from creating duplicate invoices.
+    // The lock is synchronous: set before any async work, cleared in a finally-equivalent
+    // position after all side-effects complete (or on early-exit).
+    if (isProcessingSaleRef.current) {
+      return { success: false, error: { code: 'SALE_IN_PROGRESS', message: 'Ya se está procesando una venta. Esperá un momento.' } };
+    }
+    isProcessingSaleRef.current = true;
+
+    try {
+
     if (cartItems.length === 0) {
       return { success: false, error: { code: 'EMPTY_CART', message: 'La venta está vacía.' } };
     }
@@ -300,14 +315,16 @@ export const AppProvider: React.FC<{
       return updatedBatches;
     });
 
-    // Bug 6 fix: use functional updaters so concurrent calls (e.g. double-click)
-    // each see the latest committed state, not a stale snapshot.
+    // Bug 6 fix: use functional updaters so concurrent calls each see the latest
+    // committed state, not a stale snapshot.
+    // Fix 1: Math.max(0, ...) guarantees stock never goes negative, even when two
+    // concurrent reads arrived with the same pre-decrement snapshot.
     inv.setProducts(prev => {
       const updated = [...prev];
       for (const item of cartItems) {
         const idx = updated.findIndex(p => p.id === item.productId);
         if (idx === -1) continue;
-        updated[idx] = { ...updated[idx], stock: updated[idx].stock - item.quantity };
+        updated[idx] = { ...updated[idx], stock: Math.max(0, (updated[idx].stock ?? 0) - item.quantity) };
       }
       return updated;
     });
@@ -342,15 +359,27 @@ export const AppProvider: React.FC<{
       if (import.meta.env.DEV) console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);
       // Marcamos la venta como no sincronizada para reflejarlo en UI/historial.
       sal.setSales(prev => prev.map(s => s.id === newSaleInstance.id ? { ...s, syncFailed: true } : s));
-      // Fallback: la encolamos en Dexie para reintento automático del SyncEngine.
+      // Fix 3: si syncEnqueueSale también falla (IDB lleno/corrupto), la venta
+      // no puede quedar silenciosamente perdida. Mostramos una notificación
+      // diferente que advierte al cajero que DEBE contactar soporte.
+      let enqueued = false;
       try {
         await syncEnqueueSale(buildSalePayload(newSaleInstance, ivaRate) as unknown as Record<string, unknown>);
-      } catch { /* indexeddb lleno */ }
-      notif.addSystemNotification(
-        '⚠️ Venta no sincronizada',
-        'Esta venta no pudo sincronizarse con el servidor. Se reintentará automáticamente.',
-        'warning',
-      );
+        enqueued = true;
+      } catch { /* indexeddb lleno o no disponible */ }
+      if (enqueued) {
+        notif.addSystemNotification(
+          '⚠️ Venta no sincronizada',
+          'Esta venta no pudo sincronizarse con el servidor. Se reintentará automáticamente.',
+          'warning',
+        );
+      } else {
+        notif.addSystemNotification(
+          '🚨 VENTA NO GUARDADA EN SERVIDOR',
+          `La venta ${invoiceNumber} quedó solo en este dispositivo y NO pudo encolarse para reintento. Anotá el número de factura y contactá soporte.`,
+          'error',
+        );
+      }
     });
 
     // Stock warnings (no bloqueantes) — la venta procede igual
@@ -370,6 +399,13 @@ export const AppProvider: React.FC<{
     try { localStorage.setItem('pan_erp_invoice_seq', String(nextSeq)); } catch { /* storage full */ }
 
     return { success: true, invoice: newSaleInstance };
+
+    } finally {
+      // Fix 2: always release the lock — even if an unexpected error is thrown
+      // mid-function. Without finally, a thrown exception would leave the POS
+      // permanently locked until the next page reload.
+      isProcessingSaleRef.current = false;
+    }
   };
 
   const addBatch = (newBatch: Omit<ProductBatch, 'id' | 'status'>) => {
@@ -470,7 +506,21 @@ export const AppProvider: React.FC<{
   };
 
   const resetAllData = () => {
-    ['pan_erp_ingredients', 'pan_erp_products', 'pan_erp_sales', 'pan_erp_expenses', 'pan_erp_users', 'pan_erp_notifications', 'pan_erp_gateways', 'pan_erp_active_user_id', 'pan_erp_batches', 'pan_erp_withdrawal_requests', 'pan_erp_supply_requests', 'pan_erp_current_cash_session', 'pan_erp_cash_sessions_history', 'pan_erp_invoice_seq'].forEach(k => localStorage.removeItem(k));
+    // Fix 4: instead of a hard-coded list (which inevitably goes stale as new
+    // keys are added), sweep everything with a pan_erp_* or erp_* prefix.
+    // pan_erp_settings and pan_erp_widgets_* are intentionally preserved so the
+    // user doesn't lose their layout/config after a data reset (mirrors the
+    // DangerZoneSettings wipeLocalStorage logic).
+    const PRESERVED_PREFIXES = ['pan_erp_settings', 'pan_erp_widgets_'];
+    const isPreserved = (k: string) => PRESERVED_PREFIXES.some(p => k.startsWith(p));
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('pan_erp_') || k.startsWith('erp_')) && !isPreserved(k)) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach(k => localStorage.removeItem(k));
     inv.setIngredients(INITIAL_INGREDIENTS); inv.setProducts(INITIAL_PRODUCTS); inv.setGateways(PAYMENT_GATEWAYS);
     sal.setSales(INITIAL_SALES); exp.setExpenses(INITIAL_EXPENSES); usr.setUsers(USERS);
     usr.setActiveTab('dashboard'); usr.invoiceSeqRef.current = 0;
