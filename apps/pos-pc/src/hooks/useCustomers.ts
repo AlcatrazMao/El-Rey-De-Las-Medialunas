@@ -91,7 +91,7 @@ export function useCustomers(notify: NotifyFn) {
         if (d1Customers.length === 0) return;
         const normalized = d1Customers.map(raw => ({
           ...raw,
-          type: backendToLocalType[raw.type] ?? raw.type,
+          type: backendToLocalType[raw.type as string] ?? raw.type,
         })) as Customer[];
         // Bug 10 fix: merge by updated_at so edits made on other devices
         // overwrite stale local copies rather than being silently ignored.

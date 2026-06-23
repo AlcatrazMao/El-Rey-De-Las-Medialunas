@@ -235,7 +235,7 @@ export async function fetchSalesFromD1(from?: string, to?: string): Promise<Sale
   if (to) filters.to_date = to;
   // getAll acepta SaleFilters del api-client; SaleFetchFilters es un subconjunto
   // compatible — usamos cast a Record para no importar SaleFilters cross-package.
-  const response = await getApi().sales.getAll(filters as Record<string, string | number | boolean | undefined>);
+  const response = await getApi().sales.getAll(filters as unknown as Record<string, string | number | boolean | undefined>);
   // El shape del servidor (API Sale) difiere del shape local (Sale del POS):
   // el servidor devuelve campos snake_case que el store local mapea a camelCase.
   // Usamos unknown como escalón intermedio para evitar `any`.
@@ -330,7 +330,7 @@ export async function syncCustomerToD1(customer: PartialCustomerInput): Promise<
     // consistently (?? alone lets '' through because '' is not nullish).
     email: customer.email?.trim() || null,
     phone: customer.phone?.trim() || null,
-    type: customer.type ?? "consumer",
+    type: (customer.type ?? "consumer") as "consumer" | "wholesale" | "frequent" | "corporate",
     credit_limit: customer.credit_limit ?? 0,
     current_debt: 0,
     is_active: true,
