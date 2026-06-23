@@ -167,7 +167,7 @@ expenseRoutes.post("/", async (c) => {
     .bind(
       id,
       branchId,
-      userId,
+      user.id,
       body.concept.trim(),
       body.category,
       body.amount,

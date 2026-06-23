@@ -107,6 +107,15 @@ supplyRequestRoutes.post("/", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
+  // SECURITY: solo roles con responsabilidad operativa pueden crear solicitudes
+  // de abastecimiento. Roles de producción/depósito sin autorización financiera
+  // no deben poder generarlas.
+  const userRole = c.get("userRole");
+  const ALLOWED_ROLES = new Set(["cashier", "supervisor", "admin", "owner"]);
+  if (!ALLOWED_ROLES.has(userRole as string)) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para crear solicitudes de abastecimiento"), 403);
+  }
+
   const id = body.id ?? genId();
   const now = nowSqliteTs();
 
@@ -119,7 +128,7 @@ supplyRequestRoutes.post("/", async (c) => {
     .bind(
       id,
       branchId,
-      userId,
+      user.id,
       body.type,
       body.item_id,
       body.item_name,

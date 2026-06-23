@@ -192,7 +192,7 @@ cashRoutes.post("/sessions/open", async (c) => {
       `INSERT INTO cash_sessions (id, branch_id, user_id, opening_amount, notes, opened_at)
        VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .bind(id, branchId, userId, body.opening_amount, body.notes ?? null, openedAt)
+    .bind(id, branchId, user.id, body.opening_amount, body.notes ?? null, openedAt)
     .run();
 
   return c.json({ success: true, data: { id, opened_at: openedAt, auto_closed_previous: autoClosed } }, 201);
@@ -418,7 +418,7 @@ cashRoutes.post("/movements", async (c) => {
     .bind(
       id,
       body.cash_session_id,
-      userId,
+      user.id,
       body.type,
       body.amount,
       body.description ?? null,
