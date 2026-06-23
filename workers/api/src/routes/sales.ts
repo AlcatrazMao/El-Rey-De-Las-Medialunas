@@ -10,6 +10,13 @@ export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 export const MAX_SALE_NUMBER_RETRIES = 15;
 
+/**
+ * Tolerancia máxima en ARS entre subtotal_bruto − discount_total − total_final.
+ * Bajada de 1 ARS a 0.05 ARS para detectar errores de redondeo reales del cliente
+ * sin silenciarlos. Diferencias entre 0 y 0.05 se loguean como AUDIT warnings.
+ */
+export const TOTAL_TOLERANCE_ARS = 0.05;
+
 // GET /
 salesRoutes.get("/", async (c) => {
   const db = c.env.DB;
@@ -239,8 +246,9 @@ salesRoutes.post("/", async (c) => {
     subtotal = parseFloat(Number(body.subtotal_bruto).toFixed(2));
     discountTotal = parseFloat(Number(body.discount_total).toFixed(2));
     total = parseFloat(Number(body.total_final).toFixed(2));
-    // Identidad contable: tolerancia ±1 ARS por redondeos de cliente.
-    if (Math.abs(subtotal - discountTotal - total) > 1) {
+    // Identidad contable: tolerancia ±TOTAL_TOLERANCE_ARS por redondeos de cliente.
+    const totalDiff = Math.abs(subtotal - discountTotal - total);
+    if (totalDiff > TOTAL_TOLERANCE_ARS) {
       return c.json(
         {
           success: false,
@@ -248,6 +256,9 @@ salesRoutes.post("/", async (c) => {
         },
         400,
       );
+    }
+    if (totalDiff > 0) {
+      console.warn(`[AUDIT] sale total diff: ${totalDiff} ARS`);
     }
   } else {
     // Legacy / cola de sync: derivamos de los items.
