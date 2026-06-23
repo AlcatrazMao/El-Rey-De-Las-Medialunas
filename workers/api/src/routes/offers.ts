@@ -188,14 +188,15 @@ offerRoutes.post("/", async (c) => {
     const placeholders = body.batch_ids.map(() => "?").join(",");
     const row = await db
       .prepare(
-        // inventory_batches no tiene deleted_at (ver migración 0001/0006);
-        // como existencia válida usamos COUNT distintos por id.
-        `SELECT COUNT(DISTINCT id) as cnt FROM inventory_batches WHERE id IN (${placeholders})`,
+        // inventory_batches no tiene deleted_at — usamos status = 'active' como
+        // equivalente: un lote withdrawn/expired/sold_out ya no es stock vendible
+        // y no debería ser referenciado por nuevas ofertas.
+        `SELECT COUNT(DISTINCT id) as cnt FROM inventory_batches WHERE id IN (${placeholders}) AND status = 'active'`,
       )
       .bind(...body.batch_ids)
       .first<{ cnt: number }>();
     if ((row?.cnt ?? 0) !== body.batch_ids.length) {
-      return c.json(errBody("INVALID_BATCH_IDS", "Uno o más batch_ids no existen"), 400);
+      return c.json(errBody("INVALID_BATCH_IDS", "Uno o más batch_ids no existen o no están activos"), 400);
     }
   }
   if (body.product_ids.length > 0) {

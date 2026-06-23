@@ -130,6 +130,7 @@ batchRoutes.post("/", async (c) => {
     inventory_method?: string;
     supplier_id?: string;
     notes?: string;
+    idempotency_key?: string;
   }>();
 
   if (!body.product_id) return c.json(errBody("VALIDATION_ERROR", "product_id es requerido"), 400);
@@ -176,16 +177,34 @@ batchRoutes.post("/", async (c) => {
   }
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
-  const id = genId();
   const remaining = body.remaining_quantity ?? body.initial_quantity;
+
+  // IDEMPOTENCY: si el cliente reintenta tras un timeout offline, el mismo
+  // idempotency_key evita crear un segundo lote con remaining_quantity duplicada.
+  const idempotencyKey =
+    typeof body.idempotency_key === "string" && body.idempotency_key.trim() !== ""
+      ? body.idempotency_key.trim()
+      : null;
+
+  if (idempotencyKey) {
+    const existing = await db
+      .prepare("SELECT * FROM inventory_batches WHERE idempotency_key = ? LIMIT 1")
+      .bind(idempotencyKey)
+      .first<BatchRow>();
+    if (existing) {
+      return c.json({ success: true, idempotent_replay: true, data: existing });
+    }
+  }
+
+  const id = genId();
 
   await db
     .prepare(
       `INSERT INTO inventory_batches
         (id, product_id, branch_id, batch_number, entry_date, expiry_date, durability_days,
          cost_per_unit, initial_quantity, remaining_quantity, inventory_method, status,
-         supplier_id, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+         supplier_id, notes, idempotency_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
     )
     .bind(
       id,
@@ -201,6 +220,7 @@ batchRoutes.post("/", async (c) => {
       inventoryMethod,
       body.supplier_id ?? null,
       body.notes ?? null,
+      idempotencyKey,
     )
     .run();
 
@@ -305,6 +325,10 @@ batchRoutes.put("/:id", async (c) => {
 // según hora argentina (UTC-3). Pensado para ser disparado por el cron schedule
 // del Worker o manualmente por un admin. Devuelve la cantidad de lotes
 // actualizados para que el frontend pueda mostrar un toast.
+//
+// FIX: procesa en lotes de 100 para evitar timeouts con miles de lotes.
+// FIX: emite stock_movements de tipo 'expired_out' para descontar el inventario
+// de los lotes expirados — sin esto siguen contando como stock vendible.
 batchRoutes.post("/expire-stale", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
@@ -321,17 +345,66 @@ batchRoutes.post("/expire-stale", async (c) => {
   }
 
   const db = c.env.DB;
-  const result = await db
-    .prepare(
-      `UPDATE inventory_batches
-         SET status = 'expired'
-       WHERE status = 'active'
-         AND expiry_date IS NOT NULL
-         AND expiry_date < DATE('now', '-3 hours')`,
-    )
-    .run();
+  const now = nowSqliteTs();
 
-  return c.json({ success: true, data: { expired: result.meta.changes ?? 0 } });
+  // Obtener los lotes a expirar ANTES del UPDATE para tener sus
+  // remaining_quantities y poder emitir los stock_movements correctos.
+  const staleRows = await db
+    .prepare(
+      `SELECT id, product_id, branch_id, remaining_quantity
+         FROM inventory_batches
+        WHERE status = 'active'
+          AND expiry_date IS NOT NULL
+          AND expiry_date < DATE('now', '-3 hours')
+        LIMIT 100`,
+    )
+    .all<{ id: string; product_id: string; branch_id: string; remaining_quantity: number }>();
+
+  const batches = staleRows.results ?? [];
+  if (batches.length === 0) {
+    return c.json({ success: true, data: { expired_count: 0 } });
+  }
+
+  const ids = batches.map((b) => b.id);
+  const placeholders = ids.map(() => "?").join(",");
+
+  // Construir todos los statements del batch D1:
+  // 1. UPDATE masivo limitado a los 100 IDs seleccionados.
+  // 2. Por cada lote: INSERT stock_movement 'expired_out' + UPDATE inventory.
+  const stmts = [
+    db
+      .prepare(`UPDATE inventory_batches SET status = 'expired' WHERE id IN (${placeholders})`)
+      .bind(...ids),
+  ];
+
+  for (const b of batches) {
+    if (b.remaining_quantity <= 0) continue;
+
+    const movId = genId();
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO stock_movements
+             (id, product_id, branch_id, batch_id, movement_type, quantity, reason, user_id, created_at)
+           VALUES (?, ?, ?, ?, 'expired_out', ?, 'Lote expirado — baja automática', ?, ?)`,
+        )
+        .bind(movId, b.product_id, b.branch_id, b.id, b.remaining_quantity, user.id, now),
+    );
+
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE inventory
+              SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
+            WHERE product_id = ? AND branch_id = ?`,
+        )
+        .bind(b.remaining_quantity, now, b.product_id, b.branch_id),
+    );
+  }
+
+  await db.batch(stmts);
+
+  return c.json({ success: true, data: { expired_count: batches.length } });
 });
 
 batchRoutes.delete("/:id", async (c) => {
