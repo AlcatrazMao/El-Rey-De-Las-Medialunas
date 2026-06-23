@@ -46,9 +46,28 @@ export const SalesHistoryView: React.FC = () => {
   const [confirmVoidId, setConfirmVoidId] = useState<string | null>(null);
 
   // Void/Cancel Sale (gently restores stock!)
-  const handleVoidSale = (sale: Sale) => {
+  // IMPORTANT: backend confirmation MUST succeed before any local state mutation.
+  // If syncVoidSaleToD1 throws, we bail out early and show an error — never show
+  // inflated stock that the server hasn't acknowledged.
+  const handleVoidSale = async (sale: Sale) => {
     // Guard against double-void (UI hides the button but defensive check here)
     if (sale.paymentStatus !== 'completed') return;
+
+    // 1. Confirm with backend FIRST. If this throws, nothing below runs.
+    try {
+      await syncVoidSaleToD1(sale.id, 'Anulación manual desde historial de ventas');
+    } catch {
+      addSystemNotification(
+        'Error al anular',
+        `No se pudo anular la factura ${sale.invoiceNumber}. Verificá la conexión e intentá de nuevo.`,
+        'error'
+      );
+      setConfirmVoidId(null);
+      return;
+    }
+
+    // 2. Backend confirmed — now mutate local state safely.
+
     // Restore products stock & ingredients in one pass
     sale.items.forEach(item => {
       const dbProd = products.find(p => p.id === item.productId);
@@ -61,7 +80,9 @@ export const SalesHistoryView: React.FC = () => {
       }
     });
 
-    // Restore batch stock in a single setBatches call (reverse-FIFO, no over-restore)
+    // Restore batch stock in a single setBatches call (reverse-FIFO, no over-restore).
+    // The loop lives INSIDE the updater so concurrent voids always operate on the
+    // latest state snapshot — never on a stale closure capture.
     setBatches(prev => {
       const updated = [...prev];
       for (const item of sale.items) {
@@ -87,8 +108,6 @@ export const SalesHistoryView: React.FC = () => {
     setSales(prev =>
       prev.map(s => (s.id === sale.id ? { ...s, paymentStatus: 'voided' as const } : s))
     );
-
-    syncVoidSaleToD1(sale.id, 'Anulación manual desde historial de ventas').catch(() => {});
 
     addSystemNotification(
       '💸 Factura Anulada',
