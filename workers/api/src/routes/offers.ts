@@ -296,11 +296,12 @@ offerRoutes.delete("/:id", async (c) => {
 
   const db = c.env.DB;
   const id = c.req.param("id");
+  const body = await c.req.json<{ reason?: string }>().catch((): { reason?: string } => ({}));
 
   const existing = await db
-    .prepare("SELECT id FROM offers WHERE id = ? LIMIT 1")
+    .prepare("SELECT id, branch_id FROM offers WHERE id = ? LIMIT 1")
     .bind(id)
-    .first<{ id: string }>();
+    .first<{ id: string; branch_id: string }>();
   if (!existing) return c.json(errBody("NOT_FOUND", "Oferta no encontrada"), 404);
 
   const now = nowSqliteTs();
@@ -308,6 +309,28 @@ offerRoutes.delete("/:id", async (c) => {
     .prepare("UPDATE offers SET status = 'cancelled', updated_at = ? WHERE id = ?")
     .bind(now, id)
     .run();
+
+  // Compliance: registrar la cancelación en audit_log. Si falla no interrumpe
+  // la operación principal — la oferta ya quedó cancelada.
+  try {
+    const auditId = genId();
+    await db
+      .prepare(
+        `INSERT INTO audit_log (id, entity_type, entity_id, action, user_id, branch_id, new_values, created_at)
+         VALUES (?, 'offer', ?, 'cancel', ?, ?, ?, ?)`,
+      )
+      .bind(
+        auditId,
+        id,
+        user.id,
+        existing.branch_id,
+        JSON.stringify({ reason: body.reason ?? null }),
+        now,
+      )
+      .run();
+  } catch (err) {
+    console.warn('[offers] audit_log insert failed on cancel:', err);
+  }
 
   return c.json({ success: true, data: { id } });
 });

@@ -451,14 +451,16 @@ cashRoutes.post("/movements", async (c) => {
     );
   }
 
-  if (
-    typeof body.amount !== 'number' ||
-    !Number.isFinite(body.amount) ||
-    body.amount <= 0 ||
-    body.amount > MAX_CASH_AMOUNT
-  ) {
+  // Para 'adjustment', amount=0 es válido: "se contó la caja y dio igual" sirve
+  // para auditoría. Para 'income' y 'expense', debe ser estrictamente positivo.
+  const amountIsFinite = typeof body.amount === 'number' && Number.isFinite(body.amount);
+  const amountAboveMin = body.type === 'adjustment' ? body.amount >= 0 : body.amount > 0;
+  if (!amountIsFinite || !amountAboveMin || body.amount > MAX_CASH_AMOUNT) {
+    const msg = body.type === 'adjustment'
+      ? "amount debe ser un número finito >= 0 y <= 10,000,000"
+      : "amount debe ser un número finito > 0 y <= 10,000,000";
     return c.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: "amount debe ser un número finito > 0 y <= 10,000,000" } },
+      { success: false, error: { code: "VALIDATION_ERROR", message: msg } },
       400
     );
   }

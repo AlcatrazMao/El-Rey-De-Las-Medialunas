@@ -38,10 +38,30 @@ purchaseRoutes.get("/orders", async (c) => {
     WHERE po.branch_id = ?`;
   const bindings: (string | number)[] = [branchId];
 
+  // El cliente envía fechas en hora Argentina (UTC-3). created_at se guarda en
+  // UTC, igual que en expenses.ts y sales.ts:
+  //   from_date "YYYY-MM-DD" (ARG 00:00)    → "YYYY-MM-DDT03:00:00.000Z"
+  //   to_date   "YYYY-MM-DD" (ARG 23:59:59) → "YYYY-MM-(DD+1)T02:59:59.999Z"
+  const isBareDate = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const argDateToUtcFrom = (d: string): string => `${d}T03:00:00.000Z`;
+  const argDateToUtcTo = (d: string): string => {
+    const dt = new Date(`${d}T00:00:00Z`);
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    return `${dt.toISOString().slice(0, 10)}T02:59:59.999Z`;
+  };
+
   if (supplierId) { query += " AND po.supplier_id = ?"; bindings.push(supplierId); }
   if (status) { query += " AND po.status = ?"; bindings.push(status); }
-  if (fromDate) { query += " AND po.created_at >= ?"; bindings.push(fromDate); }
-  if (toDate) { query += " AND po.created_at <= ?"; bindings.push(toDate); }
+  if (fromDate) {
+    const fromUtc = isBareDate(fromDate) ? argDateToUtcFrom(fromDate) : fromDate;
+    query += " AND po.created_at >= ?";
+    bindings.push(fromUtc);
+  }
+  if (toDate) {
+    const toUtc = isBareDate(toDate) ? argDateToUtcTo(toDate) : toDate;
+    query += " AND po.created_at <= ?";
+    bindings.push(toUtc);
+  }
 
   query += " ORDER BY po.created_at DESC LIMIT ? OFFSET ?";
   bindings.push(limit, offset);

@@ -65,11 +65,17 @@ batchRoutes.get("/", async (c) => {
   }
 
   if (expiringWithinHoursRaw) {
-    const hours = Number(expiringWithinHoursRaw);
-    if (!Number.isFinite(hours) || hours < 0) {
+    const rawHoursNum = Number(expiringWithinHoursRaw);
+    if (!Number.isFinite(rawHoursNum)) {
       return c.json(errBody("VALIDATION_ERROR", "expiring_within_hours debe ser un número no-negativo"), 400);
     }
-    const limitDate = new Date(Date.now() + hours * 3_600_000).toISOString().slice(0, 10);
+    // Cap: mínimo 0, máximo 1 año (8760 h) para evitar fechas año 5000+ o NaN silencioso.
+    const hours = Math.max(0, Math.min(rawHoursNum, 24 * 365));
+    const limitTs = Date.now() + hours * 3_600_000;
+    const limitDate = new Date(limitTs).toISOString().slice(0, 10);
+    if (isNaN(limitTs) || limitDate === 'Invalid Date') {
+      return c.json(errBody("VALIDATION_ERROR", "expiring_within_hours produce una fecha inválida"), 400);
+    }
     query += " AND ib.expiry_date IS NOT NULL AND ib.expiry_date >= date('now') AND ib.expiry_date <= ?";
     bindings.push(limitDate);
   }
