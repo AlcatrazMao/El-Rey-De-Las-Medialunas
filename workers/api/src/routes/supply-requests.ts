@@ -94,13 +94,11 @@ supplyRequestRoutes.post("/", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "quantity es requerido y debe ser un número finito > 0"), 400);
   }
 
-  // BUG FIX C9 — el regex anterior rechazaba IDs tipo "sup_req_..." que genera
-  // el frontend. Permitimos cualquier id alfanumérico con `_`/`-` entre 8 y 64
-  // caracteres. Si el id es inválido, lo ignoramos y generamos uno nuevo en
-  // el servidor en vez de fallar (el cliente puede conciliar después).
-  if (body.id !== undefined && !/^[a-zA-Z0-9_-]{8,64}$/.test(body.id)) {
-    return c.json(errBody("VALIDATION_ERROR", "id debe tener entre 8 y 64 caracteres alfanuméricos, '_' o '-'"), 400);
-  }
+  // Política de ID: aceptamos solo hex-32 (formato canónico de genId()).
+  // Si el body trae un id que no matchea, lo ignoramos silenciosamente y
+  // generamos uno server-side — no retornamos 400. Esto evita DoS por colisión
+  // de IDs predecibles y es coherente con el comentario original del código.
+  const clientIdValid = typeof body.id === 'string' && /^[a-f0-9]{32}$/.test(body.id);
 
   const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
   const userId = c.get("userId") ?? "";
@@ -116,7 +114,7 @@ supplyRequestRoutes.post("/", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para crear solicitudes de abastecimiento"), 403);
   }
 
-  const id = body.id ?? genId();
+  const id = clientIdValid ? (body.id as string) : genId();
   const now = nowSqliteTs();
 
   const insertResult = await db

@@ -7,6 +7,29 @@ import { safeSetItem, safeRemoveItem } from '../utils/safeStorage';
 
 import { getSettings } from './useSettings';
 
+/**
+ * Valida el shape de un objeto crudo leído de localStorage antes de usarlo
+ * como CashSession. Protege contra XSS / extensiones del browser que puedan
+ * inyectar valores arbitrarios (p.ej. initialAmount: -1e10).
+ *
+ * Retorna la sesión tipada si el shape es válido, o null si falla cualquier
+ * check — en ese caso el caller debe descartar el valor y tratar la sesión
+ * como inexistente.
+ */
+export function validateCashSessionShape(raw: unknown): CashSession | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  // id: string no vacío
+  if (typeof obj.id !== 'string' || obj.id.trim() === '') return null;
+  // initialAmount: número finito >= 0
+  if (typeof obj.initialAmount !== 'number') return null;
+  if (!Number.isFinite(obj.initialAmount)) return null;
+  if (obj.initialAmount < 0) return null;
+  // openedAt: string (ISO date) — validación básica de tipo
+  if (typeof obj.openedAt !== 'string' || obj.openedAt.trim() === '') return null;
+  return raw as CashSession;
+}
+
 type NotifyFn = (
   title: string,
   message: string,
@@ -23,7 +46,14 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
   const [currentCashSession, setCurrentCashSession] = useState<CashSession | null>(() => {
     try {
       const saved = localStorage.getItem('pan_erp_current_cash_session');
-      return saved ? (JSON.parse(saved) as CashSession) : null;
+      if (!saved) return null;
+      const parsed: unknown = JSON.parse(saved);
+      const validated = validateCashSessionShape(parsed);
+      if (!validated) {
+        // Shape inválido: descartar para no propagar datos corruptos/maliciosos.
+        localStorage.removeItem('pan_erp_current_cash_session');
+      }
+      return validated;
     } catch {
       localStorage.removeItem('pan_erp_current_cash_session');
       return null;

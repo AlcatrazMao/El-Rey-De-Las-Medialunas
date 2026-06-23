@@ -57,13 +57,22 @@ interface SaleFetchFilters {
   to_date?: string;
 }
 
+// Nombres de DOMException que son genuinamente errores de red / cancelación.
+// Excluimos QuotaExceededError, NotAllowedError, etc. que no son de red.
+const NETWORK_DOM_EXCEPTION_NAMES = new Set(['AbortError', 'NetworkError', 'TimeoutError']);
+
 export function isNetworkError(err: unknown): boolean {
   // TypeError: fetch lanza este tipo cuando hay problemas DNS / TCP / CORS.
-  if (err instanceof TypeError) return true;
-  // DOMException: típico de aborts y otros errores de plataforma.
-  if (typeof DOMException !== 'undefined' && err instanceof DOMException) return true;
-  // AbortError: timeout o cancelación manual (no es ni TypeError ni DOMException
-  // en algunas plataformas — verificamos por nombre).
+  // Solo clasificamos como red si el mensaje contiene 'fetch'/'network'/'failed';
+  // otros TypeError (p.ej. tipos rotos) no son errores de red.
+  if (err instanceof TypeError && /fetch|network|failed/i.test(err.message)) return true;
+  // DOMException: solo las variantes que representan errores de red/cancelación.
+  // QuotaExceededError, NotAllowedError, etc. NO son errores de red y no deben
+  // encolarse como si fuera un problema de conectividad.
+  if (typeof DOMException !== 'undefined' && err instanceof DOMException) {
+    return NETWORK_DOM_EXCEPTION_NAMES.has(err.name);
+  }
+  // AbortError como Error genérico (algunas plataformas no usan DOMException).
   if (err instanceof Error && err.name === 'AbortError') return true;
   return false;
 }
