@@ -63,19 +63,33 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
         // el ISO desde la fecha ARG y le sumamos el offset para volver a UTC.
         const closingArgMs = new Date(`${openedDayArg}T23:59:59.999Z`).getTime() + ARG_OFFSET_MS;
         const closedAt = new Date(closingArgMs).toISOString();
+        const autoCloseNote = session.note
+          ? session.note + ' | Cierre automático: turno no rendido — requiere reconciliación de supervisor.'
+          : 'Cierre automático: turno no rendido — requiere reconciliación de supervisor.';
+        // NO seteamos realAmount ni discrepancy: el conteo real nunca ocurrió.
+        // El backend recibe closing_amount: null para marcar la sesión como
+        // 'auto_closed' y preservar la discrepancia auditable.
         const finishedSession: CashSession = {
           ...session,
           status: 'closed',
           closedAt,
           closedBy: session.openedBy,
-          realAmount: session.expectedAmount,
-          discrepancy: 0,
-          note: (session.note ? session.note + ' | Cierre automático: turno no rendido.' : 'Cierre automático: turno no rendido.'),
+          // realAmount y discrepancy quedan undefined — sin conteo real no hay diferencia calculable
+          realAmount: undefined,
+          discrepancy: undefined,
+          note: autoCloseNote,
         };
         setCashSessionsHistory(prev => [finishedSession, ...prev]);
         setCurrentCashSession(null);
-        notify('🔒 Cierre automático', 'El turno anterior no fue rendido. Se cerró automáticamente al iniciar el día.', 'warning');
-        syncCashSessionCloseToD1(finishedSession.id, finishedSession.expectedAmount, finishedSession.expectedAmount, finishedSession.note).catch(() => {});
+        // Notificación prominente: el supervisor debe revisar esta sesión.
+        notify(
+          'Sesión anterior cerrada automáticamente',
+          'El turno anterior no fue rendido. Se cerró sin conteo — REQUIERE RECONCILIACIÓN DE SUPERVISOR.',
+          'warning',
+        );
+        // Enviamos closing_amount: null para que el backend marque status='auto_closed'
+        // y NO calcule diferencia (evita mostrar discrepancy=0 falsa en reportes).
+        syncCashSessionCloseToD1(finishedSession.id, null as unknown as number, undefined as unknown as number, autoCloseNote).catch(() => {});
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
