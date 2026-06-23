@@ -62,7 +62,9 @@ export function useCustomers(notify: NotifyFn) {
     };
     setCustomers(prev => [newCustomer, ...prev]);
     notify('👤 Cliente Creado', `${newCustomer.name} fue registrado.`, 'success');
-    syncCustomerToD1(newCustomer).catch(() => {});
+    syncCustomerToD1(newCustomer).catch(() => {
+      notify('⚠️ Sync', 'No se pudo sincronizar el cliente. Se reintentará.', 'warning');
+    });
     return newCustomer.id;
   };
 
@@ -82,7 +84,9 @@ export function useCustomers(notify: NotifyFn) {
       // Only ship is_active when the caller actually changed status; otherwise
       // a partial update like { name } would silently deactivate the customer.
       ...(data.status !== undefined ? { is_active: data.status === 'active' } : {}),
-    }).catch(() => {});
+    }).catch(() => {
+      notify('⚠️ Sync', 'No se pudo sincronizar el cliente. Se reintentará.', 'warning');
+    });
   };
 
   // Backend stores customer type in English; the UI uses Spanish. Without this
@@ -118,7 +122,9 @@ export function useCustomers(notify: NotifyFn) {
           return Array.from(prevMap.values());
         });
       })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        console.warn('[useCustomers] loadCustomersFromD1 error:', e);
+      });
   };
 
   return { customers, setCustomers, addCustomer, updateCustomer, loadCustomersFromD1 };
