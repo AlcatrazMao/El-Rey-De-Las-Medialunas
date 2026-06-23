@@ -26,7 +26,14 @@ function canManageProducts(role: string | undefined): boolean {
 // GET /
 productRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
+  const role = c.get("userRole");
+  // SECURITY: solo admin/owner pueden consultar catálogos de otras sucursales.
+  // Cualquier otro rol tiene el branch_id forzado al del token — ignoramos el
+  // query param para que un cajero no pueda espiar precios de otra sucursal.
+  const branchId =
+    role === "admin" || role === "owner"
+      ? (c.req.query("branch_id") ?? c.get("branchId") ?? DEFAULT_BRANCH_ID)
+      : (c.get("branchId") ?? DEFAULT_BRANCH_ID);
   const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "200", 10) || 200), 500);
   const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
   const search = c.req.query("search");
@@ -68,7 +75,13 @@ productRoutes.get("/", async (c) => {
 // GET /search — quick search via `q` param
 productRoutes.get("/search", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
+  const role = c.get("userRole");
+  // SECURITY: mismo guard de branch_id que GET / — forzar sucursal del token
+  // para roles sin privilegios de cross-branch.
+  const branchId =
+    role === "admin" || role === "owner"
+      ? (c.req.query("branch_id") ?? c.get("branchId") ?? DEFAULT_BRANCH_ID)
+      : (c.get("branchId") ?? DEFAULT_BRANCH_ID);
   const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "200", 10) || 200), 500);
   const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
   const q = c.req.query("q");
@@ -460,28 +473,30 @@ productRoutes.post("/:id/prices", async (c) => {
   const id = genId();
   const now = nowSqliteTs();
 
-  await db.prepare(
+  // SECURITY: deactivate + insert en un batch atómico. Si se ejecutaran como
+  // queries separadas y el INSERT fallara, el producto quedaría sin precio
+  // activo y el POS no podría venderlo hasta que se resolviera manualmente.
+  const deactivate = db.prepare(
     'UPDATE product_prices SET is_active = 0 WHERE product_id = ? AND price_list_type = ? AND is_active = 1',
-  ).bind(productId, body.price_list_type).run();
+  ).bind(productId, body.price_list_type);
 
-  await db
-    .prepare(
-      `INSERT INTO product_prices
-        (id, product_id, branch_id, price_list_type, price, start_date, end_date, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-    )
-    .bind(
-      id,
-      productId,
-      branchId,
-      body.price_list_type,
-      body.price,
-      body.start_date ?? null,
-      body.end_date ?? null,
-      now,
-      now,
-    )
-    .run();
+  const insert = db.prepare(
+    `INSERT INTO product_prices
+      (id, product_id, branch_id, price_list_type, price, start_date, end_date, is_active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).bind(
+    id,
+    productId,
+    branchId,
+    body.price_list_type,
+    body.price,
+    body.start_date ?? null,
+    body.end_date ?? null,
+    now,
+    now,
+  );
+
+  await db.batch([deactivate, insert]);
 
   const created = await db
     .prepare("SELECT * FROM product_prices WHERE id = ? LIMIT 1")
