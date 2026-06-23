@@ -284,27 +284,29 @@ salesRoutes.post("/", async (c) => {
   const itemStatements = items.flatMap(item => {
     const itemId = genId();
     const movementId = genId();
-    const discount = item.discount ?? 0;
-    const itemTotal = item.unit_price * item.quantity - discount;
+    const qty = Number(item.quantity);
+    const price = Number(item.unit_price);
+    const disc = Number(item.discount ?? 0);
+    const itemTotal = price * qty - disc;
 
     return [
       db.prepare(
         `INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_price, discount, tax_rate, tax_amount, total, notes, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
-        itemId, saleId, item.product_id, item.quantity,
-        item.unit_price, discount,
+        itemId, saleId, item.product_id, qty,
+        price, disc,
         item.tax_rate ?? 0, item.tax_amount ?? 0,
         itemTotal, item.notes ?? null, now
       ),
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
          VALUES (?, ?, ?, 'sale_out', ?, 'Venta automática', ?, ?)`
-      ).bind(movementId, item.product_id, branchId, item.quantity, userId, now),
+      ).bind(movementId, item.product_id, branchId, qty, userId, now),
       db.prepare(
         `UPDATE inventory SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
          WHERE product_id = ? AND branch_id = ?`
-      ).bind(item.quantity, now, item.product_id, branchId),
+      ).bind(qty, now, item.product_id, branchId),
     ];
   });
 
@@ -374,10 +376,16 @@ salesRoutes.post("/", async (c) => {
       // 1) Race con idempotency_key: devolver la venta original (replay).
       if (idempotencyKey && /UNIQUE|idempotency_key|idempotency/i.test(message)) {
         const existing = await db
-          .prepare("SELECT id, sale_number, branch_id, created_at FROM sales WHERE idempotency_key = ? LIMIT 1")
+          .prepare("SELECT id, sale_number, branch_id, created_at, status FROM sales WHERE idempotency_key = ? LIMIT 1")
           .bind(idempotencyKey)
-          .first<{ id: string; sale_number: number; branch_id: string; created_at: string }>();
+          .first<{ id: string; sale_number: number; branch_id: string; created_at: string; status: string }>();
         if (existing) {
+          if (existing.status !== "completed") {
+            return c.json(
+              { success: false, error: { code: "SALE_NOT_COMPLETABLE", status: existing.status } },
+              409,
+            );
+          }
           return c.json({
             success: true,
             data: {
@@ -449,32 +457,45 @@ salesRoutes.post("/:id/void", async (c) => {
 
   const voidedAt = nowSqliteTs();
 
+  // Atomic guard: only void if still 'completed'. Under concurrency, two requests
+  // that both pass the SELECT above can race here — the second will see changes=0.
+  const voidUpdate = await db
+    .prepare(
+      `UPDATE sales SET status = 'voided', voided_at = ?, voided_by = ?, void_reason = ?, sync_status = 'pending'
+       WHERE id = ? AND status = 'completed'`
+    )
+    .bind(voidedAt, userId, (body as { void_reason?: string }).void_reason ?? null, id)
+    .run();
+
+  if (voidUpdate.meta.changes === 0) {
+    return c.json(
+      { success: false, error: { code: "ALREADY_VOIDED" } },
+      409,
+    );
+  }
+
   const saleItems = await db
     .prepare("SELECT product_id, quantity FROM sale_items WHERE sale_id = ?")
     .bind(id)
     .all<{ product_id: string; quantity: number }>();
 
-  const voidStatements = [
-    db.prepare(
-      `UPDATE sales SET status = 'voided', voided_at = ?, voided_by = ?, void_reason = ?, sync_status = 'pending'
-       WHERE id = ?`
-    ).bind(voidedAt, userId, (body as { void_reason?: string }).void_reason ?? null, id),
-    ...(saleItems.results ?? []).flatMap(item => {
-      const movementId = genId();
-      return [
-        db.prepare(
-          `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
-           VALUES (?, ?, (SELECT branch_id FROM sales WHERE id = ?), 'return_in', ?, 'Anulación de venta', ?, ?)`
-        ).bind(movementId, item.product_id, id, item.quantity, userId, voidedAt),
-        db.prepare(
-          `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
-           WHERE product_id = ? AND branch_id = (SELECT branch_id FROM sales WHERE id = ?)`
-        ).bind(item.quantity, voidedAt, item.product_id, id),
-      ];
-    }),
-  ];
+  const stockStatements = (saleItems.results ?? []).flatMap(item => {
+    const movementId = genId();
+    return [
+      db.prepare(
+        `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+         VALUES (?, ?, (SELECT branch_id FROM sales WHERE id = ?), 'return_in', ?, 'Anulación de venta', ?, ?)`
+      ).bind(movementId, item.product_id, id, item.quantity, userId, voidedAt),
+      db.prepare(
+        `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+         WHERE product_id = ? AND branch_id = (SELECT branch_id FROM sales WHERE id = ?)`
+      ).bind(item.quantity, voidedAt, item.product_id, id),
+    ];
+  });
 
-  await db.batch(voidStatements);
+  if (stockStatements.length > 0) {
+    await db.batch(stockStatements);
+  }
 
   return c.json({ success: true, data: { id, voided_at: voidedAt } });
 });
@@ -581,11 +602,24 @@ salesRoutes.post("/:id/refund", async (c) => {
   const reason = body.reason ?? "Reembolso";
   const branchId = sale.branch_id;
 
-  const stmts = [
-    db.prepare(
+  // Atomic guard: only refund if not already voided or refunded — prevents a race
+  // between the status SELECT above and this UPDATE.
+  const refundUpdate = await db
+    .prepare(
       `UPDATE sales SET status = 'refunded', refunded_at = ?, refunded_by = ?, refund_reason = ?, sync_status = 'pending'
-       WHERE id = ?`
-    ).bind(refundedAt, userId, reason, id),
+       WHERE id = ? AND status NOT IN ('voided', 'refunded')`
+    )
+    .bind(refundedAt, userId, reason, id)
+    .run();
+
+  if (refundUpdate.meta.changes === 0) {
+    return c.json(
+      { success: false, error: { code: "CONFLICT", message: "La venta ya fue anulada o reembolsada" } },
+      409,
+    );
+  }
+
+  const stmts = [
     ...toRefund.flatMap((item) => {
       const movementId = genId();
       const baseStmts = [
@@ -609,7 +643,9 @@ salesRoutes.post("/:id/refund", async (c) => {
     }),
   ];
 
-  await db.batch(stmts);
+  if (stmts.length > 0) {
+    await db.batch(stmts);
+  }
 
   return c.json({
     success: true,
