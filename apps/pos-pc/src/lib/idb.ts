@@ -267,6 +267,10 @@ export const salesQueueStore = {
   async incrementRetries(id: string): Promise<void> {
     const db = await openDB();
     // Bug fix: same TransactionInactiveError pattern as markSynced.
+    // Fix 5: si después del incremento retries >= 10, marcar permanentlyFailed
+    // automáticamente. Ventas con error 4xx de lo contrario acumularían miles
+    // de retries sin posibilidad de éxito hasta intervención manual.
+    const MAX_RETRIES = 10;
     return new Promise<void>((resolve, reject) => {
       const txn = db.transaction(STORE_SALES_QUEUE, 'readwrite');
       const store = txn.objectStore(STORE_SALES_QUEUE);
@@ -275,6 +279,10 @@ export const salesQueueStore = {
         const existing = getReq.result as IDBSaleQueueItem | undefined;
         if (!existing) return;
         existing.retries += 1;
+        if (existing.retries >= MAX_RETRIES) {
+          existing.permanentlyFailed = true;
+          existing.permanentFailReason = 'MAX_RETRIES_EXCEEDED';
+        }
         store.put(existing);
       };
       getReq.onerror = () => reject(getReq.error);

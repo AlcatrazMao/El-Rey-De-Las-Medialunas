@@ -11,7 +11,11 @@ const ALLOWED_ORIGINS = [
 
 export function corsMiddleware() {
   return cors({
-    origin: (origin) => (ALLOWED_ORIGINS.includes(origin) ? origin : null),
+    // Fix 6: null es ambiguo — algunos toolings lo interpretan distinto. La
+    // implementación de Hono cors hace `if (allowOrigin)` (truthy check), con
+    // lo cual null, undefined y '' son equivalentes para denegar. Usamos
+    // undefined que está explícito en el tipo del callback y es inequívoco.
+    origin: (origin) => (ALLOWED_ORIGINS.includes(origin) ? origin : undefined),
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization", "X-Branch-Id", "X-Client-Version"],
     credentials: true,

@@ -53,40 +53,43 @@ syncRoutes.get("/pull", async (c) => {
   const serverTimestamp = nowSqliteTs();
 
   // Bug 1 — CRITICAL: use prepared statements with ? placeholders
+  // Fix 4: LIMIT 500 en cada query — un cliente 30 días offline puede tener
+  // miles de filas y superar el límite de 32 MB de D1. No implementamos cursor
+  // todavía; esto es un cap de seguridad para evitar timeouts y OOM.
   const PULLABLE: { type: string; query: string; bindings: unknown[] }[] = [
     {
       type: "products",
-      query: `SELECT * FROM products WHERE branch_id = ? AND updated_at > ?`,
+      query: `SELECT * FROM products WHERE branch_id = ? AND updated_at > ? LIMIT 500`,
       bindings: [branchId, since],
     },
     {
       type: "categories",
-      query: `SELECT * FROM categories WHERE branch_id = ? AND updated_at > ?`,
+      query: `SELECT * FROM categories WHERE branch_id = ? AND updated_at > ? LIMIT 500`,
       bindings: [branchId, since],
     },
     {
       type: "inventory",
-      query: `SELECT i.*, p.name as product_name FROM inventory i LEFT JOIN products p ON p.id = i.product_id WHERE i.branch_id = ? AND i.updated_at > ?`,
+      query: `SELECT i.*, p.name as product_name FROM inventory i LEFT JOIN products p ON p.id = i.product_id WHERE i.branch_id = ? AND i.updated_at > ? LIMIT 500`,
       bindings: [branchId, since],
     },
     {
       type: "customers",
-      query: `SELECT * FROM customers WHERE updated_at > ?`,
+      query: `SELECT * FROM customers WHERE updated_at > ? LIMIT 500`,
       bindings: [since],
     },
     {
       type: "sales",
-      query: `SELECT * FROM sales WHERE branch_id = ? AND created_at > ?`,
+      query: `SELECT * FROM sales WHERE branch_id = ? AND created_at > ? LIMIT 500`,
       bindings: [branchId, since],
     },
     {
       type: "batches",
-      query: `SELECT ib.*, p.name as product_name FROM inventory_batches ib LEFT JOIN products p ON p.id = ib.product_id WHERE ib.branch_id = ? AND ib.created_at > ?`,
+      query: `SELECT ib.*, p.name as product_name FROM inventory_batches ib LEFT JOIN products p ON p.id = ib.product_id WHERE ib.branch_id = ? AND ib.created_at > ? LIMIT 500`,
       bindings: [branchId, since],
     },
     {
       type: "offers",
-      query: `SELECT * FROM offers WHERE branch_id = ? AND updated_at > ?`,
+      query: `SELECT * FROM offers WHERE branch_id = ? AND updated_at > ? LIMIT 500`,
       bindings: [branchId, since],
     },
   ];
@@ -291,6 +294,7 @@ async function applyOperation(
       const itemStmts = items.flatMap(item => {
         const itemId = genId();
         const movId = genId();
+        const invId = genId();
         const qty = Number(item.quantity ?? 0);
         const price = Number(item.unit_price ?? 0);
         // BUG FIX C3 — discount estaba hardcodeado a 0; ahora respetamos el
@@ -299,19 +303,28 @@ async function applyOperation(
           ? Number(item.discount)
           : 0;
         const lineTotal = qty * price - discount;
+        const productId = String(item.product_id ?? "");
         return [
           db.prepare(
             `INSERT OR IGNORE INTO sale_items (id, sale_id, product_id, quantity, unit_price, discount, tax_rate, tax_amount, total, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).bind(itemId, id, String(item.product_id ?? ""), qty, price, discount, Number(item.tax_rate ?? 0), Number(item.tax_amount ?? 0), lineTotal, now),
+          ).bind(itemId, id, productId, qty, price, discount, Number(item.tax_rate ?? 0), Number(item.tax_amount ?? 0), lineTotal, now),
           db.prepare(
             `INSERT OR IGNORE INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
              VALUES (?, ?, ?, 'sale_out', ?, 'Venta sync offline', ?, ?)`
-          ).bind(movId, String(item.product_id ?? ""), branchId, qty, userId, now),
+          ).bind(movId, productId, branchId, qty, userId, now),
+          // Fix 2: garantizar que la fila de inventory exista antes del UPDATE.
+          // Si el producto nunca tuvo movimiento en esta sucursal, el UPDATE
+          // afecta 0 filas y el stock queda sin decrementar — igual que en
+          // inventory.ts:192-198 que también hace INSERT OR IGNORE primero.
+          db.prepare(
+            `INSERT OR IGNORE INTO inventory (id, product_id, branch_id, current_quantity, updated_at)
+             VALUES (?, ?, ?, 0, ?)`
+          ).bind(invId, productId, branchId, now),
           db.prepare(
             `UPDATE inventory SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
              WHERE product_id = ? AND branch_id = ?`
-          ).bind(qty, now, String(item.product_id ?? ""), branchId),
+          ).bind(qty, now, productId, branchId),
         ];
       });
 
@@ -449,10 +462,33 @@ async function applyOperation(
       // BUG FIX C4 — validar credit_limit; un Infinity en el límite habilita
       // crédito ilimitado a un cliente arbitrario.
       const creditLimit = assertFinitePositive(d.credit_limit ?? 0, "customer.credit_limit");
-      await db.prepare(
-        `INSERT OR IGNORE INTO customers (id, name, email, phone, type, credit_limit, current_debt, is_active, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
-      ).bind(id, String(d.name ?? ""), d.email ?? null, d.phone ?? null, String(d.type ?? "consumer"), creditLimit, now, now).run();
+      if (op.operation === "create") {
+        // INSERT OR IGNORE: si ya existe, no sobreescribir — puede tener datos
+        // actualizados desde otro dispositivo.
+        await db.prepare(
+          `INSERT OR IGNORE INTO customers (id, name, email, phone, type, credit_limit, current_debt, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
+        ).bind(id, String(d.name ?? ""), d.email ?? null, d.phone ?? null, String(d.type ?? "consumer"), creditLimit, now, now).run();
+      } else if (op.operation === "update") {
+        // Fix 3: INSERT OR IGNORE descartaba actualizaciones silenciosamente.
+        // Para "update" usamos UPDATE directo — si el cliente no existe aún en
+        // el servidor, el UPDATE afecta 0 filas (no-op seguro); el "create"
+        // previo lo creará en su operación correspondiente.
+        await db.prepare(
+          `UPDATE customers
+           SET name = ?, email = ?, phone = ?, type = ?, credit_limit = ?, is_active = ?, updated_at = ?
+           WHERE id = ?`
+        ).bind(
+          String(d.name ?? ""),
+          d.email ?? null,
+          d.phone ?? null,
+          String(d.type ?? "consumer"),
+          creditLimit,
+          d.is_active !== undefined ? (d.is_active ? 1 : 0) : 1,
+          now,
+          id,
+        ).run();
+      }
       break;
     }
 
