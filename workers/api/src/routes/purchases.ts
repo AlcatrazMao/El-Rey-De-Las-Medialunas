@@ -363,7 +363,8 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
 
   for (let i = 0; i < itemEntries.length; i++) {
     if ((optimisticResults[i]?.meta?.changes ?? 0) === 0) {
-      const [productId] = itemEntries[i];
+      const entry = itemEntries[i];
+      const productId = entry?.[0] ?? i;
       return c.json(
         errBody("OVERSHOOT_GUARD", `Cantidad recibida excede la pedida para el producto ${productId} (detectado por guard de concurrencia)`),
         409,

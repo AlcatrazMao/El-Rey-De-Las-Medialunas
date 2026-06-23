@@ -411,7 +411,7 @@ productionRoutes.post("/batches/:id/start", async (c) => {
     const updateResult = batchResults[i * 2 + 1];
     if ((updateResult?.meta?.changes ?? 0) === 0) {
       // Another request consumed the stock between our check and our write.
-      return c.json(errBody("RACE_CONDITION", `Stock modificado concurrentemente para el ingrediente ${ingredientList[i].ingredient_product_id}`), 409);
+      return c.json(errBody("RACE_CONDITION", `Stock modificado concurrentemente para el ingrediente ${ingredientList[i]?.ingredient_product_id ?? i}`), 409);
     }
   }
 
