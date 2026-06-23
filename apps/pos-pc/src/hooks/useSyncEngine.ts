@@ -15,6 +15,19 @@ import { getSettings } from "./useSettings";
 const API_URL = API_URL_CONST;
 
 const MAX_AUTO_RETRY_ATTEMPTS = 10;
+const MAX_RETRY_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Clamps a retry delay to [0, MAX_RETRY_DELAY_MS].
+ *
+ * Negative values (clock skew / stale next_retry_at) → 0 (fire immediately).
+ * Values > 2^31 ms would overflow setTimeout and also fire immediately, which
+ * could hammer the server. We cap at 5 minutes so retries always happen within
+ * a reasonable window and the existing polling cycle picks up the rest.
+ */
+export function clampRetryDelay(delay: number): number {
+  return Math.max(0, Math.min(delay, MAX_RETRY_DELAY_MS));
+}
 
 function detectOrigin(): "web" | "local" {
   return window.location.hostname === "localhost" ? "local" : "web";
@@ -169,7 +182,8 @@ export function useSyncEngine(isAuthenticated: boolean) {
     const prev = timersRef.current.get(errorId);
     if (prev) clearTimeout(prev);
 
-    const delay = Math.max(0, new Date(nextRetryAt).getTime() - Date.now());
+    const rawDelay = new Date(nextRetryAt).getTime() - Date.now();
+    const delay = clampRetryDelay(rawDelay);
     const timer = setTimeout(() => {
       timersRef.current.delete(errorId);
       void attemptRetry(errorId).then(async () => {
