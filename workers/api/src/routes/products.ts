@@ -124,16 +124,27 @@ productRoutes.get("/search", async (c) => {
 productRoutes.get("/:id", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
+  const role = c.get("userRole");
+  const tokenBranchId = c.get("branchId");
 
   const product = await db
     .prepare(
       "SELECT * FROM products WHERE id = ? AND deleted_at IS NULL LIMIT 1",
     )
     .bind(id)
-    .first();
+    .first<Record<string, unknown>>();
 
   if (!product) {
     return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
+  }
+
+  // SECURITY: si el producto pertenece a una sucursal, verificar que el
+  // usuario tenga acceso a ella. Admin/owner pueden leer cualquier producto;
+  // cualquier otro rol sólo puede leer productos de su propia sucursal.
+  if (product.branch_id && role !== "admin" && role !== "owner") {
+    if (product.branch_id !== tokenBranchId) {
+      return c.json(errBody("FORBIDDEN", "No tienes acceso a este producto"), 403);
+    }
   }
 
   const groupsRes = await db
@@ -409,9 +420,22 @@ productRoutes.delete("/:id", async (c) => {
 productRoutes.get("/:id/prices", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
+  const role = c.get("userRole");
+  const tokenBranchId = c.get("branchId");
 
-  const product = await db.prepare('SELECT id FROM products WHERE id = ?').bind(id).first();
+  const product = await db
+    .prepare('SELECT id, branch_id FROM products WHERE id = ? AND deleted_at IS NULL LIMIT 1')
+    .bind(id)
+    .first<{ id: string; branch_id: string | null }>();
   if (!product) return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
+
+  // SECURITY: mismo guard de branch que GET /:id — sólo admin/owner pueden
+  // consultar precios de productos de otras sucursales.
+  if (product.branch_id && role !== "admin" && role !== "owner") {
+    if (product.branch_id !== tokenBranchId) {
+      return c.json(errBody("FORBIDDEN", "No tienes acceso a este producto"), 403);
+    }
+  }
 
   const results = await db
     .prepare(
@@ -589,16 +613,26 @@ export function validateGroupCommon(body: {
   return { ok: true };
 }
 
-// GET /:id/groups — list all groups of a product (any authenticated user)
+// GET /:id/groups — list all groups of a product
 productRoutes.get("/:id/groups", async (c) => {
   const db = c.env.DB;
   const productId = c.req.param("id");
+  const role = c.get("userRole");
+  const tokenBranchId = c.get("branchId");
 
   const product = await db
-    .prepare("SELECT id FROM products WHERE id = ? AND deleted_at IS NULL LIMIT 1")
+    .prepare("SELECT id, branch_id FROM products WHERE id = ? AND deleted_at IS NULL LIMIT 1")
     .bind(productId)
-    .first<{ id: string }>();
+    .first<{ id: string; branch_id: string | null }>();
   if (!product) return c.json(errBody("NOT_FOUND", "Producto no encontrado"), 404);
+
+  // SECURITY: mismo guard de branch que GET /:id — sólo admin/owner pueden
+  // consultar grupos de productos de otras sucursales.
+  if (product.branch_id && role !== "admin" && role !== "owner") {
+    if (product.branch_id !== tokenBranchId) {
+      return c.json(errBody("FORBIDDEN", "No tienes acceso a este producto"), 403);
+    }
+  }
 
   const results = await db
     .prepare(
