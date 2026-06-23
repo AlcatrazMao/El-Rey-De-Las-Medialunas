@@ -335,17 +335,52 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
     }
   }
 
-  const receiveStatements = [...consolidatedItems.entries()].flatMap(([productId, incoming]) => {
-    if (!productId || incoming.received_quantity <= 0) return [];
+  // Optimistic UPDATE phase: run one UPDATE per item with the overshoot guard
+  // baked into the SQL condition. This serializes concurrent requests at the DB
+  // layer — if two requests race, only one will find `received_quantity + ? <=
+  // quantity` true; the other will get changes=0 and we abort before touching
+  // inventory.
+  const itemEntries = [...consolidatedItems.entries()].filter(
+    ([productId, incoming]) => productId && incoming.received_quantity > 0,
+  );
+
+  // SECURITY: D1 batch limit is ~100 statements. Check early with the three
+  // statements per item (optimistic UPDATE + stock movement + inventory UPDATE)
+  // plus the order status UPDATE.
+  if (itemEntries.length * 3 + 1 > 100) {
+    return c.json(errBody("VALIDATION_ERROR", "Demasiados items para recibir en una sola operación. Dividilo en varias."), 400);
+  }
+
+  const optimisticUpdateStatements = itemEntries.map(([productId, incoming]) =>
+    db.prepare(
+      `UPDATE purchase_order_items
+       SET received_quantity = received_quantity + ?
+       WHERE purchase_order_id = ? AND product_id = ? AND received_quantity + ? <= quantity`,
+    ).bind(incoming.received_quantity, id, productId, incoming.received_quantity),
+  );
+
+  const optimisticResults = await db.batch(optimisticUpdateStatements);
+
+  for (let i = 0; i < itemEntries.length; i++) {
+    if ((optimisticResults[i]?.meta?.changes ?? 0) === 0) {
+      const [productId] = itemEntries[i];
+      return c.json(
+        errBody("OVERSHOOT_GUARD", `Cantidad recibida excede la pedida para el producto ${productId} (detectado por guard de concurrencia)`),
+        409,
+      );
+    }
+  }
+
+  // All optimistic UPDATEs succeeded — now batch the stock movements and
+  // inventory adjustments. At this point the received_quantity rows are already
+  // updated, so we only need the side-effect writes.
+  const sideEffectStatements = itemEntries.flatMap(([productId, incoming]) => {
     const movementId = genId();
     const orderRow = orderItemsByProduct.get(productId);
     const unitCostAtTime = incoming.unit_cost !== undefined && incoming.unit_cost !== null
       ? Number(incoming.unit_cost)
       : (orderRow ? orderRow.unit_cost : null);
     return [
-      db.prepare(
-        `UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE purchase_order_id = ? AND product_id = ?`,
-      ).bind(incoming.received_quantity, id, productId),
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, unit_cost_at_time, reason, user_id, created_at)
          VALUES (?, ?, ?, 'purchase_in', ?, ?, 'Recepción OC ' || ?, ?, ?)`,
@@ -367,18 +402,12 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
   const allReceived = simulatedItems.every(i => i.received >= i.quantity);
   const newStatus = allReceived ? "received" : "partially_received";
 
-  receiveStatements.push(
+  sideEffectStatements.push(
     db.prepare("UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ?")
       .bind(newStatus, now, id),
   );
 
-  // SECURITY: D1 batch limit is ~100 statements. Receiving an order with many
-  // items would otherwise silently fail or throw a generic error.
-  if (receiveStatements.length > 100) {
-    return c.json(errBody("VALIDATION_ERROR", "Demasiados items para recibir en una sola operación. Dividilo en varias."), 400);
-  }
-
-  if (receiveStatements.length > 0) await db.batch(receiveStatements);
+  if (sideEffectStatements.length > 0) await db.batch(sideEffectStatements);
 
   return c.json({ success: true, data: { id, status: newStatus, received_at: now } });
 });
