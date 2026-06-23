@@ -108,18 +108,23 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     const refreshToken = localStorage.getItem('refresh_token');
-    if (refreshToken) {
-      fetch(`${API_URL}/api/v1/auth/logout`, {
+    try {
+      // Await the backend call FIRST so the server can invalidate the refresh
+      // token. If the network is down or the request fails we still proceed
+      // with local logout — we never block the user from logging out.
+      await fetch(`${API_URL}/api/v1/auth/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      }).catch(() => {});
+        body: JSON.stringify({ refresh_token: refreshToken ?? null }),
+      });
+    } catch {
+      // Network failure → continue with local logout regardless.
     }
     sessionStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
-    signOut(auth);
+    void signOut(auth);
   };
 
   const updateUserWidgets = (updatedWidgets: string[]) => {

@@ -7,6 +7,15 @@ import { safeSetItem } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
+// Inverse of backendToLocalType: maps the UI's Spanish values back to the
+// backend's English identifiers so that updateCustomer sends valid values.
+export const localToBackendType: Record<string, string> = {
+  consumidor_final: 'consumer',
+  mayorista: 'wholesale',
+  frecuente: 'frequent',
+  empresa: 'corporate',
+};
+
 export function useCustomers(notify: NotifyFn) {
   const [customers, setCustomers] = useState<Customer[]>(() => {
     try {
@@ -68,7 +77,7 @@ export function useCustomers(notify: NotifyFn) {
       email: data.email?.trim() || null,
       phone: data.phone?.trim() || null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      type: data.type as any ?? undefined,
+      type: (data.type != null ? (localToBackendType[data.type] ?? data.type) : undefined) as any,
       credit_limit: data.credit_limit ?? undefined,
       // Only ship is_active when the caller actually changed status; otherwise
       // a partial update like { name } would silently deactivate the customer.
