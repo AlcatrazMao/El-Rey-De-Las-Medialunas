@@ -298,18 +298,23 @@ export const AppProvider: React.FC<{
 
     bch.setBatches(prevBatches => {
       const updatedBatches = [...prevBatches];
+      // Build id→index map once, O(M) — avoid repeated findIndex inside the inner loop
+      const batchIdxMap = new Map(updatedBatches.map((b, i) => [b.id, i]));
       for (const item of cartItems) {
         let qtyToDeduct = item.quantity;
-        const eligible = updatedBatches.filter(b => b.productId === item.productId && b.status === 'active' && b.stock > 0).sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+        const eligible = updatedBatches
+          .filter(b => b.productId === item.productId && b.status === 'active' && b.stock > 0)
+          .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
         for (const targetBatch of eligible) {
           if (qtyToDeduct <= 0) break;
-          const idx = updatedBatches.findIndex(b => b.id === targetBatch.id);
-          if (idx === -1) continue;
+          const idx = batchIdxMap.get(targetBatch.id);
+          if (idx === undefined) continue;
           const b = updatedBatches[idx];
           const deduct = Math.min(b.stock, qtyToDeduct);
           qtyToDeduct -= deduct;
           const nextStock = b.stock - deduct;
           updatedBatches[idx] = { ...b, stock: nextStock, status: nextStock === 0 ? ('sold_out' as const) : b.status };
+          // Note: batchIdxMap stays valid because idx doesn't change — we only mutate the object at [idx]
         }
       }
       return updatedBatches;
