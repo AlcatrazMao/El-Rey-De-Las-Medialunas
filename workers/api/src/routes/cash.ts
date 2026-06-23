@@ -110,9 +110,22 @@ export function computeExpectedAmount(params: {
   return Number(params.openingAmount) + sales + movementsDelta;
 }
 
+// Roles que pueden operar la caja (abrir y cerrar sesiones).
+const CASH_ALLOWED_ROLES = new Set(['cashier', 'supervisor', 'admin', 'owner']);
+
 // POST /sessions/open
 cashRoutes.post("/sessions/open", async (c) => {
   const db = c.env.DB;
+
+  // SECURITY: solo cajeros y roles superiores pueden abrir caja.
+  const userRole = c.get("userRole");
+  if (!CASH_ALLOWED_ROLES.has(userRole)) {
+    return c.json(
+      { success: false, error: { code: "FORBIDDEN", message: "Rol no autorizado para abrir caja" } },
+      403
+    );
+  }
+
   const body = await c.req.json<{
     id?: string;
     opening_amount: number;
@@ -168,13 +181,17 @@ cashRoutes.post("/sessions/open", async (c) => {
       );
     }
 
-    // Cerrar automáticamente la sesión del día anterior
+    // Cerrar automáticamente la sesión del día anterior.
+    // IMPORTANTE: closing_amount y difference quedan NULL para indicar que no
+    // hubo conteo real de caja — esto preserva la discrepancia auditable.
+    // expected_amount se deja intacto para que auditoría posterior lo compare.
+    // status = 'auto_closed' diferencia este cierre del cierre manual ('closed').
     const autoClosedAt = nowSqliteTs();
     await db
       .prepare(
         `UPDATE cash_sessions
-         SET closing_amount = opening_amount, expected_amount = opening_amount, difference = 0,
-             status = 'closed', notes = 'Cerrada automáticamente por apertura de nueva sesión', closed_at = ?
+         SET closing_amount = NULL, difference = NULL,
+             status = 'auto_closed', notes = 'Cerrada automáticamente por apertura de nueva sesión', closed_at = ?
          WHERE id = ?`
       )
       .bind(autoClosedAt, existing.id)
@@ -201,26 +218,22 @@ cashRoutes.post("/sessions/open", async (c) => {
 // POST /sessions/:id/close
 cashRoutes.post("/sessions/:id/close", async (c) => {
   const db = c.env.DB;
+
+  // SECURITY: solo cajeros y roles superiores pueden cerrar caja.
+  const closeUserRole = c.get("userRole");
+  if (!CASH_ALLOWED_ROLES.has(closeUserRole)) {
+    return c.json(
+      { success: false, error: { code: "FORBIDDEN", message: "Rol no autorizado para cerrar caja" } },
+      403
+    );
+  }
+
   const sessionId = c.req.param("id");
   const body = await c.req.json<{
     closing_amount: number;
     expected_amount?: number;
     notes?: string;
   }>();
-
-  const session = await db
-    .prepare(
-      "SELECT id, opening_amount FROM cash_sessions WHERE id = ? AND status = 'open' LIMIT 1"
-    )
-    .bind(sessionId)
-    .first<{ id: string; opening_amount: number }>();
-
-  if (!session) {
-    return c.json(
-      { success: false, error: { code: "NOT_FOUND", message: "Sesión de caja abierta no encontrada" } },
-      404
-    );
-  }
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
@@ -229,6 +242,56 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
       { success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } },
       403
     );
+  }
+
+  // SECURITY: para cajeros, solo pueden cerrar su propia sesión.
+  // Supervisores, admins y owners pueden cerrar cualquier sesión de su sucursal.
+  let session: { id: string; opening_amount: number; branch_id: string } | null = null;
+  if (closeUserRole === 'cashier') {
+    session = await db
+      .prepare(
+        "SELECT id, opening_amount, branch_id FROM cash_sessions WHERE id = ? AND user_id = ? AND status = 'open' LIMIT 1"
+      )
+      .bind(sessionId, userId)
+      .first<{ id: string; opening_amount: number; branch_id: string }>();
+
+    if (!session) {
+      return c.json(
+        { success: false, error: { code: "NOT_FOUND", message: "Sesión de caja abierta no encontrada o no pertenece a tu usuario" } },
+        404
+      );
+    }
+  } else {
+    // supervisor / admin / owner: pueden cerrar cualquier sesión, pero
+    // solo de sucursales a las que pertenecen (excepto admin/owner que
+    // tienen acceso global).
+    session = await db
+      .prepare(
+        "SELECT id, opening_amount, branch_id FROM cash_sessions WHERE id = ? AND status = 'open' LIMIT 1"
+      )
+      .bind(sessionId)
+      .first<{ id: string; opening_amount: number; branch_id: string }>();
+
+    if (!session) {
+      return c.json(
+        { success: false, error: { code: "NOT_FOUND", message: "Sesión de caja abierta no encontrada" } },
+        404
+      );
+    }
+
+    // admin y owner tienen acceso global a todas las sucursales.
+    if (closeUserRole !== 'admin' && closeUserRole !== 'owner') {
+      const branchRow = await db
+        .prepare("SELECT 1 FROM user_branches WHERE user_id = ? AND branch_id = ? LIMIT 1")
+        .bind(userId, session.branch_id)
+        .first<{ 1: number }>();
+      if (!branchRow) {
+        return c.json(
+          { success: false, error: { code: "BRANCH_ACCESS_DENIED", message: "No tenés acceso a la sucursal de esta sesión" } },
+          403
+        );
+      }
+    }
   }
 
   if (
