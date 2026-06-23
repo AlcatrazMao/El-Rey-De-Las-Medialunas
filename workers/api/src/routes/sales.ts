@@ -8,6 +8,8 @@ import { nowSqliteTs } from "../utils/time";
 
 export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+export const MAX_SALE_NUMBER_RETRIES = 15;
+
 // GET /
 salesRoutes.get("/", async (c) => {
   const db = c.env.DB;
@@ -331,13 +333,16 @@ salesRoutes.post("/", async (c) => {
 
   // Retry loop para colisiones del índice UNIQUE (branch_id, sale_number).
   // Bajo concurrencia dos requests pueden leer el mismo MAX+1; el segundo
-  // INSERT falla por el UNIQUE de migración 0008. Reintentamos hasta 5 veces
-  // recalculando MAX+1.
-  const MAX_SALE_NUMBER_RETRIES = 5;
+  // INSERT falla por el UNIQUE de migración 0008. Reintentamos hasta
+  // MAX_SALE_NUMBER_RETRIES veces recalculando MAX+1, con backoff lineal
+  // de 10ms por intento para reducir la probabilidad de colisión bajo carga.
   let attempts = 0;
   let inserted = false;
 
   while (attempts < MAX_SALE_NUMBER_RETRIES && !inserted) {
+    if (attempts > 0) {
+      await new Promise(r => setTimeout(r, attempts * 10));
+    }
     const saleNumberRow = await db
       .prepare(
         "SELECT COALESCE(MAX(sale_number), 0) + 1 AS next_number FROM sales WHERE branch_id = ?"

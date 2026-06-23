@@ -7,7 +7,7 @@ import { auth } from "../config/firebase";
 export const API_URL = import.meta.env.VITE_API_URL || "https://el-rey-api-production.elprincipitodeargentina.workers.dev";
 
 let client: ReturnType<typeof createApiClient> | null = null;
-let refreshInFlight: Promise<boolean> | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
 
 function handleLogout(): void {
   sessionStorage.removeItem("access_token");
@@ -16,12 +16,13 @@ function handleLogout(): void {
 }
 
 // Exported for testing: the actual network call that exchanges the refresh token
-// for new tokens. Isolated so tests can mock it without touching the singleton logic.
-export async function doTokenRefresh(): Promise<boolean> {
+// for new tokens. Returns the new access token on success, or null on failure.
+// Isolated so tests can mock it without touching the singleton logic.
+export async function doTokenRefresh(): Promise<string | null> {
   const refreshToken = localStorage.getItem("refresh_token");
   if (!refreshToken) {
     handleLogout();
-    return false;
+    return null;
   }
   try {
     const res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
@@ -31,25 +32,26 @@ export async function doTokenRefresh(): Promise<boolean> {
     });
     if (!res.ok) {
       handleLogout();
-      return false;
+      return null;
     }
     const data = await res.json();
     const tokens = data?.data?.tokens;
     if (!tokens?.access_token || !tokens?.refresh_token) {
       handleLogout();
-      return false;
+      return null;
     }
     sessionStorage.setItem("access_token", tokens.access_token);
     localStorage.setItem("refresh_token", tokens.refresh_token);
-    return true;
+    return tokens.access_token as string;
   } catch {
-    return false;
+    return null;
   }
 }
 
 // Singleton-promise refresh: if a refresh is already in flight, all concurrent
 // callers await the same promise instead of triggering multiple network requests.
-export async function refreshAccessToken(): Promise<boolean> {
+// Returns the new access token, or null if the refresh failed.
+export async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = doTokenRefresh().finally(() => {
     refreshInFlight = null;
@@ -68,9 +70,8 @@ export async function fetchWithAuth(input: string, init: RequestInit = {}): Prom
   let response = await fetch(input, { ...init, headers: buildHeaders(firstToken) });
 
   if (response.status === 401) {
-    const ok = await refreshAccessToken();
-    if (!ok) return response;
-    const newToken = sessionStorage.getItem("access_token");
+    const newToken = await refreshAccessToken();
+    if (!newToken) return response;
     response = await fetch(input, { ...init, headers: buildHeaders(newToken) });
   }
 
@@ -83,8 +84,8 @@ export function getApi() {
       baseUrl: API_URL,
       getToken: () => sessionStorage.getItem("access_token") || "",
       onUnauthorized: async () => {
-        const ok = await refreshAccessToken();
-        if (!ok) handleLogout();
+        const newToken = await refreshAccessToken();
+        if (!newToken) handleLogout();
       },
     });
   }
