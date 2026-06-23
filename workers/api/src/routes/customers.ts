@@ -88,11 +88,23 @@ customerRoutes.get("/:id", async (c) => {
   return c.json({ success: true, data: row });
 });
 
+// SECURITY: roles con permiso para crear/modificar clientes (escritura).
+// Cajeros solo pueden leer — no crear ni alterar registros de clientes.
+function canManageCustomers(role: string | undefined): boolean {
+  return role === "admin" || role === "owner" || role === "supervisor";
+}
+
 // POST / — Crear cliente
 customerRoutes.post("/", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
+
+  // SECURITY: solo supervisor/admin/owner pueden crear clientes.
+  // Cajeros, producción y depósito solo tienen acceso de lectura.
+  if (!canManageCustomers(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para crear clientes"), 403);
+  }
 
   const db = c.env.DB;
   const body = await c.req.json<{
@@ -141,11 +153,12 @@ customerRoutes.post("/", async (c) => {
   }
 
   const id = genId();
+  const now = nowSqliteTs();
 
   await db
     .prepare(
-      `INSERT INTO customers (id, name, email, phone, document_number, type, credit_limit, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO customers (id, name, email, phone, document_number, type, credit_limit, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -156,6 +169,8 @@ customerRoutes.post("/", async (c) => {
       dbType,
       body.credit_limit ?? 0,
       body.notes ?? null,
+      now,
+      now,
     )
     .run();
 
@@ -190,6 +205,12 @@ customerRoutes.put("/:id", async (c) => {
 
   if (body.is_active !== undefined && body.is_active !== 0 && body.is_active !== 1) {
     return c.json(errBody("VALIDATION_ERROR", "is_active debe ser 0 o 1"), 400);
+  }
+
+  // SECURITY: cambiar is_active puede deshabilitar clientes operativos.
+  // Solo supervisor/admin/owner pueden hacerlo.
+  if (body.is_active !== undefined && !canManageCustomers(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tienes permisos para cambiar el estado del cliente"), 403);
   }
 
   // SECURITY: same credit_limit guard as POST.

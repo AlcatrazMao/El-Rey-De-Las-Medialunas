@@ -30,8 +30,13 @@ import type { Env, Variables } from "./types/bindings";
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.use("*", corsMiddleware());
-app.use("*", rateLimitMiddleware());
+// SECURITY: rate-limit va DESPUÉS de auth para que la key sea userId en lugar
+// de IP. Si el rate-limit se aplica antes de auth, un atacante desde una
+// red corporativa (NAT compartido) agota el límite de toda la sucursal y
+// hace DoS del login. Las rutas públicas (/auth/login, /auth/refresh, /health)
+// tienen sus propios rate-limits internos por IP + email hash.
 app.use("*", authMiddleware());
+app.use("*", rateLimitMiddleware());
 app.onError(errorHandler);
 
 app.route("/api/v1/auth", authRoutes);
