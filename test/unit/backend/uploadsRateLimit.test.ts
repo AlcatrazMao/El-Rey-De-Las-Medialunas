@@ -25,7 +25,7 @@ function checkRateLimit(
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as RlEntry;
-      if (nowEpoch < parsed.resetAt) {
+      if (nowEpoch <= parsed.resetAt) {
         entry = parsed;
       }
       // Si resetAt ya pasó, reiniciar (entry ya tiene los defaults)

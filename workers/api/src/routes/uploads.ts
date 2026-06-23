@@ -70,8 +70,8 @@ uploadRoutes.post("/product-image", async (c) => {
     if (raw) {
       try {
         rlEntry = JSON.parse(raw) as { count: number; resetAt: number };
-        // Si la ventana ya expiró, reiniciar
-        if (nowEpoch >= rlEntry.resetAt) {
+        // Si la ventana ya expiró, reiniciar (> porque en el borde exacto la ventana sigue activa)
+        if (nowEpoch > rlEntry.resetAt) {
           rlEntry = { count: 0, resetAt: nowEpoch + UPLOAD_RATE_WINDOW_S };
         }
       } catch {
