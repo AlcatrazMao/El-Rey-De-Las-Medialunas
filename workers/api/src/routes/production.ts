@@ -347,7 +347,36 @@ productionRoutes.post("/batches/:id/start", async (c) => {
   const batchMultiplier = batch.planned_quantity / batch.recipe_yield;
   const now = nowSqliteTs();
 
-  const consumeStatements = (ingredients.results ?? []).flatMap(ing => {
+  // Pre-flight stock check: read current_quantity for every ingredient and
+  // reject with 409 INSUFFICIENT_STOCK before touching any row.
+  const ingredientList = ingredients.results ?? [];
+  for (const ing of ingredientList) {
+    const totalQty = parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4));
+    const stockRow = await db
+      .prepare("SELECT current_quantity FROM inventory WHERE product_id = ? AND branch_id = ? LIMIT 1")
+      .bind(ing.ingredient_product_id, batch.branch_id)
+      .first<{ current_quantity: number }>();
+    const available = stockRow ? Number(stockRow.current_quantity) : 0;
+    if (available < totalQty) {
+      return c.json(
+        {
+          success: false as const,
+          error: {
+            code: "INSUFFICIENT_STOCK",
+            ingredient_id: ing.ingredient_product_id,
+            required: totalQty,
+            available,
+          },
+        },
+        409,
+      );
+    }
+  }
+
+  // Optimistic UPDATE per ingredient: WHERE current_quantity >= ? ensures that
+  // a concurrent request that grabbed the stock between our check and our write
+  // (race condition) results in changes=0 rather than a silent negative balance.
+  const consumeStatements = ingredientList.flatMap(ing => {
     const totalQty = parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4));
     const movId = genId();
     return [
@@ -356,9 +385,9 @@ productionRoutes.post("/batches/:id/start", async (c) => {
          VALUES (?, ?, ?, 'production_out', ?, 'Consumo lote producción', ?, ?)`,
       ).bind(movId, ing.ingredient_product_id, batch.branch_id, totalQty, user.id, now),
       db.prepare(
-        `UPDATE inventory SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
-         WHERE product_id = ? AND branch_id = ?`,
-      ).bind(totalQty, now, ing.ingredient_product_id, batch.branch_id),
+        `UPDATE inventory SET current_quantity = current_quantity - ?, updated_at = ?
+         WHERE product_id = ? AND branch_id = ? AND current_quantity >= ?`,
+      ).bind(totalQty, now, ing.ingredient_product_id, batch.branch_id, totalQty),
     ];
   });
 
@@ -373,7 +402,19 @@ productionRoutes.post("/batches/:id/start", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "Receta con demasiados ingredientes para una sola operación"), 400);
   }
 
-  await db.batch(consumeStatements);
+  // D1 batch returns one result per statement. The even-indexed results (0, 2,
+  // 4, …) are the stock_movements INSERTs; the odd-indexed ones (1, 3, 5, …)
+  // are the inventory UPDATEs whose `changes` we must verify.
+  const batchResults = await db.batch(consumeStatements);
+
+  for (let i = 0; i < ingredientList.length; i++) {
+    const updateResult = batchResults[i * 2 + 1];
+    if ((updateResult?.meta?.changes ?? 0) === 0) {
+      // Another request consumed the stock between our check and our write.
+      return c.json(errBody("RACE_CONDITION", `Stock modificado concurrentemente para el ingrediente ${ingredientList[i].ingredient_product_id}`), 409);
+    }
+  }
+
   return c.json({ success: true, data: { id, status: "in_progress", started_at: now } });
 });
 
