@@ -17,6 +17,24 @@ export const reportRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 // resultados silenciosamente incorrectos. Sólo aceptamos fechas calendario.
 export const isValidReportDate = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s);
 
+// Retorna la fecha argentina de hoy en formato YYYY-MM-DD usando la API
+// estándar Intl — más robusto que un offset hardcodeado, ya que respeta
+// correctamente la zona horaria incluso si el runtime tiene un reloj desajustado
+// o el código se adapta a otras regiones en el futuro.
+// Exportada como función pura para tests unitarios.
+export function argToday(): string {
+  const fmt = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  // es-AR devuelve "DD/MM/YYYY". Invertimos las partes para obtener YYYY-MM-DD.
+  const parts = fmt.formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 // Sentinel para diferenciar "no llegó" vs "llegó pero inválido".
 const DATE_RANGE_INVALID = Symbol("invalid_date");
 type DateRangeInvalid = typeof DATE_RANGE_INVALID;
@@ -25,11 +43,13 @@ function dateRange(
   c: { req: { query: (k: string) => string | undefined } }
 ): { branchId: string; from: string; to: string } | DateRangeInvalid {
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
-  // Por defecto últimos 30 días en hora ARG. Calculamos el "hoy" argentino
-  // desplazando el reloj UTC -3 horas.
-  const argNowMs = Date.now() - 3 * 3600 * 1000;
-  const fromDefault = new Date(argNowMs - 30 * 86400000).toISOString().slice(0, 10);
-  const toDefault = new Date(argNowMs).toISOString().slice(0, 10);
+  // Por defecto últimos 30 días en hora ARG. Usamos argToday() para obtener la
+  // fecha argentina correcta vía Intl (evita el offset hardcodeado -3h).
+  const toDefault = argToday();
+  // 30 días atrás: construimos una Date a medianoche UTC del "hoy ARG" y
+  // restamos 30 días para no depender del offset hardcodeado.
+  const todayUtcMidnight = new Date(`${toDefault}T00:00:00Z`);
+  const fromDefault = new Date(todayUtcMidnight.getTime() - 30 * 86400000).toISOString().slice(0, 10);
   const fromRaw = c.req.query("from_date");
   const toRaw = c.req.query("to_date");
   // Si el cliente mandó algo, debe cumplir YYYY-MM-DD; de lo contrario, default.

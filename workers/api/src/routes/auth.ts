@@ -14,6 +14,18 @@ export function revokedTtlSeconds(): number {
   return 1800;
 }
 
+// Hashea el email en minúsculas con SHA-256 y retorna el hex digest.
+// Exportada para tests unitarios.
+export async function hashEmail(email: string): Promise<string> {
+  const bytes = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(email.toLowerCase()),
+  );
+  return Array.from(new Uint8Array(bytes))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 interface UserRow {
   id: string;
   firebase_uid: string;
@@ -134,7 +146,7 @@ async function issueTokens(
 
 authRoutes.post("/login", async (c) => {
   try {
-    const { idToken } = await c.req.json<{ idToken: string }>();
+    const { idToken, email: emailBody } = await c.req.json<{ idToken: string; email?: string }>();
     if (!idToken) return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "idToken requerido" } }, 400);
 
     const ip = c.req.header("CF-Connecting-IP") || "unknown";
@@ -142,24 +154,32 @@ authRoutes.post("/login", async (c) => {
     // Defensa contra KV corrupto: parseInt puede devolver NaN, y NaN >= 5 es
     // false (bypass del rate limit). Normalizamos a 0 si no es finito.
     const raw = await c.env.SESSIONS.get(rateLimitKey);
-    const parsed = parseInt(raw ?? '0', 10);
-    const attempts = Number.isFinite(parsed) ? parsed : 0;
-    if (attempts >= 5) {
+    const parsedIp = parseInt(raw ?? '0', 10);
+    const attemptsIp = Number.isFinite(parsedIp) ? parsedIp : 0;
+    if (attemptsIp >= 5) {
       return c.json({ success: false, error: { code: "RATE_LIMITED", message: "Demasiados intentos" } }, 429);
     }
-    await c.env.SESSIONS.put(rateLimitKey, String(attempts + 1), { expirationTtl: 900 });
+    await c.env.SESSIONS.put(rateLimitKey, String(attemptsIp + 1), { expirationTtl: 900 });
+
+    // Rate limit secundario por hash de email (resiste CGNAT donde miles de
+    // usuarios comparten IP). Límite: 10 intentos en 15 minutos.
+    // Solo aplicamos si el cliente envía el email en el body.
+    let emailRateLimitKey: string | null = null;
+    if (emailBody && typeof emailBody === 'string') {
+      const emailHash = await hashEmail(emailBody);
+      emailRateLimitKey = `rate_limit:login:email:${emailHash}`;
+      const rawEmail = await c.env.SESSIONS.get(emailRateLimitKey);
+      const parsedEmail = parseInt(rawEmail ?? '0', 10);
+      const attemptsEmail = Number.isFinite(parsedEmail) ? parsedEmail : 0;
+      if (attemptsEmail >= 10) {
+        return c.json({ success: false, error: { code: "RATE_LIMITED", message: "Demasiados intentos" } }, 429);
+      }
+      await c.env.SESSIONS.put(emailRateLimitKey, String(attemptsEmail + 1), { expirationTtl: 900 });
+    }
 
     const verified = await verifyFirebaseIdToken(idToken, c.env);
     if (!verified) {
       return c.json({ success: false, error: { code: "UNAUTHORIZED", message: "Token inválido o expirado" } }, 401);
-    }
-
-    // Reset rate limit on successful Firebase verification so legitimate users
-    // are not penalised by past failed attempts.
-    try {
-      await c.env.SESSIONS.delete(rateLimitKey);
-    } catch (err) {
-      console.warn('[auth] failed to reset login rate limit:', err);
     }
 
     const uid = verified.uid;
@@ -205,6 +225,22 @@ authRoutes.post("/login", async (c) => {
         await c.env.CACHE.put(`user:${uid}`, JSON.stringify(cachedUser), { expirationTtl: 3600 });
       } catch (err) {
         console.warn('[auth] cache write failed for user:', err);
+      }
+    }
+
+    // Reset rate limits SOLO después de confirmar que el usuario existe en DB.
+    // Un Firebase UID válido sin row en `users` NO resetea los contadores,
+    // evitando así enumerar qué UIDs están registrados.
+    try {
+      await c.env.SESSIONS.delete(rateLimitKey);
+    } catch (err) {
+      console.warn('[auth] failed to reset IP login rate limit:', err);
+    }
+    if (emailRateLimitKey) {
+      try {
+        await c.env.SESSIONS.delete(emailRateLimitKey);
+      } catch (err) {
+        console.warn('[auth] failed to reset email login rate limit:', err);
       }
     }
 
