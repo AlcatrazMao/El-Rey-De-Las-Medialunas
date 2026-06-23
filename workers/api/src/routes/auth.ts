@@ -8,6 +8,12 @@ export const authRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 const ACCESS_TOKEN_TTL_SECONDS = 900;
 const REFRESH_TOKEN_TTL_SECONDS = 28800;
 
+// TTL de la blocklist de tokens revocados: cubre el tiempo de expiración del
+// access token (15 min) más margen. Exportado para tests sin KV.
+export function revokedTtlSeconds(): number {
+  return 1800;
+}
+
 interface UserRow {
   id: string;
   firebase_uid: string;
@@ -251,8 +257,10 @@ authRoutes.post("/refresh", async (c) => {
 
     // Delete BEFORE issuing new tokens to minimize TOCTOU window
     await c.env.SESSIONS.delete(key);
-    // Add to short-lived revocation blocklist so concurrent in-flight requests are rejected
-    await c.env.SESSIONS.put(`revoked:${refresh_token}`, '1', { expirationTtl: 60 });
+    // Add to revocation blocklist with TTL = revokedTtlSeconds() (1800s).
+    // Cubre el lifetime del access token (15 min) más margen, así un token
+    // rotado no puede reutilizarse aunque el cliente tarde en recibir el nuevo.
+    await c.env.SESSIONS.put(`revoked:${refresh_token}`, '1', { expirationTtl: revokedTtlSeconds() });
 
     // Now issue new tokens
     const tokens = await issueTokens(c.env, { id: stored.userId, email: stored.email, role: stored.role });
@@ -277,6 +285,28 @@ authRoutes.post("/logout", async (c) => {
     await c.env.SESSIONS.delete(key);
 
     if (stored) {
+      // Marcar el token como revocado en la blocklist para cubrir in-flight requests.
+      try {
+        await c.env.SESSIONS.put(`revoked:${refresh_token}`, '1', { expirationTtl: revokedTtlSeconds() });
+      } catch (err) {
+        console.warn('[auth] blocklist write failed on logout:', err);
+      }
+
+      // Registrar el token en el set de tokens del usuario para permitir
+      // invalidación masiva de todas las sesiones del mismo usuario.
+      try {
+        const userTokensKey = `user_tokens:${stored.userId}`;
+        const existingRaw = await c.env.SESSIONS.get(userTokensKey, "text");
+        const existing: string[] = existingRaw ? (JSON.parse(existingRaw) as string[]) : [];
+        // Añadir token actual y descartar duplicados
+        const updated = Array.from(new Set([...existing, refresh_token]));
+        await c.env.SESSIONS.put(userTokensKey, JSON.stringify(updated), {
+          expirationTtl: REFRESH_TOKEN_TTL_SECONDS,
+        });
+      } catch (err) {
+        console.warn('[auth] user_tokens tracking failed on logout:', err);
+      }
+
       try {
         const userRow = await c.env.DB.prepare(
           "SELECT firebase_uid FROM users WHERE id = ? LIMIT 1",

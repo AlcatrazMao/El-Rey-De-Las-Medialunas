@@ -8,6 +8,12 @@ import { nowSqliteTs } from "../utils/time";
 
 export const syncRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// SECURITY: cap de operaciones por push. Cada operación "sale" puede lanzar
+// N+1 queries a D1 (SELECT MAX + batch items+payments). Bajado de 200 a 50
+// para evitar timeouts (~30s en Workers) por 200 × ~10 statements = 2000
+// round-trips. Clientes deben fragmentar pushes grandes.
+export const MAX_OPERATIONS_PER_PUSH = 50;
+
 // SECURITY: numeric inputs vienen de la cola offline del cliente y pueden ser
 // NaN/Infinity por bugs en serialización (ej. Number(undefined)). Si dejamos
 // que lleguen al INSERT, contaminamos totales financieros y stock con valores
@@ -173,17 +179,13 @@ syncRoutes.post("/push", async (c) => {
     }
   }
 
-  // SECURITY: cap the batch size to prevent a single client from queueing
-  // thousands of statements against D1 in one request (DoS surface and
-  // D1 batch limit of ~100 statements). Clients should chunk pushes.
-  const MAX_OPERATIONS_PER_PUSH = 200;
   if (operations.length > MAX_OPERATIONS_PER_PUSH) {
     return c.json(
       {
         success: false,
         error: {
-          code: "VALIDATION_ERROR",
-          message: `Demasiadas operaciones en una sola sincronización (máx ${MAX_OPERATIONS_PER_PUSH})`,
+          code: "TOO_MANY_OPERATIONS",
+          max: MAX_OPERATIONS_PER_PUSH,
         },
       },
       400,
@@ -594,7 +596,11 @@ async function applyOperation(
           now,
         ).run();
       } else if (op.operation === "update") {
-        await db.prepare(
+        // Upsert manual: UPDATE primero; si no afecta filas (offer creada
+        // offline cuyo "create" nunca llegó al servidor), hacer INSERT para no
+        // perder la offer para siempre. No usamos INSERT OR REPLACE para no
+        // destruir el created_at original si eventualmente llega tarde.
+        const updateResult = await db.prepare(
           `UPDATE offers
            SET name = ?, discount_percent = ?, batch_ids = ?, product_ids = ?,
                starts_at = ?, ends_at = ?, status = ?, notes = ?, updated_at = ?
@@ -611,6 +617,30 @@ async function applyOperation(
           now,
           id,
         ).run();
+
+        if (updateResult.meta.changes === 0) {
+          // Fila no existe — insertar para no perder la offer
+          await db.prepare(
+            `INSERT OR IGNORE INTO offers
+              (id, branch_id, user_id, name, discount_percent, batch_ids, product_ids,
+               starts_at, ends_at, status, notes, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            id,
+            branchId,
+            userId,
+            String(d.name ?? ""),
+            Number(d.discount_percent ?? 0),
+            batchIds,
+            productIds,
+            String(d.starts_at ?? now),
+            d.ends_at == null ? null : String(d.ends_at),
+            String(d.status ?? "active"),
+            d.notes == null ? null : String(d.notes),
+            now,
+            now,
+          ).run();
+        }
       }
       break;
     }
