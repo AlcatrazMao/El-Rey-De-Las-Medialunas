@@ -104,6 +104,7 @@ inventoryRoutes.post("/adjust", async (c) => {
     reason?: string;
     notes?: string;
     unit_cost_at_time?: number;
+    idempotency_key?: string;
   }>();
 
   if (!body.product_id) {
@@ -153,28 +154,23 @@ inventoryRoutes.post("/adjust", async (c) => {
     );
   }
 
+  // Idempotency: si viene idempotency_key, verificar si ya fue procesado.
+  const idempotencyKey = typeof body.idempotency_key === "string" && body.idempotency_key.trim() !== ""
+    ? body.idempotency_key.trim()
+    : null;
+
+  if (idempotencyKey) {
+    const existing = await db
+      .prepare("SELECT id FROM stock_movements WHERE idempotency_key = ? LIMIT 1")
+      .bind(idempotencyKey)
+      .first<{ id: string }>();
+    if (existing) {
+      return c.json({ success: true, data: { id: existing.id }, idempotent_replay: true }, 200);
+    }
+  }
+
   const movementId = genId();
   const createdAt = nowSqliteTs();
-
-  await db
-    .prepare(
-      `INSERT INTO stock_movements
-         (id, product_id, branch_id, movement_type, quantity, unit_cost_at_time, reason, user_id, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      movementId,
-      body.product_id,
-      branchId,
-      body.movement_type,
-      body.quantity,
-      body.unit_cost_at_time ?? null,
-      body.reason ?? null,
-      userId,
-      body.notes ?? null,
-      createdAt
-    )
-    .run();
 
   const isInbound = body.movement_type.endsWith("_in");
   const delta = isInbound ? body.quantity : -body.quantity;
@@ -189,7 +185,28 @@ inventoryRoutes.post("/adjust", async (c) => {
     : `UPDATE inventory SET current_quantity = MAX(0, current_quantity + ?), updated_at = ?
        WHERE product_id = ? AND branch_id = ?`;
 
+  // Atomic batch: INSERT stock_movement + INSERT OR IGNORE inventory row + UPDATE inventory.
+  // Si cualquier statement falla, D1 revierte todo — no queda movement sin stock actualizado.
   await db.batch([
+    db
+      .prepare(
+        `INSERT INTO stock_movements
+           (id, product_id, branch_id, movement_type, quantity, unit_cost_at_time, reason, user_id, notes, idempotency_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        movementId,
+        body.product_id,
+        branchId,
+        body.movement_type,
+        body.quantity,
+        body.unit_cost_at_time ?? null,
+        body.reason ?? null,
+        userId,
+        body.notes ?? null,
+        idempotencyKey,
+        createdAt
+      ),
     db
       .prepare(
         `INSERT OR IGNORE INTO inventory (id, product_id, branch_id, current_quantity, updated_at)
