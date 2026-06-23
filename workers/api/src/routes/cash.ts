@@ -92,22 +92,24 @@ export function computeMovementsDelta(
   return delta;
 }
 
-// Calcula el expected_amount de cierre incluyendo movements:
-//   expected = opening + salesDelta + movementsDelta
-// Si el cliente envía un expected_amount explícito, asumimos que ya incluye
-// ventas pero no movements, y le sumamos el delta de movements.
-export function computeExpectedAmount(params: {
+// Función pura para derivar el expected_amount siempre server-side.
+// Fórmula: opening + cashSales - cashExpenses + movementsDelta
+// El clientExpected enviado por el frontend NO se usa como base de cálculo:
+// solo sirve para auditoría comparativa, nunca para producir el valor oficial.
+// Esto evita el double-counting: si el frontend ya incluyó movements en su
+// expected y el backend los sumaba de nuevo, la diferencia quedaba inflada/reducida
+// silenciosamente en cada cierre de caja.
+export function deriveExpectedAmount(params: {
   openingAmount: number;
-  salesTotal?: number;
-  clientExpected?: number | null;
-  movements: { type: string; amount: number }[];
+  cashSales: number;
+  cashExpenses: number;
+  movementsDelta: number;
 }): number {
-  const movementsDelta = computeMovementsDelta(params.movements);
-  if (params.clientExpected !== undefined && params.clientExpected !== null) {
-    return Number(params.clientExpected) + movementsDelta;
-  }
-  const sales = Number(params.salesTotal ?? 0);
-  return Number(params.openingAmount) + sales + movementsDelta;
+  const opening = Number(params.openingAmount ?? 0);
+  const sales = Number(params.cashSales ?? 0);
+  const expenses = Number(params.cashExpenses ?? 0);
+  const delta = Number(params.movementsDelta ?? 0);
+  return opening + sales - expenses + delta;
 }
 
 // Roles que pueden operar la caja (abrir y cerrar sesiones).
@@ -230,7 +232,7 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
 
   const sessionId = c.req.param("id");
   const body = await c.req.json<{
-    closing_amount: number;
+    closing_amount: number | null;
     expected_amount?: number;
     notes?: string;
   }>();
@@ -246,14 +248,14 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
 
   // SECURITY: para cajeros, solo pueden cerrar su propia sesión.
   // Supervisores, admins y owners pueden cerrar cualquier sesión de su sucursal.
-  let session: { id: string; opening_amount: number; branch_id: string } | null = null;
+  let session: { id: string; opening_amount: number; branch_id: string; opened_at: string } | null = null;
   if (closeUserRole === 'cashier') {
     session = await db
       .prepare(
-        "SELECT id, opening_amount, branch_id FROM cash_sessions WHERE id = ? AND user_id = ? AND status = 'open' LIMIT 1"
+        "SELECT id, opening_amount, branch_id, opened_at FROM cash_sessions WHERE id = ? AND user_id = ? AND status = 'open' LIMIT 1"
       )
       .bind(sessionId, userId)
-      .first<{ id: string; opening_amount: number; branch_id: string }>();
+      .first<{ id: string; opening_amount: number; branch_id: string; opened_at: string }>();
 
     if (!session) {
       return c.json(
@@ -267,10 +269,10 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
     // tienen acceso global).
     session = await db
       .prepare(
-        "SELECT id, opening_amount, branch_id FROM cash_sessions WHERE id = ? AND status = 'open' LIMIT 1"
+        "SELECT id, opening_amount, branch_id, opened_at FROM cash_sessions WHERE id = ? AND status = 'open' LIMIT 1"
       )
       .bind(sessionId)
-      .first<{ id: string; opening_amount: number; branch_id: string }>();
+      .first<{ id: string; opening_amount: number; branch_id: string; opened_at: string }>();
 
     if (!session) {
       return c.json(
@@ -294,18 +296,27 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
     }
   }
 
-  if (
-    typeof body.closing_amount !== 'number' ||
-    !Number.isFinite(body.closing_amount) ||
-    body.closing_amount < 0 ||
-    body.closing_amount > MAX_CASH_AMOUNT
-  ) {
-    return c.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: "closing_amount debe ser un número finito entre 0 y 10,000,000" } },
-      400
-    );
+  // closing_amount es null cuando el cierre es automático (auto_closed por apertura
+  // del día siguiente). En ese caso no validamos ni calculamos diferencia.
+  const isAutoClose = body.closing_amount === null || body.closing_amount === undefined;
+
+  if (!isAutoClose) {
+    if (
+      typeof body.closing_amount !== 'number' ||
+      !Number.isFinite(body.closing_amount) ||
+      body.closing_amount < 0 ||
+      body.closing_amount > MAX_CASH_AMOUNT
+    ) {
+      return c.json(
+        { success: false, error: { code: "VALIDATION_ERROR", message: "closing_amount debe ser un número finito entre 0 y 10,000,000" } },
+        400
+      );
+    }
   }
 
+  // El expected_amount del cliente se acepta solo para auditoría / logging;
+  // NUNCA se usa como base del cálculo oficial. El servidor lo deriva siempre
+  // desde primitivos para evitar double-counting de movements.
   if (body.expected_amount !== undefined && body.expected_amount !== null) {
     if (
       typeof body.expected_amount !== 'number' ||
@@ -319,11 +330,24 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
     }
   }
 
-  const closingAmount = body.closing_amount;
+  // Derivar el expected_amount siempre server-side:
+  //   1. Ventas en efectivo de la sesión (desde sale_payments → sales)
+  //   2. Gastos en efectivo (cash_movements de tipo expense)
+  //   3. Delta neto de movements intra-sesión (income/expense/adjustment)
+  const cashSalesRow = await db
+    .prepare(
+      `SELECT COALESCE(SUM(sp.amount), 0) AS total
+       FROM sale_payments sp
+       JOIN sales s ON s.id = sp.sale_id
+       WHERE sp.payment_method = 'cash'
+         AND s.branch_id = ?
+         AND s.created_at >= ?
+         AND s.status = 'completed'`
+    )
+    .bind(session.branch_id, session.opened_at)
+    .first<{ total: number }>();
+  const cashSales = Number(cashSalesRow?.total ?? 0);
 
-  // Los movements intra-sesión (income/expense/adjustment) deben reflejarse
-  // en el expected_amount. Antes este cálculo ignoraba los retiros de caja y
-  // el cierre esperado quedaba inflado.
   const movementsResult = await db
     .prepare(
       "SELECT type, amount FROM cash_movements WHERE cash_session_id = ?"
@@ -332,31 +356,45 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
     .all<{ type: string; amount: number }>();
   const movements = movementsResult.results ?? [];
 
-  const clientExpected =
-    body.expected_amount !== undefined && body.expected_amount !== null
-      ? Number(body.expected_amount)
-      : null;
+  // Gastos en efectivo = movements de tipo 'expense' (ya representan plata que
+  // salió de la caja por concepto de gasto, no por venta). Los movements de tipo
+  // 'income' y 'adjustment' van en el delta.
+  // computeMovementsDelta ya resta expenses y suma income/adjustment, así que el
+  // delta neto es el número correcto para pasarle a deriveExpectedAmount donde
+  // cashExpenses=0 (los expenses ya están descontados en movementsDelta).
+  const movementsDelta = computeMovementsDelta(movements);
 
-  const expectedAmount = computeExpectedAmount({
+  const expectedAmount = deriveExpectedAmount({
     openingAmount: Number(session.opening_amount ?? 0),
-    clientExpected,
-    movements,
+    cashSales,
+    cashExpenses: 0,   // ya incluido con signo negativo en movementsDelta
+    movementsDelta,
   });
-  const difference = closingAmount - expectedAmount;
+
+  const closingAmount = isAutoClose ? null : (body.closing_amount as number);
+  const difference = closingAmount !== null ? closingAmount - expectedAmount : null;
   const closedAt = nowSqliteTs();
+
+  // Cierre manual: status = 'closed'. Cierre automático: status = 'auto_closed'
+  // (closing_amount y difference quedan NULL para indicar que no hubo conteo real).
+  const closeStatus = isAutoClose ? 'auto_closed' : 'closed';
+  const closeNotes = isAutoClose
+    ? (body.notes ?? 'Cerrada automáticamente — requiere reconciliación de supervisor')
+    : (body.notes ?? null);
 
   await db
     .prepare(
       `UPDATE cash_sessions
        SET closing_amount = ?, expected_amount = ?, difference = ?,
-           status = 'closed', notes = ?, closed_at = ?
+           status = ?, notes = ?, closed_at = ?
        WHERE id = ?`
     )
     .bind(
       closingAmount,
       expectedAmount,
       difference,
-      body.notes ?? null,
+      closeStatus,
+      closeNotes,
       closedAt,
       sessionId
     )
