@@ -344,7 +344,7 @@ export const AppProvider: React.FC<{
       sal.setSales(prev => prev.map(s => s.id === newSaleInstance.id ? { ...s, syncFailed: true } : s));
       // Fallback: la encolamos en Dexie para reintento automático del SyncEngine.
       try {
-        await syncEnqueueSale(buildSalePayload(newSaleInstance, ivaRate) as Record<string, unknown>);
+        await syncEnqueueSale(buildSalePayload(newSaleInstance, ivaRate) as unknown as Record<string, unknown>);
       } catch { /* indexeddb lleno */ }
       notif.addSystemNotification(
         '⚠️ Venta no sincronizada',
