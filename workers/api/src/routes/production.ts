@@ -11,6 +11,9 @@ export const productionRoutes = new Hono<{ Bindings: Env; Variables: Variables }
 const MAX_QUANTITY = 1_000_000;
 const MAX_INGREDIENTS_PER_RECIPE = 200;
 
+// Tolerancia de cantidad para el complete: actual + waste puede superar planned hasta un 5%.
+export const PRODUCTION_WASTE_TOLERANCE = 1.05;
+
 const errBody = (code: string, message: string) => ({
   success: false as const,
   error: { code, message },
@@ -376,8 +379,14 @@ productionRoutes.post("/batches/:id/start", async (c) => {
   // Optimistic UPDATE per ingredient: WHERE current_quantity >= ? ensures that
   // a concurrent request that grabbed the stock between our check and our write
   // (race condition) results in changes=0 rather than a silent negative balance.
+  // Calculamos las cantidades consumidas por ingrediente y las guardamos en un
+  // snapshot para que /cancel pueda revertir exactamente lo que se consumió,
+  // incluso si la receta se edita después del start.
+  const consumedSnapshot: Array<{ ingredient_product_id: string; consumed_quantity: number }> = [];
+
   const consumeStatements = ingredientList.flatMap(ing => {
     const totalQty = parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4));
+    consumedSnapshot.push({ ingredient_product_id: ing.ingredient_product_id, consumed_quantity: totalQty });
     const movId = genId();
     return [
       db.prepare(
@@ -392,8 +401,8 @@ productionRoutes.post("/batches/:id/start", async (c) => {
   });
 
   consumeStatements.push(
-    db.prepare("UPDATE production_batches SET status = 'in_progress', started_at = ? WHERE id = ?")
-      .bind(now, id),
+    db.prepare("UPDATE production_batches SET consumed_snapshot = ?, status = 'in_progress', started_at = ? WHERE id = ?")
+      .bind(JSON.stringify(consumedSnapshot), now, id),
   );
 
   // SECURITY: D1 batch limit is ~100 statements. Reject early instead of
@@ -468,6 +477,25 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para completar lotes de producción"), 403);
   }
 
+  const wasteQty = body.waste_quantity ?? 0;
+
+  // Validación: actual + waste no puede superar planned en más del 5%.
+  // Un desvío mayor indica un error de entrada del operario.
+  if (body.actual_quantity + wasteQty > batch.planned_quantity * PRODUCTION_WASTE_TOLERANCE) {
+    return c.json(
+      {
+        success: false as const,
+        error: {
+          code: "QUANTITY_EXCEEDS_PLAN",
+          planned: batch.planned_quantity,
+          actual: body.actual_quantity,
+          waste: wasteQty,
+        },
+      },
+      409,
+    );
+  }
+
   const now = nowSqliteTs();
   const movId = genId();
 
@@ -480,7 +508,7 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
       `UPDATE production_batches
        SET status = ?, actual_quantity = ?, waste_quantity = ?, notes = ?, completed_at = ?
        WHERE id = ?`,
-    ).bind(completionStatus, body.actual_quantity, body.waste_quantity ?? 0, body.notes ?? null, now, id),
+    ).bind(completionStatus, body.actual_quantity, wasteQty, body.notes ?? null, now, id),
     db.prepare(
       `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
        VALUES (?, ?, ?, 'production_in', ?, 'Producción completada', ?, ?)`,
@@ -490,6 +518,18 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
        WHERE product_id = ? AND branch_id = ?`,
     ).bind(body.actual_quantity, now, batch.output_product_id, batch.branch_id),
   ];
+
+  // Si hay desperdicio, lo registramos como movimiento negativo para que quede
+  // trazado en el historial de stock (production_waste).
+  if (wasteQty > 0) {
+    const wasteMovId = genId();
+    completeStatements.push(
+      db.prepare(
+        `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+         VALUES (?, ?, ?, 'production_waste', ?, 'Desperdicio lote producción', ?, ?)`,
+      ).bind(wasteMovId, batch.output_product_id, batch.branch_id, -wasteQty, user.id, now),
+    );
+  }
 
   await db.batch(completeStatements);
   return c.json({ success: true, data: { id, status: completionStatus, actual_quantity: body.actual_quantity, completed_at: now } });
@@ -502,13 +542,13 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
 
   const batch = await db
     .prepare(
-      `SELECT pb.id, pb.status, pb.recipe_id, pb.branch_id, pb.planned_quantity, r.yield_quantity as recipe_yield
+      `SELECT pb.id, pb.status, pb.recipe_id, pb.branch_id, pb.planned_quantity, pb.consumed_snapshot, r.yield_quantity as recipe_yield
        FROM production_batches pb
        LEFT JOIN production_recipes r ON r.id = pb.recipe_id
        WHERE pb.id = ? LIMIT 1`,
     )
     .bind(id)
-    .first<{ id: string; status: string; recipe_id: string; branch_id: string; planned_quantity: number; recipe_yield: number }>();
+    .first<{ id: string; status: string; recipe_id: string; branch_id: string; planned_quantity: number; recipe_yield: number; consumed_snapshot: string | null }>();
 
   if (!batch) return c.json(errBody("NOT_FOUND", "Lote de producción no encontrado"), 404);
   if (batch.status === "completed") {
@@ -531,21 +571,44 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
 
   if (batch.status === "in_progress") {
     // Reverse the ingredient consumption that was applied when the batch started.
-    // Validamos recipe_yield > 0 — sin esto el multiplicador sería incorrecto
-    // y dejaría inventarios inconsistentes tras la reversión.
-    if ((batch.recipe_yield ?? 0) <= 0) {
-      return c.json(errBody("VALIDATION_ERROR", "recipe_yield debe ser mayor a 0"), 400);
+    // Preferimos usar el snapshot guardado en el start para evitar desbalances
+    // si la receta fue editada entre el start y el cancel.
+
+    // Intentamos leer el snapshot; si no existe (batch anterior al fix) usamos
+    // el cálculo basado en la receta actual como fallback.
+    let ingredientsToRevert: Array<{ ingredient_product_id: string; consumed_quantity: number }> | null = null;
+
+    if (batch.consumed_snapshot) {
+      try {
+        ingredientsToRevert = JSON.parse(batch.consumed_snapshot) as Array<{ ingredient_product_id: string; consumed_quantity: number }>;
+      } catch {
+        // JSON corrupto — caemos al fallback
+        ingredientsToRevert = null;
+      }
     }
 
-    const ingredients = await db
-      .prepare("SELECT * FROM recipe_ingredients WHERE recipe_id = ?")
-      .bind(batch.recipe_id)
-      .all<{ ingredient_product_id: string; quantity: number; waste_percentage: number }>();
+    if (!ingredientsToRevert) {
+      // Fallback: recalcular desde la receta actual (comportamiento original).
+      // Validamos recipe_yield > 0 — sin esto el multiplicador sería incorrecto
+      // y dejaría inventarios inconsistentes tras la reversión.
+      if ((batch.recipe_yield ?? 0) <= 0) {
+        return c.json(errBody("VALIDATION_ERROR", "recipe_yield debe ser mayor a 0"), 400);
+      }
 
-    const batchMultiplier = batch.planned_quantity / batch.recipe_yield;
+      const ingredients = await db
+        .prepare("SELECT * FROM recipe_ingredients WHERE recipe_id = ?")
+        .bind(batch.recipe_id)
+        .all<{ ingredient_product_id: string; quantity: number; waste_percentage: number }>();
 
-    const reverseStatements = (ingredients.results ?? []).flatMap(ing => {
-      const totalQty = parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4));
+      const batchMultiplier = batch.planned_quantity / batch.recipe_yield;
+      ingredientsToRevert = (ingredients.results ?? []).map(ing => ({
+        ingredient_product_id: ing.ingredient_product_id,
+        consumed_quantity: parseFloat((ing.quantity * batchMultiplier * (1 + ing.waste_percentage / 100)).toFixed(4)),
+      }));
+    }
+
+    const reverseStatements = ingredientsToRevert.flatMap(ing => {
+      const totalQty = ing.consumed_quantity;
       const movId = genId();
       return [
         db.prepare(
