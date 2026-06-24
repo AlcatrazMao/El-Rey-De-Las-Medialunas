@@ -309,7 +309,13 @@ export const salesQueueStore = {
       req.onerror = () => reject(req.error);
       txn.onerror = () => reject(txn.error);
     });
-    const toDelete = all.filter(i => i.synced && i.createdAt < cutoff);
+    const cutoffMs = new Date(cutoff).getTime();
+    const toDelete = all.filter(i => {
+      if (!i.synced) return false;
+      if (!i.createdAt || typeof i.createdAt !== 'string') return false;
+      const createdMs = new Date(i.createdAt).getTime();
+      return !Number.isNaN(createdMs) && createdMs < cutoffMs;
+    });
     if (toDelete.length === 0) return 0;
     await new Promise<void>((resolve, reject) => {
       const txn = db.transaction(STORE_SALES_QUEUE, 'readwrite');

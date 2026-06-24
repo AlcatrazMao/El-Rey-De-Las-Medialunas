@@ -42,6 +42,7 @@ export function useNotifications() {
         osc.start();
         osc.stop(audioCtx.currentTime + 0.15);
         setTimeout(() => {
+          if (audioCtx.state === 'closed') return; // context was closed by a subsequent call
           const osc2 = audioCtx.createOscillator();
           const gain2 = audioCtx.createGain();
           osc2.connect(gain2);
@@ -65,6 +66,7 @@ export function useNotifications() {
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
         osc.stop(audioCtx.currentTime + 0.3);
         setTimeout(() => {
+          if (audioCtx.state === 'closed') return; // context was closed by a subsequent call
           const osc2 = audioCtx.createOscillator();
           const gain2 = audioCtx.createGain();
           osc2.connect(gain2);

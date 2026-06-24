@@ -206,8 +206,8 @@ export interface CashSession {
   closedBy?: string;
   initialAmount: number;
   expectedAmount: number; // initialAmount + cash sales
-  realAmount?: number; // amount declared in counted cash
-  discrepancy?: number; // realAmount - expectedAmount
+  realAmount?: number | null; // amount declared in counted cash; null = auto-closed without manual count
+  discrepancy?: number | null; // realAmount - expectedAmount; null = auto-closed without manual count
   note?: string;
   status: 'open' | 'closed';
 }

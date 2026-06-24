@@ -540,7 +540,7 @@ export const InventoryView: React.FC = () => {
                           exp.setDate(exp.getDate() + (prod.durabilityDays || 3));
                           addBatch({
                             productId: prod.id,
-                            batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
+                            batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`,
                             quantity: qty,
                             stock: qty,
                             elaborationDate: today,
@@ -707,7 +707,7 @@ export const InventoryView: React.FC = () => {
                                         exp.setDate(exp.getDate() + (prod.durabilityDays || 3));
                                         addBatch({
                                           productId: prod.id,
-                                          batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
+                                          batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`,
                                           quantity: 50,
                                           stock: 50,
                                           elaborationDate: today,
