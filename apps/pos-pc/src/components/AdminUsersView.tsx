@@ -13,6 +13,7 @@ export const AdminUsersView: React.FC = () => {
   // Listen for messages from the iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== ADMIN_URL) return; // SECURITY: reject cross-origin messages
       if (event.data?.type === 'ADMIN_READY') {
         const token = sessionStorage.getItem('access_token');
         if (!token) {
