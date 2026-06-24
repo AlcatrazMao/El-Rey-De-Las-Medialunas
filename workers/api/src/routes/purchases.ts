@@ -474,10 +474,50 @@ purchaseRoutes.post("/orders/:id/cancel", async (c) => {
   }
 
   const now = nowSqliteTs();
-  await db
-    .prepare("UPDATE purchase_orders SET status = 'cancelled', updated_at = ? WHERE id = ?")
-    .bind(now, id)
-    .run();
+
+  // FIX R8-1 — revertir stock de recepciones parciales antes de cancelar.
+  // Si la orden tuvo items recibidos parcialmente, el inventario ya fue
+  // incrementado vía purchase_in. Al cancelar debemos revertir ese stock
+  // con movimientos purchase_return (quantity negativa) y actualizar inventory.
+  const partialItems = await db
+    .prepare(
+      `SELECT product_id, received_quantity
+       FROM purchase_order_items
+       WHERE purchase_order_id = ? AND received_quantity > 0`,
+    )
+    .bind(id)
+    .all<{ product_id: string; received_quantity: number }>();
+
+  const receivedRows = partialItems.results ?? [];
+
+  if (receivedRows.length > 0) {
+    const cancelStmts = receivedRows.flatMap(row => {
+      const movId = genId();
+      return [
+        db.prepare(
+          `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+           VALUES (?, ?, (SELECT branch_id FROM purchase_orders WHERE id = ? LIMIT 1), 'purchase_return', ?, 'Cancelación OC ' || ?, ?, ?)`,
+        ).bind(movId, row.product_id, id, -row.received_quantity, id, user.id, now),
+        db.prepare(
+          `UPDATE inventory
+           SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
+           WHERE product_id = ? AND branch_id = (SELECT branch_id FROM purchase_orders WHERE id = ? LIMIT 1)`,
+        ).bind(row.received_quantity, now, row.product_id, id),
+      ];
+    });
+
+    cancelStmts.push(
+      db.prepare("UPDATE purchase_orders SET status = 'cancelled', updated_at = ? WHERE id = ?")
+        .bind(now, id),
+    );
+
+    await db.batch(cancelStmts);
+  } else {
+    await db
+      .prepare("UPDATE purchase_orders SET status = 'cancelled', updated_at = ? WHERE id = ?")
+      .bind(now, id)
+      .run();
+  }
 
   return c.json({ success: true, data: { id, status: "cancelled", updated_at: now } });
 });

@@ -520,12 +520,25 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
   // para reflejar que no se cumplió la producción objetivo.
   const completionStatus = body.actual_quantity < batch.planned_quantity ? 'partial' : 'completed';
 
-  const completeStatements = [
-    db.prepare(
+  // FIX R8-2 — guard atómico contra doble ejecución de /complete.
+  // Hacemos el UPDATE con AND status = 'in_progress' primero y verificamos
+  // meta.changes === 1. Si es 0, otro request ya completó el lote → 409.
+  // Esto serializa requests concurrentes a nivel de DB, igual que el overshoot
+  // guard en /receive.
+  const guardResult = await db
+    .prepare(
       `UPDATE production_batches
        SET status = ?, actual_quantity = ?, waste_quantity = ?, notes = ?, completed_at = ?
-       WHERE id = ?`,
-    ).bind(completionStatus, body.actual_quantity, wasteQty, body.notes ?? null, now, id),
+       WHERE id = ? AND status = 'in_progress'`,
+    )
+    .bind(completionStatus, body.actual_quantity, wasteQty, body.notes ?? null, now, id)
+    .run();
+
+  if ((guardResult.meta.changes ?? 0) === 0) {
+    return c.json(errBody("ALREADY_COMPLETED", "El lote ya fue completado o no está en progreso"), 409);
+  }
+
+  const completeStatements = [
     db.prepare(
       `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
        VALUES (?, ?, ?, 'production_in', ?, 'Producción completada', ?, ?)`,
@@ -647,7 +660,10 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
     });
 
     reverseStatements.push(
-      db.prepare("UPDATE production_batches SET status = 'cancelled' WHERE id = ?")
+      // FIX R8-2 — AND status = 'in_progress' hace que el UPDATE sea atómico:
+      // si dos requests concurrentes pasan el check de status, solo una logrará
+      // changes=1. El batch de la segunda no cancelará ni revertirá stock dos veces.
+      db.prepare("UPDATE production_batches SET status = 'cancelled' WHERE id = ? AND status = 'in_progress'")
         .bind(id),
     );
 
@@ -658,7 +674,7 @@ productionRoutes.post("/batches/:id/cancel", async (c) => {
     await db.batch(reverseStatements);
   } else {
     await db
-      .prepare("UPDATE production_batches SET status = 'cancelled' WHERE id = ?")
+      .prepare("UPDATE production_batches SET status = 'cancelled' WHERE id = ? AND status = 'planned'")
       .bind(id)
       .run();
   }

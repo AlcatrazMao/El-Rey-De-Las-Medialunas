@@ -14,6 +14,14 @@ export const syncRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 // round-trips. Clientes deben fragmentar pushes grandes.
 export const MAX_OPERATIONS_PER_PUSH = 50;
 
+// FIX R8-5 — caps monetarios y de cantidad para operaciones sync.
+// Sin estos caps, un cliente offline con datos corruptos (Infinity, valores
+// astronómicos) puede inyectar valores que inflan totales financieros y stock.
+// Se usan los mismos valores que los endpoints directos (expenses.ts, sales.ts).
+const MAX_EXPENSE_AMOUNT = 10_000_000;
+const MAX_ITEM_QUANTITY = 100_000;
+const MAX_UNIT_PRICE = 10_000_000;
+
 // SECURITY: numeric inputs vienen de la cola offline del cliente y pueden ser
 // NaN/Infinity por bugs en serialización (ej. Number(undefined)). Si dejamos
 // que lleguen al INSERT, contaminamos totales financieros y stock con valores
@@ -282,8 +290,15 @@ async function applyOperation(
 
       // Validar items antes de armar statements — un NaN en quantity rompe stock.
       for (const item of items) {
-        assertFinitePositive(item.quantity ?? 0, "item.quantity");
-        assertFinitePositive(item.unit_price ?? 0, "item.unit_price");
+        const itemQty = assertFinitePositive(item.quantity ?? 0, "item.quantity");
+        const itemPrice = assertFinitePositive(item.unit_price ?? 0, "item.unit_price");
+        // FIX R8-5 — caps de cantidad y precio por item, igual que sales.ts POST /.
+        if (itemQty > MAX_ITEM_QUANTITY) {
+          throw new Error(`VALIDATION_ERROR: item.quantity ${itemQty} supera el máximo permitido de ${MAX_ITEM_QUANTITY}`);
+        }
+        if (itemPrice > MAX_UNIT_PRICE) {
+          throw new Error(`VALIDATION_ERROR: item.unit_price ${itemPrice} supera el máximo permitido de ${MAX_UNIT_PRICE}`);
+        }
         if (item.discount !== undefined && item.discount !== null) {
           assertFinitePositive(item.discount, "item.discount");
         }
@@ -468,6 +483,10 @@ async function applyOperation(
       }
       // BUG FIX C4 — validar amount antes de persistir.
       const amount = assertFinitePositive(d.amount ?? 0, "expense.amount");
+      // FIX R8-5 — cap de monto para evitar gastos con valores absurdos.
+      if (amount > MAX_EXPENSE_AMOUNT) {
+        throw new Error(`VALIDATION_ERROR: expense.amount ${amount} supera el máximo permitido de ${MAX_EXPENSE_AMOUNT}`);
+      }
       await db.prepare(
         `INSERT OR IGNORE INTO expenses (id, branch_id, user_id, concept, category, amount, payment_method, invoice_url, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
