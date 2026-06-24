@@ -13,7 +13,11 @@ cashRoutes.get("/sessions", async (c) => {
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const status = c.req.query("status");
-  const beforeId = c.req.query("before_id");
+  // Cursor-based pagination: el cliente pasa el opened_at de la última sesión
+  // vista como cursor. Usar opened_at en vez de id evita saltos/duplicados cuando
+  // se inserta una sesión nueva mientras el usuario pagina, ya que opened_at es
+  // estable y refleja el orden cronológico real de apertura de caja.
+  const beforeCursor = c.req.query("before_id");
   const rawLimit = parseInt(c.req.query("limit") ?? "30", 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
   const limit = Math.min(Math.max(isNaN(rawLimit) ? 30 : rawLimit, 1), 100);
@@ -27,14 +31,10 @@ cashRoutes.get("/sessions", async (c) => {
     bindings.push(status);
   }
 
-  // Cursor-based pagination: si el cliente pasa before_id, traemos sesiones
-  // anteriores a ese id (orden id DESC). Evita saltar/duplicar sesiones cuando
-  // se inserta una nueva mientras el usuario pagina. Mantiene retrocompat:
-  // si no llega before_id usa offset clásico.
-  if (beforeId) {
-    query += " AND id < ?";
-    bindings.push(beforeId);
-    query += " ORDER BY id DESC LIMIT ?";
+  if (beforeCursor) {
+    query += " AND opened_at < ?";
+    bindings.push(beforeCursor);
+    query += " ORDER BY opened_at DESC LIMIT ?";
     bindings.push(limit);
   } else {
     query += " ORDER BY opened_at DESC LIMIT ? OFFSET ?";
@@ -44,9 +44,13 @@ cashRoutes.get("/sessions", async (c) => {
   const results = await db
     .prepare(query)
     .bind(...bindings)
-    .all();
+    .all<{ opened_at: string }>();
 
-  return c.json({ success: true, data: results.results ?? [] });
+  const rows = results.results ?? [];
+  const lastSession = rows[rows.length - 1];
+  const nextCursor = rows.length === limit && lastSession ? lastSession.opened_at : null;
+
+  return c.json({ success: true, data: rows, nextCursor });
 });
 
 // GET /sessions/current

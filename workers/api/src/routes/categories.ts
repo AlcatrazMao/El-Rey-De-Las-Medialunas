@@ -34,6 +34,7 @@ export async function wouldCreateCycle(
   while (currentId !== null) {
     if (currentId === categoryId) return true;
     if (visited.has(currentId)) return true; // ciclo preexistente
+    if (visited.size >= 100) return true; // prevent infinite loop on pathological deep trees
     visited.add(currentId);
     const row: { parent_id: string | null } | null = await db
       .prepare("SELECT parent_id FROM categories WHERE id = ? AND deleted_at IS NULL")

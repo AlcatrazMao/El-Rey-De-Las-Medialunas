@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { escapeLike } from "../lib/sql-escape";
 import type { Env, Variables } from "../types/bindings";
 
 export const auditRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -47,7 +48,7 @@ auditRoutes.get("/", async (c) => {
   if (userId) { whereClause += " AND al.user_id = ?"; bindings.push(userId); }
   if (entityType) { whereClause += " AND al.entity_type = ?"; bindings.push(entityType); }
   if (entityId) { whereClause += " AND al.entity_id = ?"; bindings.push(entityId); }
-  if (action) { whereClause += " AND al.action LIKE ?"; bindings.push(`%${action}%`); }
+  if (action) { whereClause += " AND al.action LIKE ? ESCAPE '\\'"; bindings.push(`%${escapeLike(action)}%`); }
   if (fromDate) { whereClause += " AND al.created_at >= ?"; bindings.push(`${fromDate} 00:00:00`); }
   if (toDate) { whereClause += " AND al.created_at <= ?"; bindings.push(`${toDate} 23:59:59`); }
 

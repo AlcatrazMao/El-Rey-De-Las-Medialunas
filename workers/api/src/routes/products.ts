@@ -227,7 +227,12 @@ productRoutes.post("/", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "max_stock debe ser un número finito >= 0"), 400);
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const targetBranchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const userRole = c.get("userRole");
+  if (userRole !== "admin" && userRole !== "owner" && targetBranchId !== c.get("branchId")) {
+    return c.json(errBody("FORBIDDEN", "No podés crear productos en otra sucursal"), 403);
+  }
+  const branchId = targetBranchId;
   const now = nowSqliteTs();
 
   let categoryId = body.category_id ?? null;

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
+import { escapeLike } from "../lib/sql-escape";
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
 import { nowSqliteTs } from "../utils/time";
@@ -52,8 +53,8 @@ productionRoutes.get("/recipes", async (c) => {
   const bindings: (string | number)[] = [branchId];
 
   if (search) {
-    query += " AND (r.name LIKE ? OR p.name LIKE ?)";
-    const like = `%${search}%`;
+    query += " AND (r.name LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\')";
+    const like = `%${escapeLike(search)}%`;
     bindings.push(like, like);
   }
   if (isActive !== undefined) {
