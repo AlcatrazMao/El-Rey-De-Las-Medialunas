@@ -79,7 +79,7 @@ export function useCustomers(notify: NotifyFn) {
       email: data.email?.trim() || null,
       phone: data.phone?.trim() || null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      type: (data.type != null ? (localToBackendType[data.type] ?? data.type) : undefined) as any,
+      type: (data.type != null ? (localToBackendType[data.type] ?? undefined) : undefined) as any,
       credit_limit: data.credit_limit ?? undefined,
       // Only ship is_active when the caller actually changed status; otherwise
       // a partial update like { name } would silently deactivate the customer.

@@ -157,7 +157,7 @@ export function useBatches({ notify, products }: UseBatchesParams) {
                 const productName =
                   productsRef.current.find((p) => p.id === b.productId)?.name ?? 'Producto';
                 updated.unshift({
-                  id: `req_auto_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`,
+                  id: uid(),
                   batchId: b.id,
                   productId: b.productId,
                   productName,
@@ -214,7 +214,7 @@ export function useBatches({ notify, products }: UseBatchesParams) {
         ? 'Caja'
         : 'Panadero';
     const request: BatchWithdrawalRequest = {
-      id: `req_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`,
+      id: uid(),
       batchId,
       productId: batch.productId,
       productName: prod?.name ?? 'Artículo',
@@ -248,18 +248,22 @@ export function useBatches({ notify, products }: UseBatchesParams) {
   };
 
   const rejectWithdrawalRequest = (requestId: string, adminMemo: string): void => {
+    let rejectedReq: BatchWithdrawalRequest | null = null;
     setWithdrawalRequests((prev) =>
       prev.map((r) => {
         if (r.id !== requestId || r.status !== 'pending') return r;
-        const req: BatchWithdrawalRequest = { ...r, status: 'rejected', adminMemo };
-        notify(
-          '❌ Solicitud de Baja Rechazada',
-          `Se rechazó dar de baja el lote ${req.batchNumber} de "${req.productName}". Detalle: ${adminMemo}`,
-          'error',
-        );
-        return req;
+        rejectedReq = { ...r, status: 'rejected', adminMemo };
+        return rejectedReq;
       }),
     );
+    if (rejectedReq) {
+      const req = rejectedReq as BatchWithdrawalRequest;
+      notify(
+        '❌ Solicitud de Baja Rechazada',
+        `Se rechazó dar de baja el lote ${req.batchNumber} de "${req.productName}". Detalle: ${adminMemo}`,
+        'error',
+      );
+    }
   };
 
   return {

@@ -532,10 +532,7 @@ export const AppProvider: React.FC<{
     bch.setBatches([]); bch.setWithdrawalRequests([]);
     cash.setCurrentCashSession(null); cash.setCashSessionsHistory([]);
     cust.setCustomers([]);
-    sup.setSupplyRequests([
-      { id: 'sup_req_1', type: 'ingredient', itemId: 'ing_harina', itemName: 'Harina de Trigo 0000', quantity: 50, unit: 'kg', reason: 'Reposición urgente para elaboración de pan del fin de semana.', requestedBy: 'Laura (Panadero)', status: 'pending', date: new Date(Date.now() - 5400000).toISOString() },
-      { id: 'sup_req_2', type: 'product', itemId: 'prod_pan_flauta', itemName: 'Pan Flauta (Baguette)', quantity: 40, unit: 'unidades', reason: 'Lote fresco caliente listo para transferir a mostrador.', requestedBy: 'Laura (Panadero)', status: 'pending', date: new Date(Date.now() - 1800000).toISOString() },
-    ]);
+    sup.setSupplyRequests([]);
     // NOTE: notifications reset via clearNotifications + replay since the hook owns state
     notif.clearNotifications();
     INITIAL_NOTIFICATIONS.forEach(n => notif.addSystemNotification(n.title, n.message, n.type));

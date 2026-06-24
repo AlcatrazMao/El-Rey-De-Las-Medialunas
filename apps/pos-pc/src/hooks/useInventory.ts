@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+/** UUID sin guiones, compatible con todos los entornos modernos (HTTPS o localhost). */
+const uid = () => crypto.randomUUID().replace(/-/g, '');
+
 import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
 import { fetchProductsFromD1, syncProductToD1 } from '../services/d1-sync';
 import type { Ingredient, Product, PaymentGateway, ProductGroup } from '../types';
@@ -35,7 +38,7 @@ export function useInventory(notify: NotifyFn) {
   const addIngredient = (newIng: Omit<Ingredient, 'id'>) => {
     const item: Ingredient = {
       ...newIng,
-      id: `ing_${newIng.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}`,
+      id: `ing_${newIng.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${uid()}`,
     };
     setIngredients(prev => [...prev, item]);
     notify(
@@ -63,8 +66,8 @@ export function useInventory(notify: NotifyFn) {
   };
 
   const addProduct = (newProd: Omit<Product, 'id' | 'code'>) => {
-    const prodId = `prod_${newProd.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}`;
-    const code = `77912345${Date.now().toString(36).slice(-5).toUpperCase()}`;
+    const prodId = `prod_${newProd.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${uid()}`;
+    const code = `77912345${uid().slice(-5).toUpperCase()}`;
     const today = new Date().toISOString().split('T')[0];
     const productInstance: Product = {
       elaborationDate: today,
