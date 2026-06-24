@@ -94,6 +94,14 @@ salesRoutes.get("/:id", async (c) => {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "Venta no encontrada" } }, 404);
   }
 
+  // SECURITY: evitar que un cajero de sucursal A acceda a ventas de sucursal B
+  // pasando el ID directamente. Admin/owner pueden ver ventas de cualquier sucursal.
+  const userRole = c.get("userRole");
+  const tokenBranchId = c.get("branchId");
+  if ((sale as { branch_id?: string }).branch_id && (sale as { branch_id?: string }).branch_id !== tokenBranchId && userRole !== "admin" && userRole !== "owner") {
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "La venta pertenece a otra sucursal" } }, 403);
+  }
+
   const [itemsResult, paymentsResult] = await Promise.all([
     db
       .prepare("SELECT * FROM sale_items WHERE sale_id = ? ORDER BY created_at ASC")
@@ -707,6 +715,14 @@ salesRoutes.get("/:id/receipt", async (c) => {
     }>();
 
   if (!sale) return c.json({ success: false, error: { code: "NOT_FOUND", message: "Venta no encontrada" } }, 404);
+
+  // SECURITY: mismo guard de sucursal que GET /:id — el recibo expone todos los
+  // datos de la venta, incluyendo cliente y método de pago.
+  const receiptUserRole = c.get("userRole");
+  const receiptTokenBranchId = c.get("branchId");
+  if (sale.branch_id && sale.branch_id !== receiptTokenBranchId && receiptUserRole !== "admin" && receiptUserRole !== "owner") {
+    return c.json({ success: false, error: { code: "FORBIDDEN", message: "La venta pertenece a otra sucursal" } }, 403);
+  }
 
   const [itemsResult, paymentsResult, branch] = await Promise.all([
     db

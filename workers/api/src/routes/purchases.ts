@@ -332,13 +332,26 @@ purchaseRoutes.post("/orders/:id/receive", async (c) => {
   // Consolidar items por product_id antes de validar — si el cliente manda el
   // mismo product_id dos veces, el guard por-item los pasaría individualmente
   // pero el batch los aplicaría en acumulado, produciendo overshoot real.
+  // BUG FIX: unit_cost se calcula como promedio ponderado por cantidad cuando
+  // hay colisión, en vez de sobreescribir ciegamente con el último valor.
   const consolidatedItems = new Map<string, { received_quantity: number; unit_cost?: number | null }>();
   for (const item of items) {
-    const prev = consolidatedItems.get(item.product_id);
-    consolidatedItems.set(item.product_id, {
-      received_quantity: (prev?.received_quantity ?? 0) + Number(item.received_quantity),
-      unit_cost: item.unit_cost ?? prev?.unit_cost,
-    });
+    const prevEntry = consolidatedItems.get(item.product_id);
+    if (prevEntry) {
+      const totalQty = prevEntry.received_quantity + Number(item.received_quantity);
+      const weightedCost = prevEntry.unit_cost != null && item.unit_cost != null
+        ? (prevEntry.received_quantity * prevEntry.unit_cost + Number(item.received_quantity) * Number(item.unit_cost)) / totalQty
+        : (item.unit_cost != null ? Number(item.unit_cost) : prevEntry.unit_cost);
+      consolidatedItems.set(item.product_id, {
+        received_quantity: totalQty,
+        unit_cost: weightedCost,
+      });
+    } else {
+      consolidatedItems.set(item.product_id, {
+        received_quantity: Number(item.received_quantity),
+        unit_cost: item.unit_cost,
+      });
+    }
   }
 
   // BUG FIX C6 (overshoot guard): rechazar si recibido + entrante > pedido.

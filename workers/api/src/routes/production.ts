@@ -23,6 +23,18 @@ const errBody = (code: string, message: string) => ({
 
 // GET /recipes
 productionRoutes.get("/recipes", async (c) => {
+  // SECURITY: las recetas contienen IP productiva (ingredientes, cantidades,
+  // costos). Solo roles con necesidad operativa legítima pueden consultarlas.
+  const recipesRole = c.get("userRole");
+  if (
+    recipesRole !== "production" &&
+    recipesRole !== "supervisor" &&
+    recipesRole !== "admin" &&
+    recipesRole !== "owner"
+  ) {
+    return c.json(errBody("FORBIDDEN", "No tenés permisos para consultar recetas"), 403);
+  }
+
   const db = c.env.DB;
   const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
   const search = c.req.query("search");
