@@ -319,6 +319,11 @@ reportRoutes.get("/cash/summary", async (c) => {
        ORDER BY cs.opened_at DESC`
     ).bind(branchId, from, to).all(),
 
+    // Incluimos tanto 'closed' (cierre manual con conteo) como 'auto_closed'
+    // (cierre automático sin conteo real). Ambos representan sesiones finalizadas
+    // y deben aparecer en el reporte de caja para consistencia financiera.
+    // total_closing para auto_closed puede ser NULL (sin conteo) — COALESCE lo
+    // trata como 0, lo que es correcto: no hubo arqueo, no hay saldo de cierre.
     db.prepare(
       `SELECT
          COUNT(*) as total_sessions,
@@ -327,7 +332,7 @@ reportRoutes.get("/cash/summary", async (c) => {
          COALESCE(SUM(CASE WHEN difference < 0 THEN difference ELSE 0 END), 0) as total_deficit,
          COALESCE(SUM(CASE WHEN difference > 0 THEN difference ELSE 0 END), 0) as total_surplus
        FROM cash_sessions
-       WHERE branch_id = ? AND status = 'closed' AND opened_at BETWEEN ? AND ?`
+       WHERE branch_id = ? AND status IN ('closed', 'auto_closed') AND opened_at BETWEEN ? AND ?`
     ).bind(branchId, from, to).first(),
 
     // Agregamos movements para que el reporte de tesorería refleje los

@@ -193,6 +193,20 @@ branchRoutes.delete("/:id", async (c) => {
     return c.json({ success: false, error: { code: "FORBIDDEN", message: "No tienes permisos para eliminar sucursales" } }, 403);
   }
 
+  // GUARD: no permitir eliminar una sucursal con sesiones de caja abiertas.
+  // Una caja abierta implica un turno activo que aún no rindió: eliminar la
+  // sucursal deja la sesión huérfana y rompe el cierre contable.
+  const openSessions = await db
+    .prepare("SELECT COUNT(*) as count FROM cash_sessions WHERE branch_id = ? AND status = 'open'")
+    .bind(id)
+    .first<{ count: number }>();
+  if ((openSessions?.count ?? 0) > 0) {
+    return c.json(
+      { success: false, error: { code: "CONFLICT", message: "La sucursal tiene sesiones de caja abiertas. Cerralas antes de eliminarla." } },
+      409,
+    );
+  }
+
   // SECURITY: atomic guard contra race condition de "última sucursal activa".
   // Antes hacíamos: (1) SELECT COUNT activas, (2) UPDATE soft-delete.
   // Entre 1 y 2, dos admins pueden borrar las dos últimas simultáneamente,

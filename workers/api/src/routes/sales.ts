@@ -37,6 +37,11 @@ salesRoutes.get("/", async (c) => {
   //   from_date "YYYY-MM-DD" (ARG midnight)      → "YYYY-MM-DDT03:00:00.000Z" (UTC)
   //   to_date   "YYYY-MM-DD" (ARG 23:59:59)      → "YYYY-MM-(DD+1)T02:59:59.999Z"
   // Si el cliente ya manda timestamp con hora, lo respetamos tal cual.
+  // SECURITY: rechazamos valores ambiguos (ej. "2026-06-19 15:00" con espacio
+  // en vez de T) que pasarían el guard de bareDate pero silenciosamente harían
+  // que la comparación contra created_at (ISO 8601) devuelva resultados erróneos.
+  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+  const isValidDateInput = (s: string): boolean => ISO_DATE_RE.test(s);
   const isBareDate = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s);
   const argDateToUtcFrom = (d: string): string => `${d}T03:00:00.000Z`;
   const argDateToUtcTo = (d: string): string => {
@@ -46,6 +51,9 @@ salesRoutes.get("/", async (c) => {
   };
 
   if (fromDate) {
+    if (!isValidDateInput(fromDate)) {
+      return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "from_date debe ser ISO 8601 o YYYY-MM-DD" } }, 400);
+    }
     const fromUtc = isBareDate(fromDate) ? argDateToUtcFrom(fromDate) : fromDate;
     query += " AND created_at >= ?";
     countQuery += " AND created_at >= ?";
@@ -54,6 +62,9 @@ salesRoutes.get("/", async (c) => {
   }
 
   if (toDate) {
+    if (!isValidDateInput(toDate)) {
+      return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "to_date debe ser ISO 8601 o YYYY-MM-DD" } }, 400);
+    }
     const toUtc = isBareDate(toDate) ? argDateToUtcTo(toDate) : toDate;
     query += " AND created_at <= ?";
     countQuery += " AND created_at <= ?";
