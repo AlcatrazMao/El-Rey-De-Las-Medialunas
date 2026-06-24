@@ -185,6 +185,18 @@ export const POSView: React.FC = () => {
     };
   }, []);
 
+  // Limpiar buffer del barcode scanner cuando el usuario cambia de pestaña/ventana.
+  // Sin esto, un buffer parcialmente llenado antes de perder el foco corrompe el
+  // próximo scan al volver (el Enter llega con chars de ambas sesiones mezclados).
+  useEffect(() => {
+    const clearBuffer = () => {
+      barcodeBufferRef.current = '';
+      lastKeyTimeRef.current = 0;
+    };
+    window.addEventListener('blur', clearBuffer);
+    return () => window.removeEventListener('blur', clearBuffer);
+  }, []);
+
   // Audio Beep generator
   const playBeep = (freq = 880, duration = 0.08) => {
     try {

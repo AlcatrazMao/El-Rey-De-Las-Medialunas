@@ -258,16 +258,18 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
   };
 
   const loadMoreSessions = (): void => {
-    // Cursor-based: usamos el id más chico (lexicográficamente) ya cargado como
-    // before_id. El backend devuelve sesiones con id < before_id. Esto evita
-    // que una sesión insertada en paralelo desplace nuestra ventana y nos haga
-    // saltar/duplicar registros.
-    const beforeId = cashSessionsHistory.length > 0
+    // Cursor-based: usamos el openedAt más antiguo ya cargado como before_id.
+    // Comparar por id era problemático porque los IDs locales ("cash_ses_*") y
+    // los IDs del backend (UUID hex) no tienen orden lexicográfico coherente entre
+    // sí, lo que puede hacer que el cursor salte sesiones o las repita.
+    // openedAt es un ISO 8601 string que SÍ ordena correctamente como string.
+    const oldestSession = cashSessionsHistory.length > 0
       ? cashSessionsHistory.reduce(
-          (min, s) => (s.id < min ? s.id : min),
-          cashSessionsHistory[0].id,
+          (oldest, s) => (s.openedAt < oldest.openedAt ? s : oldest),
+          cashSessionsHistory[0],
         )
       : undefined;
+    const beforeId = oldestSession?.openedAt;
     fetchCashSessionsFromD1(30, beforeId).then((d1Sessions) => {
       if (d1Sessions.length < 30) setHasMoreSessions(false);
       if (d1Sessions.length === 0) return;

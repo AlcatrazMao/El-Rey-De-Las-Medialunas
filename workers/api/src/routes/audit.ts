@@ -27,6 +27,17 @@ auditRoutes.get("/", async (c) => {
   const limit = Math.min(100, parseInt(c.req.query("limit") ?? "50", 10));
   const offset = (page - 1) * limit;
 
+  // Validar formato YYYY-MM-DD para fechas. El log de auditoría usa DATETIME
+  // comparisons contra created_at; un string mal formado silenciosamente devuelve
+  // resultados vacíos o erróneos en SQLite.
+  const BARE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  if (fromDate && !BARE_DATE_RE.test(fromDate)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "from_date debe ser YYYY-MM-DD" } }, 400);
+  }
+  if (toDate && !BARE_DATE_RE.test(toDate)) {
+    return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "to_date debe ser YYYY-MM-DD" } }, 400);
+  }
+
   // Construimos las condiciones WHERE una sola vez y las reutilizamos para la
   // query principal y la query de count. Evita el regex frágil que rompe el
   // count si alguien edita el SELECT base.
