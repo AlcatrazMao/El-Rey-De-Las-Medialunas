@@ -183,6 +183,13 @@ customerRoutes.put("/:id", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
+  // SECURITY: guard general de rol — cualquier campo (name, email, phone, type,
+  // notes) puede alterar datos operativos. Solo supervisor/admin/owner pueden
+  // modificar clientes.
+  if (!canManageCustomers(c.get("userRole"))) {
+    return c.json(errBody("FORBIDDEN", "No tenés permisos para editar clientes"), 403);
+  }
+
   const db = c.env.DB;
   const id = c.req.param("id");
 

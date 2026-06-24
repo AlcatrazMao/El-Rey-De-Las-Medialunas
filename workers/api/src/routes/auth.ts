@@ -196,6 +196,13 @@ authRoutes.post("/login", async (c) => {
         typeof (cached as Partial<UserRow>).role === "string"
       ) {
         user = cached as UserRow;
+        // SECURITY: verificar que el firebase_uid del caché coincide con el uid
+        // del token verificado. Un caché corrupto o colisión de key podría
+        // devolver el perfil de otro usuario. Tratar como miss y forzar re-fetch.
+        if (user.firebase_uid !== uid) {
+          console.warn('[auth] cached user firebase_uid mismatch — treating as cache miss');
+          user = null;
+        }
       } else if (cached) {
         console.warn('[auth] cached user payload failed shape validation, treating as cache miss');
       }
