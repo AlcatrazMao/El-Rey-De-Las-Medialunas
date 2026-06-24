@@ -822,167 +822,11 @@ export const POSView: React.FC = () => {
   });
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-140px)] transition-all duration-300">
+    <div className="flex flex-col gap-6 min-h-[calc(100vh-140px)] transition-all duration-300">
       
-      {/* LEFT COLUMN: VISUAL POS GRILL (Big buttons McDonald's style) */}
-      <div className="hidden lg:flex flex-1 min-w-0 min-h-0 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl p-5 shadow-xs flex flex-col gap-4">
-        
-        {/* Category filters (Big scrollable pills) */}
-        <div className="flex items-center justify-between border-b pb-3 border-gray-100 dark:border-zinc-800 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xl" role="img" aria-label="croissant">🥖</span>
-            <h2 className="font-extrabold text-gray-800 dark:text-zinc-100 text-lg">Selección de Panificados</h2>
-          </div>
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            {/* Vendedor */}
-            <select
-              value={selectedSellerId || activeUser.id}
-              onChange={(e) => setSelectedSellerId(e.target.value)}
-              className="text-xs font-bold bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/30 rounded-lg px-2 py-1.5 text-amber-700 dark:text-amber-300 max-w-[140px] truncate"
-            >
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name.split(' ')[0]}</option>
-              ))}
-            </select>
-            {/* Quick search & Laser simulation */}
-            <div className="relative flex-1 sm:w-64">
-              <input
-                id="pos-search"
-                type="text"
-                placeholder="Buscar por nombre o cod..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-xs bg-gray-50 dark:bg-zinc-800/80 border border-gray-200 dark:border-zinc-700 rounded-lg py-2 pl-8 pr-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
-              />
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
-            </div>
-
-            {/* Scanner HID siempre activo — indicador de estado */}
-            <div className="flex items-center gap-1.5">
-              <span className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold" title="Lector USB activo — apuntá y escaneá">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Scanner
-              </span>
-              <button
-                id="btn-scan-trigger"
-                onClick={startBarcodeScanSimulation}
-                disabled={isScanning}
-                className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer ${
-                  isScanning
-                    ? 'bg-amber-100 text-amber-700 animate-pulse border-amber-300'
-                    : 'bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 text-white hover:opacity-90 border-transparent shadow-xs'
-                }`}
-                title="Simula un scan con producto aleatorio (para probar sin hardware)"
-              >
-                <ScanBarcode className="h-4 w-4" />
-                {isScanning ? 'Escaneando...' : 'Test Scan'}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Hot Horizontal list of Categories with counts */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-          {categoriesList.map(cat => {
-            const count = cat.id === 'todos' 
-              ? products.length 
-              : products.filter(p => p.category === cat.id).length;
-            const isSelected = selectedCategory === cat.id;
-
-            return (
-              <button
-                key={cat.id}
-                id={`btn-cat-filter-${cat.id}`}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-sm font-extrabold whitespace-nowrap cursor-pointer transition-all duration-255 active:scale-95 border ${
-                  isSelected
-                    ? 'bg-amber-500 text-white border-amber-600 shadow-md transform scale-102'
-                    : 'bg-amber-50/50 hover:bg-amber-100/50 dark:bg-zinc-850 dark:hover:bg-zinc-800 text-gray-700 dark:text-zinc-300 border-orange-100/30'
-                }`}
-              >
-                <span>{cat.icon}</span>
-                <span>{cat.label}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-amber-600 text-white' : 'bg-gray-100 dark:bg-zinc-800 text-gray-500'}`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Big visual Grid Items */}
-        <div className="flex-1 overflow-y-auto max-h-[60vh] pr-1 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4 mt-2">
-          {filteredProducts.length === 0 ? (
-            <div className="text-center col-span-full py-16 text-gray-400 dark:text-zinc-500">
-              <ShoppingCart className="h-12 w-12 mx-auto opacity-20 mb-3" />
-              <p className="text-sm font-semibold">No se encontraron productos registrados</p>
-              <p className="text-xs text-gray-400 mt-1">Registra nuevos productos en el catálogo o prueba otros filtros</p>
-            </div>
-          ) : (
-            filteredProducts.map(prod => {
-              const inStock = prod.stock > 0;
-              const lowStock = prod.stock <= prod.minStock;
-              const negativeStock = prod.stock < 0;
-
-              return (
-                <button
-                  key={prod.id}
-                  id={`btn-pos-prod-${prod.id}`}
-                  onClick={() => addToCart(prod)}
-                  className={`relative flex flex-col justify-between text-left p-4 rounded-3xl border transition-all duration-300 transform active:scale-97 cursor-pointer hover:-translate-y-1 ${
-                    negativeStock
-                      ? 'bg-gray-100 dark:bg-zinc-950/20 border-gray-300 dark:border-zinc-800 opacity-60'
-                      : !inStock
-                      ? 'bg-gray-100 dark:bg-zinc-950/20 border-gray-300 dark:border-zinc-800 opacity-60'
-                      : lowStock
-                      ? 'bg-amber-50/40 dark:bg-amber-950/10 border-amber-200 dark:border-amber-900/60 hover:bg-amber-50/70'
-                      : 'bg-white dark:bg-zinc-850 hover:bg-orange-50/30 dark:hover:bg-zinc-800 border-amber-100/40 dark:border-zinc-850/50 hover:border-amber-200 shadow-xs'
-                  }`}
-                >
-                  {/* Category overlay label */}
-                  <span className="absolute top-2 right-2 text-2xl" role="img" aria-hidden="true">
-                    {prod.image}
-                  </span>
-
-                  <div>
-                    {/* Item Stock badge */}
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <span className={`inline-block w-20 text-center py-0.5 rounded-full text-[9px] font-extrabold ${
-                        negativeStock ? 'bg-red-600 text-white' :
-                        !inStock
-                          ? 'bg-red-100 text-red-700 dark:bg-red-950/30'
-                          : lowStock
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 font-bold'
-                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 font-bold'
-                      }`}>
-                        {negativeStock ? `⚠️ ${prod.stock}` : !inStock ? 'SIN STOCK' : `${prod.stock} UNID`}
-                      </span>
-                    </div>
-
-                    {/* Product Name */}
-                    <h3 className="font-extrabold text-sm text-gray-800 dark:text-zinc-100 leading-snug line-clamp-2 pr-6">
-                      {prod.name}
-                    </h3>
-                  </div>
-
-                  {/* Pricing and Recipe helper bottom */}
-                  <div className="mt-4 pt-2 border-t border-dotted border-gray-100 dark:border-zinc-800 flex items-center justify-between w-full">
-                    <span className="text-sm font-extrabold text-amber-600 dark:text-amber-500">
-                      {formatCurrency(prod.price)}
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-mono italic">
-                      779123...{prod.code.slice(-4)}
-                    </span>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
 
       {/* RIGHT COLUMN: POS CHECKOUT CART PANEL (Nueva Venta) */}
-      <div className="w-full lg:w-[420px] min-w-0 min-h-0 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl p-5 shadow-xs flex flex-col overflow-visible">
+      <div className="w-full max-w-3xl mx-auto min-w-0 min-h-0 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl p-5 shadow-xs flex flex-col overflow-visible">
         
         {/* Header detail */}
         <div className="flex items-center justify-between border-b pb-3 border-gray-100 dark:border-zinc-800 mb-4">
@@ -1007,6 +851,28 @@ export const POSView: React.FC = () => {
             <Search className="h-4 w-4" />
             <span className="hidden sm:inline">Buscar</span>
           </button>
+
+            {/* Scanner HID siempre activo — indicador de estado */}
+            <div className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold" title="Lector USB activo — apuntá y escaneá">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Scanner
+              </span>
+              <button
+                id="btn-scan-trigger"
+                onClick={startBarcodeScanSimulation}
+                disabled={isScanning}
+                className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                  isScanning
+                    ? 'bg-amber-100 text-amber-700 animate-pulse border-amber-300'
+                    : 'bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 text-white hover:opacity-90 border-transparent shadow-xs'
+                }`}
+                title="Simula un scan con producto aleatorio (para probar sin hardware)"
+              >
+                <ScanBarcode className="h-4 w-4" />
+                {isScanning ? 'Escaneando...' : 'Test Scan'}
+              </button>
+            </div>
 
           <span className="text-xs bg-amber-100 dark:bg-amber-950/40 text-amber-805 dark:text-amber-400 font-bold px-2.5 py-1 rounded-full whitespace-nowrap">
             Nº Comp: Auto-Gen
