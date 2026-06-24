@@ -5,6 +5,9 @@ import { syncWithdrawalRequestToD1 } from '../services/d1-sync';
 import type { ProductBatch, BatchWithdrawalRequest, Product } from '../types';
 import { safeSetItem } from '../utils/safeStorage';
 
+/** UUID sin guiones, compatible con todos los entornos modernos (HTTPS o localhost). */
+const uid = () => crypto.randomUUID().replace(/-/g, '');
+
 type NotifyFn = (
   title: string,
   message: string,
@@ -37,7 +40,7 @@ export function useBatches({ notify, products }: UseBatchesParams) {
       if (freshQty > 0) {
         const freshElab = new Date();
         initialBatches.push({
-          id: `batch_${prod.id}_fresh_${index}`,
+          id: uid(),
           productId: prod.id,
           batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-F-${String(index + 10).padStart(2, '0')}`,
           quantity: freshQty,
@@ -52,7 +55,7 @@ export function useBatches({ notify, products }: UseBatchesParams) {
         const nearElab = new Date();
         nearElab.setDate(nearElab.getDate() - (durability - 1));
         initialBatches.push({
-          id: `batch_${prod.id}_near_${index}`,
+          id: uid(),
           productId: prod.id,
           batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-N-${String(index + 20).padStart(2, '0')}`,
           quantity: nearQty,
@@ -69,7 +72,7 @@ export function useBatches({ notify, products }: UseBatchesParams) {
         const expExpiryDate = new Date(expElab.getTime() + durability * 86400000).toISOString().split('T')[0];
         const isExpired = new Date(expExpiryDate).getTime() < Date.now();
         initialBatches.push({
-          id: `batch_${prod.id}_expired_${index}`,
+          id: uid(),
           productId: prod.id,
           batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-E-${String(index + 30).padStart(2, '0')}`,
           quantity: expiredQty,

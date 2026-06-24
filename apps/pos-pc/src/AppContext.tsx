@@ -131,9 +131,9 @@ export const AppProvider: React.FC<{
     if (isProcessingSaleRef.current) {
       return { success: false, error: { code: 'SALE_IN_PROGRESS', message: 'Ya se está procesando una venta. Esperá un momento.' } };
     }
-    isProcessingSaleRef.current = true;
 
     try {
+      isProcessingSaleRef.current = true;
 
     if (cartItems.length === 0) {
       return { success: false, error: { code: 'EMPTY_CART', message: 'La venta está vacía.' } };
