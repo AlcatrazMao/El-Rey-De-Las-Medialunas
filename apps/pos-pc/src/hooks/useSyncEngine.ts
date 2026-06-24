@@ -97,7 +97,9 @@ export async function flushSalesQueue(): Promise<{ flushed: number; failed: numb
 
 export async function cleanupOldSynced(): Promise<void> {
   const settings = getSettings();
-  const cutoff = new Date(Date.now() - settings.sync.cleanupDays * 86400000).toISOString();
+  // Guard: 0/negativo/NaN borraría todo el historial. Mínimo 1 día; default 7.
+  const days = Math.max(1, Number(settings.sync.cleanupDays) || 7);
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString();
   await salesQueueStore.deleteOlderThan(cutoff);
 }
 
@@ -177,6 +179,7 @@ export function useSyncEngine(isAuthenticated: boolean) {
   const engineRef = useRef<SyncEngine | null>(null);
   const syncingRef = useRef(false);
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const mountedRef = useRef(true);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
@@ -214,8 +217,10 @@ export function useSyncEngine(isAuthenticated: boolean) {
 
   // Refrescar contador de pendientes (poll cada 5s + en demanda).
   const refreshPendingCount = useCallback(async () => {
+    if (!mountedRef.current) return;
     try {
       const pending = await syncErrorStore.getPending();
+      if (!mountedRef.current) return;
       setPendingErrorCount(pending.length);
     } catch {
       // ignore
@@ -255,6 +260,7 @@ export function useSyncEngine(isAuthenticated: boolean) {
         const pending = await syncErrorStore.getPending();
         if (cancelled) return;
         for (const e of pending) {
+          if (cancelled) break;
           if (!e.id) continue;
           if (e.category === "network" && e.status !== "permanent_fail" && e.next_retry_at) {
             scheduleRetry(e.id, e.next_retry_at);
@@ -277,8 +283,12 @@ export function useSyncEngine(isAuthenticated: boolean) {
   // Polling del contador (UI viva sin librerías reactivas extra).
   useEffect(() => {
     if (!isAuthenticated) return;
+    mountedRef.current = true;
     const id = setInterval(() => { void refreshPendingCount(); }, 5_000);
-    return () => clearInterval(id);
+    return () => {
+      mountedRef.current = false;
+      clearInterval(id);
+    };
   }, [isAuthenticated, refreshPendingCount]);
 
   // Listener `online`: cuando vuelve la red, intentamos retry inmediato

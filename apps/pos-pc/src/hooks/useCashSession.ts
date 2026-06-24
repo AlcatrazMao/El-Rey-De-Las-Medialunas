@@ -27,6 +27,10 @@ export function validateCashSessionShape(raw: unknown): CashSession | null {
   if (obj.initialAmount < 0) return null;
   // openedAt: string (ISO date) — validación básica de tipo
   if (typeof obj.openedAt !== 'string' || obj.openedAt.trim() === '') return null;
+  // status: debe ser 'open' — solo sesiones activas son válidas para restaurar
+  if (typeof obj.status !== 'string' || obj.status !== 'open') return null;
+  // openedBy: string no vacío — debe identificar quién abrió la sesión
+  if (typeof obj.openedBy !== 'string' || obj.openedBy.length === 0) return null;
   return raw as CashSession;
 }
 
