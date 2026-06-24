@@ -344,6 +344,10 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
     }
   }
 
+  // Fix R7-4 — ALTO: capturar el timestamp de cierre ANTES de la query de ventas
+  // para no incluir ventas que entren durante el proceso de cierre.
+  const closingAt = nowSqliteTs();
+
   // Derivar el expected_amount siempre server-side:
   //   1. Ventas en efectivo de la sesión (desde sale_payments → sales)
   //   2. Gastos en efectivo (cash_movements de tipo expense)
@@ -356,9 +360,10 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
        WHERE sp.payment_method = 'cash'
          AND s.branch_id = ?
          AND s.created_at >= ?
+         AND s.created_at <= ?
          AND s.status = 'completed'`
     )
-    .bind(session.branch_id, session.opened_at)
+    .bind(session.branch_id, session.opened_at, closingAt)
     .first<{ total: number }>();
   const cashSales = Number(cashSalesRow?.total ?? 0);
 

@@ -679,10 +679,11 @@ async function applyOperation(
 
     case "close_session": {
       // Fix 5 — MEDIUM: validar existencia, estado, branch y ownership.
+      // Fix R7-1 — CRÍTICO: columna correcta es user_id, no opened_by.
       const session = await db
-        .prepare("SELECT id, opened_by, branch_id, status FROM cash_sessions WHERE id = ? LIMIT 1")
+        .prepare("SELECT id, user_id, branch_id, status FROM cash_sessions WHERE id = ? LIMIT 1")
         .bind(id)
-        .first<{ id: string; opened_by: string; branch_id: string; status: string }>();
+        .first<{ id: string; user_id: string; branch_id: string; status: string }>();
 
       if (!session || session.status === "closed") {
         throw new Error("ALREADY_CLOSED: La sesión de caja no existe o ya fue cerrada");
@@ -694,7 +695,7 @@ async function applyOperation(
       }
 
       // Cajeros solo pueden cerrar su propia sesión.
-      if (userRole === "cashier" && session.opened_by !== userId) {
+      if (userRole === "cashier" && session.user_id !== userId) {
         throw new Error("FORBIDDEN: Un cajero solo puede cerrar su propia sesión de caja");
       }
 

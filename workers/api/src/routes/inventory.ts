@@ -176,10 +176,25 @@ inventoryRoutes.post("/adjust", async (c) => {
   const isInbound = body.movement_type.endsWith("_in");
   const delta = isInbound ? body.quantity : -body.quantity;
 
+  // Fix R7-3 — ALTO: para movimientos _out rechazar explícitamente si el stock
+  // es insuficiente en lugar de clampear silenciosamente a 0.
+  if (!isInbound) {
+    const current = await db
+      .prepare("SELECT current_quantity FROM inventory WHERE product_id = ? AND branch_id = ?")
+      .bind(body.product_id, branchId)
+      .first<{ current_quantity: number }>();
+    if ((current?.current_quantity ?? 0) + delta < 0) {
+      return c.json(
+        { success: false, error: { code: "INSUFFICIENT_STOCK", message: "El ajuste supera el stock disponible" } },
+        409,
+      );
+    }
+  }
+
   const invId = genId();
-  // Para movimientos _out clampeamos a 0 — consistente con sales.ts y
-  // production.ts. Esto evita que un ajuste manual de salida deje stock
-  // negativo. Para _in dejamos suma directa.
+  // Para movimientos _out clampeamos a 0 como defensa adicional — dado que ya
+  // rechazamos el caso insuficiente arriba, este MAX(0, ...) es solo una guardia
+  // de seguridad ante condiciones de carrera extremas. Para _in suma directa.
   const updateSql = isInbound
     ? `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
        WHERE product_id = ? AND branch_id = ?`
