@@ -193,8 +193,7 @@ syncRoutes.post("/push", async (c) => {
   }
   let processed = 0;
   let failed = 0;
-  // Bug 4 — MEDIUM: collect error details so the client knows what failed
-  const errors: string[] = [];
+  const errors: { client_id: string; entity_type: string; code: string; message: string }[] = [];
 
   for (const op of operations) {
     try {
@@ -206,7 +205,13 @@ syncRoutes.post("/push", async (c) => {
       // they can include SQL errors with column names. Log server-side
       // and report a stable code to the client.
       console.error(`[sync/push] op ${op.client_id} (${op.entity_type}) failed:`, e);
-      errors.push(`${op.client_id}: APPLY_FAILED`);
+      const msg = e instanceof Error ? e.message : String(e);
+      // Structured errors thrown by applyOperation carry a code prefix (e.g.
+      // "FORBIDDEN: ..."). Expose the code to the client so it can react
+      // (e.g. skip retrying FORBIDDEN ops); keep the raw message server-side.
+      const codeMatch = /^([A-Z_]+):/.exec(msg);
+      const code = codeMatch ? codeMatch[1] : "APPLY_FAILED";
+      errors.push({ client_id: op.client_id, entity_type: op.entity_type, code, message: code === "APPLY_FAILED" ? "Error al aplicar operación" : msg.replace(/^[A-Z_]+:\s*/, "") });
     }
   }
 
@@ -418,6 +423,13 @@ async function applyOperation(
         throw new Error(`CONFLICT: no se puede anular venta en estado '${sale.status}'`);
       }
 
+      // Fix 1 — CRITICAL: verificar que la venta pertenece al branch del push.
+      // Un operador de sucursal A podría intentar anular una venta de sucursal B
+      // enviando su id en el payload. admin/owner pueden anular en cualquier branch.
+      if (sale.branch_id !== branchId && userRole !== "admin" && userRole !== "owner") {
+        throw new Error("FORBIDDEN: La venta pertenece a otra sucursal");
+      }
+
       const saleBranchId = sale.branch_id ?? branchId;
       const saleItems = await db
         .prepare("SELECT product_id, quantity FROM sale_items WHERE sale_id = ?")
@@ -450,6 +462,10 @@ async function applyOperation(
 
     case "expense": {
       if (op.operation !== "create") break;
+      // Fix 3 — MEDIUM: RBAC para gastos.
+      if (!["admin", "owner", "supervisor"].includes(userRole)) {
+        throw new Error("FORBIDDEN: Sin permisos para registrar gastos");
+      }
       // BUG FIX C4 — validar amount antes de persistir.
       const amount = assertFinitePositive(d.amount ?? 0, "expense.amount");
       await db.prepare(
@@ -496,10 +512,17 @@ async function applyOperation(
 
     case "cash_session": {
       if (op.operation !== "create") break;
-      await db.prepare(
+      const cashSessionResult = await db.prepare(
         `INSERT OR IGNORE INTO cash_sessions (id, branch_id, user_id, opening_amount, notes, opened_at)
          VALUES (?, ?, ?, ?, ?, ?)`
       ).bind(id, branchId, userId, Number(d.opening_amount ?? 0), d.notes ?? null, String(d.opened_at ?? now)).run();
+      // Fix 6 — ALTO: INSERT OR IGNORE silencioso para cash_session.
+      // Si meta.changes === 0, hubo colisión de ID (sesión ya existente).
+      // No es error para el cliente — la sesión existe con los mismos datos —
+      // pero sí merece logging para detectar bugs en el cliente.
+      if (cashSessionResult.meta.changes === 0) {
+        console.warn(`[sync] cash_session INSERT ignored (duplicate id=${id})`);
+      }
       break;
     }
 
@@ -513,6 +536,10 @@ async function applyOperation(
     }
 
     case "batch": {
+      // Fix 4 — MEDIUM: RBAC para lotes de inventario.
+      if (!["admin", "owner", "supervisor", "warehouse", "production"].includes(userRole)) {
+        throw new Error("FORBIDDEN: Sin permisos para gestionar lotes de inventario");
+      }
       // Bug 2 — HIGH: INSERT OR REPLACE destroys FKs; split by operation instead
       if (op.operation === "create") {
         await db.prepare(
@@ -563,6 +590,11 @@ async function applyOperation(
     }
 
     case "offer": {
+      // Fix 2 — MEDIUM: RBAC para gestión de ofertas.
+      if (!["admin", "owner", "supervisor"].includes(userRole)) {
+        throw new Error("FORBIDDEN: Sin permisos para gestionar ofertas");
+      }
+
       const batchIds = Array.isArray(d.batch_ids)
         ? JSON.stringify(d.batch_ids)
         : typeof d.batch_ids === "string"
@@ -646,6 +678,26 @@ async function applyOperation(
     }
 
     case "close_session": {
+      // Fix 5 — MEDIUM: validar existencia, estado, branch y ownership.
+      const session = await db
+        .prepare("SELECT id, opened_by, branch_id, status FROM cash_sessions WHERE id = ? LIMIT 1")
+        .bind(id)
+        .first<{ id: string; opened_by: string; branch_id: string; status: string }>();
+
+      if (!session || session.status === "closed") {
+        throw new Error("ALREADY_CLOSED: La sesión de caja no existe o ya fue cerrada");
+      }
+
+      // Solo admin/owner pueden cerrar sesiones de otros branches.
+      if (session.branch_id !== branchId && userRole !== "admin" && userRole !== "owner") {
+        throw new Error("FORBIDDEN: La sesión pertenece a otra sucursal");
+      }
+
+      // Cajeros solo pueden cerrar su propia sesión.
+      if (userRole === "cashier" && session.opened_by !== userId) {
+        throw new Error("FORBIDDEN: Un cajero solo puede cerrar su propia sesión de caja");
+      }
+
       const closingAmount = Number(d.closing_amount ?? 0);
       const expectedAmount = Number(d.expected_amount ?? closingAmount);
       const difference = closingAmount - expectedAmount;
