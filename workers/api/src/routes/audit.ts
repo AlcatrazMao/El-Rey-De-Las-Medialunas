@@ -24,8 +24,13 @@ auditRoutes.get("/", async (c) => {
   const action = c.req.query("action");
   const fromDate = c.req.query("from_date");
   const toDate = c.req.query("to_date");
-  const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
-  const limit = Math.min(100, parseInt(c.req.query("limit") ?? "50", 10));
+  // FIX R8-4 — parseInt devuelve NaN para strings no numéricos (e.g. "abc").
+  // Math.min/max(NaN, x) === NaN, lo que hace que limit/offset sean NaN y
+  // contaminen la query con "LIMIT NaN OFFSET NaN" → resultados vacíos o error.
+  const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
+  const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 100);
+  const rawPage = parseInt(c.req.query("page") ?? "1", 10);
+  const page = Math.max(isNaN(rawPage) ? 1 : rawPage, 1);
   const offset = (page - 1) * limit;
 
   // Validar formato YYYY-MM-DD para fechas. El log de auditoría usa DATETIME

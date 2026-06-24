@@ -314,10 +314,58 @@ batchRoutes.put("/:id", async (c) => {
 
   // FIX: incluir updated_at en el SET para que el sync diferencial detecte
   // cambios y propague el lote modificado a los clientes offline.
+  const updatedAt = nowSqliteTs();
   setClauses.push("updated_at = ?");
-  values.push(nowSqliteTs());
+  values.push(updatedAt);
 
   values.push(id);
+
+  // FIX R8-3 — emitir stock_movements cuando status cambia a 'withdrawn' o
+  // 'expired' y el lote aún tiene remaining_quantity > 0.
+  // Sin esto, el inventario queda inflado con stock que ya no está disponible.
+  // Replicamos el mismo patrón de /expire-stale (líneas ~386-409).
+  const newStatus = body.status;
+  const needsMovement = newStatus === "withdrawn" || newStatus === "expired";
+
+  if (needsMovement) {
+    // Leer remaining_quantity y datos del lote actual para el movement.
+    const currentBatch = await db
+      .prepare("SELECT product_id, branch_id, remaining_quantity FROM inventory_batches WHERE id = ? LIMIT 1")
+      .bind(id)
+      .first<{ product_id: string; branch_id: string; remaining_quantity: number }>();
+
+    if (currentBatch && currentBatch.remaining_quantity > 0) {
+      const movementType = newStatus === "withdrawn" ? "batch_withdrawn" : "batch_expired";
+      const movId = genId();
+
+      const stmts = [
+        db.prepare(`UPDATE inventory_batches SET ${setClauses.join(", ")} WHERE id = ?`).bind(...values),
+        db.prepare(
+          `INSERT INTO stock_movements (id, product_id, branch_id, batch_id, movement_type, quantity, reason, user_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(
+          movId,
+          currentBatch.product_id,
+          currentBatch.branch_id,
+          id,
+          movementType,
+          currentBatch.remaining_quantity,
+          newStatus === "withdrawn" ? "Lote retirado manualmente" : "Lote marcado como expirado",
+          user.id,
+          updatedAt,
+        ),
+        db.prepare(
+          `UPDATE inventory
+             SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
+           WHERE product_id = ? AND branch_id = ?`,
+        ).bind(currentBatch.remaining_quantity, updatedAt, currentBatch.product_id, currentBatch.branch_id),
+      ];
+
+      await db.batch(stmts);
+      return c.json({ success: true, data: { id } });
+    }
+  }
+
   await db
     .prepare(`UPDATE inventory_batches SET ${setClauses.join(", ")} WHERE id = ?`)
     .bind(...values)
@@ -433,17 +481,39 @@ batchRoutes.delete("/:id", async (c) => {
   const body = await c.req.json<{ withdrawal_reason?: string }>().catch((): { withdrawal_reason?: string } => ({}));
 
   const existing = await db
-    .prepare("SELECT id FROM inventory_batches WHERE id = ? LIMIT 1")
+    .prepare("SELECT id, product_id, branch_id, remaining_quantity FROM inventory_batches WHERE id = ? LIMIT 1")
     .bind(id)
-    .first<{ id: string }>();
+    .first<{ id: string; product_id: string; branch_id: string; remaining_quantity: number }>();
   if (!existing) return c.json(errBody("NOT_FOUND", "Lote no encontrado"), 404);
 
-  await db
-    .prepare(
-      `UPDATE inventory_batches SET status = 'withdrawn', withdrawal_reason = ? WHERE id = ?`,
-    )
-    .bind(body.withdrawal_reason ?? null, id)
-    .run();
+  const now = nowSqliteTs();
+
+  // FIX R8-3 — emitir stock_movement 'batch_withdrawn' cuando el soft-delete
+  // se ejecuta con remaining_quantity > 0. Sin esto el inventario queda inflado.
+  if (existing.remaining_quantity > 0) {
+    const movId = genId();
+    await db.batch([
+      db.prepare(
+        `UPDATE inventory_batches SET status = 'withdrawn', withdrawal_reason = ? WHERE id = ?`,
+      ).bind(body.withdrawal_reason ?? null, id),
+      db.prepare(
+        `INSERT INTO stock_movements (id, product_id, branch_id, batch_id, movement_type, quantity, reason, user_id, created_at)
+         VALUES (?, ?, ?, ?, 'batch_withdrawn', ?, 'Lote dado de baja', ?, ?)`,
+      ).bind(movId, existing.product_id, existing.branch_id, id, existing.remaining_quantity, user.id, now),
+      db.prepare(
+        `UPDATE inventory
+           SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
+         WHERE product_id = ? AND branch_id = ?`,
+      ).bind(existing.remaining_quantity, now, existing.product_id, existing.branch_id),
+    ]);
+  } else {
+    await db
+      .prepare(
+        `UPDATE inventory_batches SET status = 'withdrawn', withdrawal_reason = ? WHERE id = ?`,
+      )
+      .bind(body.withdrawal_reason ?? null, id)
+      .run();
+  }
 
   return c.json({ success: true, data: { id } });
 });
