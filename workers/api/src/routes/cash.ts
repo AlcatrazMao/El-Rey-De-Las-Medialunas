@@ -157,6 +157,20 @@ cashRoutes.post("/sessions/open", async (c) => {
     );
   }
 
+  // SECURITY: cajeros y supervisores solo pueden abrir caja en sucursales a
+  // las que pertenecen. Admin y owner tienen acceso global a todas las sucursales.
+  if (userRole !== "admin" && userRole !== "owner") {
+    const membership = await c.env.DB.prepare(
+      "SELECT 1 FROM user_branches WHERE user_id = ? AND branch_id = ? LIMIT 1"
+    ).bind(user.id, branchId).first();
+    if (!membership) {
+      return c.json(
+        { success: false, error: { code: "FORBIDDEN", message: "No tenés acceso a esa sucursal" } },
+        403
+      );
+    }
+  }
+
   const existing = await db
     .prepare(
       "SELECT id, opened_at, opening_amount FROM cash_sessions WHERE branch_id = ? AND status = 'open' LIMIT 1"

@@ -517,21 +517,28 @@ productionRoutes.post("/batches/:id/complete", async (c) => {
       `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
        VALUES (?, ?, ?, 'production_in', ?, 'Producción completada', ?, ?)`,
     ).bind(movId, batch.output_product_id, batch.branch_id, body.actual_quantity, user.id, now),
+    // Garantiza que la fila de inventory exista antes del UPDATE para que
+    // la primera producción de un producto no afecte 0 filas y quede sin stock.
+    db.prepare(
+      `INSERT OR IGNORE INTO inventory (id, product_id, branch_id, current_quantity, updated_at)
+       VALUES (?, ?, ?, 0, ?)`,
+    ).bind(genId(), batch.output_product_id, batch.branch_id, now),
     db.prepare(
       `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
        WHERE product_id = ? AND branch_id = ?`,
     ).bind(body.actual_quantity, now, batch.output_product_id, batch.branch_id),
   ];
 
-  // Si hay desperdicio, lo registramos como movimiento negativo para que quede
-  // trazado en el historial de stock (production_waste).
+  // Si hay desperdicio, lo registramos como movimiento positivo de tipo
+  // production_waste. La dirección (outbound/consumo) la comunica el tipo,
+  // no el signo: quantity siempre es positivo en stock_movements.
   if (wasteQty > 0) {
     const wasteMovId = genId();
     completeStatements.push(
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
          VALUES (?, ?, ?, 'production_waste', ?, 'Desperdicio lote producción', ?, ?)`,
-      ).bind(wasteMovId, batch.output_product_id, batch.branch_id, -wasteQty, user.id, now),
+      ).bind(wasteMovId, batch.output_product_id, batch.branch_id, wasteQty, user.id, now),
     );
   }
 

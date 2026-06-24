@@ -19,6 +19,7 @@ const VALID_MOVEMENT_TYPES = new Set([
   "waste_out",
   "adjustment_out",
   "production_out",
+  "production_waste",
 ]);
 
 // GET /
