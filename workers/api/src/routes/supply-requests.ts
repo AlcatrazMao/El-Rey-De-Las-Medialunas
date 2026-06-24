@@ -171,23 +171,37 @@ supplyRequestRoutes.put("/:id", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tienes permisos para aprobar/rechazar solicitudes"), 403);
   }
 
+  // Fix R7-2 — ALTO: verificar que la solicitud existe y pertenece al branch del usuario.
   const existing = await db
-    .prepare("SELECT id FROM supply_requests WHERE id = ? LIMIT 1")
+    .prepare("SELECT id, branch_id, status FROM supply_requests WHERE id = ? LIMIT 1")
     .bind(id)
-    .first<{ id: string }>();
+    .first<{ id: string; branch_id: string; status: string }>();
 
   if (!existing) {
     return c.json(errBody("NOT_FOUND", "Solicitud de abastecimiento no encontrada"), 404);
   }
 
+  // Validar branch membership para no-admin/owner.
+  if (userRole !== 'admin' && userRole !== 'owner') {
+    const branchId = c.get("branchId") ?? "";
+    if (existing.branch_id !== branchId) {
+      return c.json(errBody("FORBIDDEN", "No tenés acceso a la solicitud de esa sucursal"), 403);
+    }
+  }
+
   const updatedAt = nowSqliteTs();
 
-  await db
+  // Prevenir override de decisiones ya tomadas: solo actualizar si status = 'pending'.
+  const updateResult = await db
     .prepare(
-      `UPDATE supply_requests SET status = ?, admin_memo = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE supply_requests SET status = ?, admin_memo = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
     )
     .bind(body.status, body.admin_memo ?? null, updatedAt, id)
     .run();
+
+  if (updateResult.meta.changes === 0) {
+    return c.json(errBody("ALREADY_RESOLVED", "La solicitud ya fue aprobada o rechazada"), 409);
+  }
 
   return c.json({ success: true, data: { id, status: body.status, updated_at: updatedAt } });
 });
