@@ -232,7 +232,13 @@ export function useSettings() {
         ...prev,
         [section]: { ...(prev[section] as object), ...(partialValues as object) },
       };
-      persistSettings(updated);
+      try {
+        persistSettings(updated);
+      } catch (e) {
+        // localStorage lleno (QuotaExceededError): no commitear el state en memoria
+        console.error('[settings] QuotaExceededError:', e);
+        return prev; // devolvemos el estado anterior sin cambios
+      }
       return updated;
     });
   }
@@ -240,7 +246,12 @@ export function useSettings() {
   function setGatewayCredentials(credentials: GatewayCredential[]): void {
     setSettings(prev => {
       const updated: AppSettings = { ...prev, gatewayCredentials: credentials };
-      persistSettings(updated);
+      try {
+        persistSettings(updated);
+      } catch (e) {
+        console.error('[settings] QuotaExceededError:', e);
+        return prev;
+      }
       return updated;
     });
   }
@@ -248,7 +259,12 @@ export function useSettings() {
   function setPriceLists(priceLists: PriceList[]): void {
     setSettings(prev => {
       const updated: AppSettings = { ...prev, priceLists };
-      persistSettings(updated);
+      try {
+        persistSettings(updated);
+      } catch (e) {
+        console.error('[settings] QuotaExceededError:', e);
+        return prev;
+      }
       return updated;
     });
   }
@@ -256,7 +272,12 @@ export function useSettings() {
   function setPromotions(promotions: Promotion[]): void {
     setSettings(prev => {
       const updated: AppSettings = { ...prev, promotions };
-      persistSettings(updated);
+      try {
+        persistSettings(updated);
+      } catch (e) {
+        console.error('[settings] QuotaExceededError:', e);
+        return prev;
+      }
       return updated;
     });
   }
@@ -264,7 +285,12 @@ export function useSettings() {
   function setPaymentMethods(paymentMethods: PaymentMethodConfig[]): void {
     setSettings(prev => {
       const updated: AppSettings = { ...prev, paymentMethods };
-      persistSettings(updated);
+      try {
+        persistSettings(updated);
+      } catch (e) {
+        console.error('[settings] QuotaExceededError:', e);
+        return prev;
+      }
       return updated;
     });
   }
@@ -272,7 +298,12 @@ export function useSettings() {
   function setDiscountConfig(discountConfig: DiscountConfig): void {
     setSettings(prev => {
       const updated: AppSettings = { ...prev, discountConfig };
-      persistSettings(updated);
+      try {
+        persistSettings(updated);
+      } catch (e) {
+        console.error('[settings] QuotaExceededError:', e);
+        return prev;
+      }
       return updated;
     });
   }

@@ -490,7 +490,11 @@ export const AppProvider: React.FC<{
         batchNumber: `L-${approved.itemName.slice(0, 3).toUpperCase()}-R-${Date.now().toString(36).slice(-3).toUpperCase()}`,
         quantity: approved.quantity, stock: approved.quantity,
         elaborationDate: freshElab.toISOString().split('T')[0],
-        expiryDate: new Date(freshElab.getTime() + 3 * 86400000).toISOString().split('T')[0],
+        expiryDate: (() => {
+          const product = inv.products.find(p => p.id === approved.itemId);
+          const durabilityDays = product?.durabilityDays ?? 3;
+          return new Date(freshElab.getTime() + durabilityDays * 86400000).toISOString().split('T')[0];
+        })(),
         status: 'active' as const, withdrawalMode: 'manual' as const,
       }, ...prev]);
 

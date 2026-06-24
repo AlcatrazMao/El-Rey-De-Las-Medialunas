@@ -100,7 +100,8 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
         const autoCloseNote = session.note
           ? session.note + ' | Cierre automático: turno no rendido — requiere reconciliación de supervisor.'
           : 'Cierre automático: turno no rendido — requiere reconciliación de supervisor.';
-        // NO seteamos realAmount ni discrepancy: el conteo real nunca ocurrió.
+        // Seteamos realAmount y discrepancy a null (no undefined): el conteo real
+        // nunca ocurrió, pero JSON.stringify debe preservar el campo explícito.
         // El backend recibe closing_amount: null para marcar la sesión como
         // 'auto_closed' y preservar la discrepancia auditable.
         const finishedSession: CashSession = {
@@ -108,9 +109,10 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
           status: 'closed',
           closedAt,
           closedBy: session.openedBy,
-          // realAmount y discrepancy quedan undefined — sin conteo real no hay diferencia calculable
-          realAmount: undefined,
-          discrepancy: undefined,
+          // realAmount y discrepancy quedan null — sin conteo real no hay diferencia calculable.
+          // null (no undefined) para que JSON.stringify preserve el campo y no lo elimine silenciosamente.
+          realAmount: null,
+          discrepancy: null,
           note: autoCloseNote,
         };
         setCashSessionsHistory(prev => [finishedSession, ...prev]);
