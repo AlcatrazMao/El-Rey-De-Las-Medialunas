@@ -117,4 +117,4 @@ jobs:
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/fb-key.json
           FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
           echo "Deploying to Firebase project: $FB_PROJECT"
-          npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT"
+          npx firebase-tools@15.22.0 deploy --only hosting --project "$FB_PROJECT"
