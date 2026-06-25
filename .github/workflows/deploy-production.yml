@@ -115,4 +115,5 @@ jobs:
             echo "$FIREBASE_SA" | base64 -d > /tmp/fb-key.json
           fi
           FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
-          npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT" --token "$FIREBASE_TOKEN"
+          OUT=$(npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT" --token "$FIREBASE_TOKEN" 2>&1) && echo "$OUT" || \
+            (echo "$OUT" | grep -q "current active version" && echo "Already up to date — no new deploy needed." || (echo "$OUT"; exit 1))
