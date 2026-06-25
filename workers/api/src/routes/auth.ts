@@ -86,18 +86,25 @@ async function verifyFirebaseIdToken(idToken: string, env: Env): Promise<{ uid: 
   const firebaseUid = payload.user_id ?? payload.uid ?? payload.sub;
   if (!firebaseUid) return null;
 
-  if (!env.FIREBASE_API_KEY) {
+  const apiKey = env.FIREBASE_API_KEY?.trim();
+  if (!apiKey) {
     throw new Error('FIREBASE_API_KEY not configured — cannot verify token');
   }
 
-  const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idToken }),
-    },
-  );
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      },
+    );
+  } catch (err) {
+    console.error('[auth] identitytoolkit fetch failed:', err);
+    return null;
+  }
 
   if (!res.ok) return null;
 
