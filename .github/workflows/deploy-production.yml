@@ -95,6 +95,10 @@ jobs:
           # Admin secrets set manually in Cloudflare Dashboard
           # (no se pushean desde CI para evitar corrupción)
 
+      - name: Stamp build SHA into version.json
+        run: |
+          echo '{"buildId":"${{ github.sha }}","builtAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' > apps/pos-pc/public/version.json
+
       - name: Build Frontend
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
@@ -115,5 +119,4 @@ jobs:
             echo "$FIREBASE_SA" | base64 -d > /tmp/fb-key.json
           fi
           FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
-          OUT=$(npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT" --token "$FIREBASE_TOKEN" 2>&1) && echo "$OUT" || \
-            (echo "$OUT" | grep -q "current active version" && echo "Already up to date — no new deploy needed." || (echo "$OUT"; exit 1))
+          npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT" --token "$FIREBASE_TOKEN"
