@@ -1585,7 +1585,7 @@ export const POSView: React.FC = () => {
           setShowSelectionModal(true);
           playBeep(705, 0.05);
         }}
-        className="fixed bottom-28 right-6 lg:bottom-36 lg:right-8 z-41 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
+        className="fixed bottom-28 right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
         title="Buscar Panificados (Modo Lista)"
       >
         <Search className="h-6 w-6 group-hover:rotate-12 transition-transform duration-300" />
