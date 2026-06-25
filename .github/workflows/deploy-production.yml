@@ -119,4 +119,11 @@ jobs:
             echo "$FIREBASE_SA" | base64 -d > /tmp/fb-key.json
           fi
           FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
-          npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT" --token "$FIREBASE_TOKEN"
+          # firebase-tools@15.22.2 bug: hace el release exitosamente pero reintenta y falla con 400.
+          # "current active version" confirma que la nueva versión YA fue liberada — es seguro ignorarlo.
+          npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT" --token "$FIREBASE_TOKEN" 2>&1 | tee /tmp/fb-out.txt; EXIT=${PIPESTATUS[0]}
+          if [ $EXIT -ne 0 ] && grep -q "current active version" /tmp/fb-out.txt; then
+            echo "Deploy OK — firebase-tools hizo el release pero reintentó innecesariamente (bug 15.22.2)."
+          elif [ $EXIT -ne 0 ]; then
+            exit $EXIT
+          fi
