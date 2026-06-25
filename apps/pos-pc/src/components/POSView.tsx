@@ -11,7 +11,10 @@ import {
   X,
   Printer,
   FileDown,
-  CircleAlert
+  CircleAlert,
+  LayoutGrid,
+  List,
+  ChevronDown,
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
@@ -25,13 +28,11 @@ import { calcularPrecioUnitarioGrupo } from '../utils/productGroups';
 
 import { GroupSelectorModal } from './GroupSelectorModal';
 import { CartItemList } from './pos/CartItemList';
-import { PaymentMethodSelector } from './pos/PaymentMethodSelector';
 
 export const POSView: React.FC = () => {
   const {
     products,
     addSale,
-    gateways,
     activeUser,
     addSystemNotification,
     currentCashSession,
@@ -43,6 +44,8 @@ export const POSView: React.FC = () => {
     addCustomer
   } = useApp();
 
+  const posSettings = getSettings();
+
   const [selectedCategory, setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<{
@@ -53,18 +56,27 @@ export const POSView: React.FC = () => {
     admite_acum_desc?: 0 | 1;
   }[]>([]);
   const [groupSelectorProduct, setGroupSelectorProduct] = useState<Product | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<Sale['paymentMethod']>('tarjeta');
+  const [paymentMethod, setPaymentMethod] = useState<Sale['paymentMethod']>(
+    (posSettings.pos?.defaultPaymentMethod as Sale['paymentMethod']) ?? 'efectivo'
+  );
   const [selectedDiscount, setSelectedDiscount] = useState<number>(0);
   const [customerName, setCustomerName] = useState('');
   const [customerDoc, setCustomerDoc] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  
+  const [fiscalType, setFiscalType] = useState<'consumidor_final' | 'exento' | 'responsable_inscripto' | 'monotributista'>('consumidor_final');
+
+  // Quick search inline states
+  const [quickSearch, setQuickSearch] = useState('');
+  const [showQuickResults, setShowQuickResults] = useState(false);
+
   // Selection Modal states
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [modalSelectedCategory, setModalSelectedCategory] = useState<CategoryType | 'todos' | null>(null);
-  const [modalMode, setModalMode] = useState<'list' | 'visual'>('list');
+  const [modalMode, setModalMode] = useState<'list' | 'visual'>(
+    (posSettings.pos?.defaultViewMode as 'list' | 'visual') ?? 'visual'
+  );
   const [modalSortKey, setModalSortKey] = useState<'monto' | 'orden' | 'fecha_elaboracion' | null>(null);
   const [modalSortOrder, setModalSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -666,7 +678,6 @@ export const POSView: React.FC = () => {
   };
 
   // Calculate prices — precios con IVA incluido, se extrae: tax = total - total/(1+rate)
-  const posSettings = getSettings();
   // Use unitPrice (snapshot with group discount already baked in) instead of product.price.
   const cartSubtotal = cart.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
   const cartIvaRate = posSettings.fiscal.ivaRate;
@@ -751,6 +762,8 @@ export const POSView: React.FC = () => {
     playBeep(520, 0.1);
 
     const gatewayNames: Record<Sale['paymentMethod'], string> = {
+      efectivo: 'Efectivo en Caja',
+      qr: 'QR / Transferencia',
       tarjeta: 'Stripe API Gateway',
       transferencia: 'Transferencia Bancaria',
     };
@@ -816,41 +829,82 @@ export const POSView: React.FC = () => {
   // Filter products list
   const filteredProducts = products.filter(prod => {
     const matchesCategory = selectedCategory === 'todos' || prod.category === selectedCategory;
-    const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           prod.code.includes(searchQuery);
     return matchesCategory && matchesSearch;
   });
 
+  // Quick search inline — filtro en tiempo real para el buscador del POS principal
+  const quickSearchResults = quickSearch.trim().length >= 1
+    ? products.filter(p =>
+        p.name.toLowerCase().includes(quickSearch.toLowerCase()) ||
+        p.code.includes(quickSearch)
+      ).slice(0, 8)
+    : [];
+
+  // Auto-add si hay exactamente 1 resultado y la query tiene al menos 2 chars
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (quickSearchResults.length === 1 && quickSearch.trim().length >= 2) {
+      addToCart(quickSearchResults[0]);
+      setQuickSearch('');
+      setShowQuickResults(false);
+    }
+  // Intencionalmente solo depende del count y la query para evitar re-runs al cambiar cart
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickSearchResults.length, quickSearch]);
+
   return (
     <div className="flex flex-col gap-6 min-h-[calc(100vh-140px)] transition-all duration-300">
-      
+
 
       {/* RIGHT COLUMN: POS CHECKOUT CART PANEL (Nueva Venta) */}
-      <div className="w-full max-w-3xl mx-auto min-w-0 min-h-0 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl p-5 shadow-xs flex flex-col overflow-visible">
-        
+      <div className="w-full max-w-3xl mx-auto min-w-0 min-h-0 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs overflow-visible pb-36">
+
+        {/* Scrollable area — header, search, fiscal, cart, subtotals, payment, discount */}
+        <div className="p-5">
+
         {/* Header detail */}
         <div className="flex items-center justify-between border-b pb-3 border-gray-100 dark:border-zinc-800 mb-4">
           <div className="flex items-center gap-2">
             <ShoppingCart className="h-5 w-5 text-amber-500" />
             <h2 className="font-extrabold text-gray-800 dark:text-zinc-100 text-base">Nueva Venta</h2>
           </div>
-          
-          {/* Lupa button in the middle, respecting design guidelines */}
-          <button
-            id="btn-trigger-search-modal"
-            onClick={() => {
-              setModalMode('list');
-              setModalSelectedCategory(null);
-              setSearchQuery('');
-              setShowSelectionModal(true);
-              playBeep(705, 0.05);
-            }}
-            className="p-2 sm:px-3 sm:py-1.5 rounded-xl border border-amber-200 dark:border-zinc-850 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-xs"
-            title="Seleccionar Panificados"
-          >
-            <Search className="h-4 w-4" />
-            <span className="hidden sm:inline">Buscar</span>
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Mini toggle Visual/Lista */}
+            <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-1">
+              <button
+                onClick={() => setModalMode('visual')}
+                className={`p-1.5 rounded ${modalMode === 'visual' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}
+                title="Vista visual"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setModalMode('list')}
+                className={`p-1.5 rounded ${modalMode === 'list' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}
+                title="Vista lista"
+              >
+                <List className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Lupa button */}
+            <button
+              id="btn-trigger-search-modal"
+              onClick={() => {
+                setModalSelectedCategory(null);
+                setSearchQuery('');
+                setShowSelectionModal(true);
+                playBeep(705, 0.05);
+              }}
+              className="p-2 sm:px-3 sm:py-1.5 rounded-xl border border-amber-200 dark:border-zinc-850 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-xs"
+              title="Seleccionar Panificados"
+            >
+              <Search className="h-4 w-4" />
+              <span className="hidden sm:inline">Buscar</span>
+            </button>
 
             {/* Scanner HID siempre activo — indicador de estado */}
             <div className="flex items-center gap-1.5">
@@ -874,60 +928,127 @@ export const POSView: React.FC = () => {
               </button>
             </div>
 
-          <span className="text-xs bg-amber-100 dark:bg-amber-950/40 text-amber-805 dark:text-amber-400 font-bold px-2.5 py-1 rounded-full whitespace-nowrap">
-            Nº Comp: Auto-Gen
-          </span>
+            <span className="text-xs bg-amber-100 dark:bg-amber-950/40 text-amber-805 dark:text-amber-400 font-bold px-2.5 py-1 rounded-full whitespace-nowrap">
+              Nº Comp: Auto-Gen
+            </span>
+          </div>
         </div>
 
-        {/* Customer selector with search */}
-        <div className="mb-3 bg-gray-50 dark:bg-zinc-950/40 p-3 rounded-xl border border-gray-100 dark:border-zinc-850 relative">
-          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Cliente</label>
-          {customerName ? (
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex-1 min-w-0 truncate">
-                <span className="text-sm font-bold text-gray-800 dark:text-zinc-100">{customerName}</span>
-                {customerDoc && <span className="text-xs text-gray-500 ml-2">({customerDoc})</span>}
-              </div>
-              <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }}
-                className="text-xs text-red-500 hover:underline shrink-0">Cambiar</button>
+        {/* Quick search inline */}
+        <div className="relative mb-3">
+          <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 gap-2 focus-within:border-amber-500 transition-colors">
+            <Search className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            <input
+              type="text"
+              placeholder="Búsqueda rápida por nombre o código..."
+              value={quickSearch}
+              onChange={e => {
+                setQuickSearch(e.target.value);
+                setShowQuickResults(true);
+              }}
+              onFocus={() => setShowQuickResults(true)}
+              onBlur={() => setTimeout(() => setShowQuickResults(false), 150)}
+              className="bg-transparent flex-1 text-sm text-white placeholder-gray-500 outline-none"
+            />
+            {quickSearch && (
+              <button onClick={() => { setQuickSearch(''); setShowQuickResults(false); }}>
+                <X className="h-4 w-4 text-gray-400 hover:text-white" />
+              </button>
+            )}
+          </div>
+
+          {showQuickResults && quickSearchResults.length > 1 && (
+            <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-64 overflow-y-auto">
+              {quickSearchResults.map(product => (
+                <button
+                  key={product.id}
+                  onMouseDown={() => {
+                    addToCart(product);
+                    setQuickSearch('');
+                    setShowQuickResults(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-700 text-left transition-colors"
+                >
+                  <span className="text-sm text-white">{product.name}</span>
+                  <span className="text-xs text-amber-400">{formatCurrency(product.price)}</span>
+                </button>
+              ))}
             </div>
-          ) : (
-            <div>
-              <input type="text" placeholder="Buscar cliente o Consumidor Final..." value={customerSearch}
-                onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
-                onFocus={() => setShowCustomerDropdown(true)}
-                className="w-full text-xs bg-transparent border-b border-gray-200 dark:border-zinc-800 py-1 focus:outline-none focus:border-amber-500" />
-              {showCustomerDropdown && (
-                <div className="absolute left-3 right-3 mt-1 bg-white dark:bg-zinc-900 border rounded-xl shadow-lg z-30 max-h-48 overflow-y-auto">
-                  <button onClick={() => { setCustomerName('Consumidor Final'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
-                    className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800 flex items-center gap-2">
-                    👤 Consumidor Final (Anónimo)
-                  </button>
-                  {customers.filter(c => {
-                    // Null-safe filter: tax_id, email, phone pueden ser null/
-                    // undefined para Consumidor Final → `.includes()` crashea.
-                    const q = customerSearch.toLowerCase();
-                    return (
-                      (c.name ?? '').toLowerCase().includes(q) ||
-                      (c.tax_id ?? '').toLowerCase().includes(q) ||
-                      (c.email ?? '').toLowerCase().includes(q) ||
-                      (c.phone ?? '').toLowerCase().includes(q)
-                    );
-                  }).slice(0, 5).map(c => (
-                    <button key={c.id} onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800">
-                      <div className="font-bold">{c.name}</div>
-                      {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
-                    </button>
-                  ))}
-                  <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
-                    className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800">
-                    + Crear nuevo cliente
-                  </button>
+          )}
+        </div>
+
+        {/* Tipo Fiscal (ARCA) + Cliente colapsado */}
+        <div className="mb-3 bg-gray-50 dark:bg-zinc-950/40 p-3 rounded-xl border border-gray-100 dark:border-zinc-850 space-y-2">
+          {/* Tipo fiscal */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 whitespace-nowrap">Tipo cliente</span>
+            <select
+              value={fiscalType}
+              onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
+              className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+            >
+              <option value="consumidor_final">Consumidor Final</option>
+              <option value="exento">IVA Exento</option>
+              <option value="responsable_inscripto">Responsable Inscripto</option>
+              <option value="monotributista">Monotributista</option>
+            </select>
+          </div>
+
+          {/* Cliente — colapsado por defecto */}
+          <details className="group">
+            <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300 list-none flex items-center gap-1 select-none">
+              <ChevronDown className="h-3 w-3 group-open:rotate-180 transition-transform" />
+              <span>Datos del cliente (opcional)</span>
+            </summary>
+            <div className="mt-2 relative">
+              {customerName ? (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0 truncate">
+                    <span className="text-sm font-bold text-gray-800 dark:text-zinc-100">{customerName}</span>
+                    {customerDoc && <span className="text-xs text-gray-500 ml-2">({customerDoc})</span>}
+                  </div>
+                  <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }}
+                    className="text-xs text-red-500 hover:underline shrink-0">Cambiar</button>
+                </div>
+              ) : (
+                <div>
+                  <input type="text" placeholder="Buscar cliente o Consumidor Final..." value={customerSearch}
+                    onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
+                    onFocus={() => setShowCustomerDropdown(true)}
+                    className="w-full text-xs bg-transparent border-b border-gray-200 dark:border-zinc-800 py-1 focus:outline-none focus:border-amber-500" />
+                  {showCustomerDropdown && (
+                    <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-xl shadow-lg z-30 max-h-48 overflow-y-auto">
+                      <button onClick={() => { setCustomerName('Consumidor Final'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                        className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800 flex items-center gap-2">
+                        👤 Consumidor Final (Anónimo)
+                      </button>
+                      {customers.filter(c => {
+                        // Null-safe filter: tax_id, email, phone pueden ser null/
+                        // undefined para Consumidor Final → `.includes()` crashea.
+                        const q = customerSearch.toLowerCase();
+                        return (
+                          (c.name ?? '').toLowerCase().includes(q) ||
+                          (c.tax_id ?? '').toLowerCase().includes(q) ||
+                          (c.email ?? '').toLowerCase().includes(q) ||
+                          (c.phone ?? '').toLowerCase().includes(q)
+                        );
+                      }).slice(0, 5).map(c => (
+                        <button key={c.id} onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800">
+                          <div className="font-bold">{c.name}</div>
+                          {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
+                        </button>
+                      ))}
+                      <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
+                        className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800">
+                        + Crear nuevo cliente
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
+          </details>
         </div>
 
         {/* Customer credit & fiscal info panel */}
@@ -1036,13 +1157,21 @@ export const POSView: React.FC = () => {
           </div>
         </div>
 
-        {/* Payment Gateways / Methods Picker */}
-        <PaymentMethodSelector
-          paymentMethods={posSettings.paymentMethods}
-          paymentMethod={paymentMethod}
-          setPaymentMethod={setPaymentMethod}
-          gateways={gateways}
-        />
+        {/* Payment Method — dropdown compacto */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider whitespace-nowrap">Método de pago</label>
+            <select
+              value={paymentMethod}
+              onChange={e => setPaymentMethod(e.target.value as Sale['paymentMethod'])}
+              className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+            >
+              {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
+                <option key={pm.id} value={pm.id}>{pm.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
         {/* Descuento */}
         {posSettings.discountConfig?.availablePercents?.length > 0 && (
@@ -1078,29 +1207,37 @@ export const POSView: React.FC = () => {
           </div>
         )}
 
-        {/* Submit Big checkout trigger button */}
-        <button
-          id="btn-pos-checkout"
-          onClick={handlePayment}
-          disabled={cart.length === 0 || isProcessingPayment}
-          className={`w-full py-4 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
-            cart.length === 0 
-              ? 'bg-gray-200 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none border-transparent'
-              : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white border-b-4 border-amber-700'
-          }`}
-        >
-          {isProcessingPayment ? (
-            <>
-              <Cpu className="h-4 w-4 animate-spin" />
-              <span>{processingStatusText}</span>
-            </>
-          ) : (
-            <>
-              <CreditCard className="h-4.5 w-4.5" />
-              <span>COBRAR {formatCurrency(cartTotal)}</span>
-            </>
-          )}
-        </button>
+        </div>{/* end scrollable area */}
+
+        {/* Footer sticky — TOTAL + COBRAR */}
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-gray-900 border-t border-gray-700 p-4" style={{ maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto', left: 0, right: 0 }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-400">Total</span>
+            <span className="text-xl font-bold text-amber-400">{formatCurrency(cartTotal)}</span>
+          </div>
+          <button
+            id="btn-pos-checkout"
+            onClick={handlePayment}
+            disabled={cart.length === 0 || isProcessingPayment}
+            className={`w-full py-4 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
+              cart.length === 0
+                ? 'bg-gray-200 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none border-transparent'
+                : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white border-b-4 border-amber-700'
+            }`}
+          >
+            {isProcessingPayment ? (
+              <>
+                <Cpu className="h-4 w-4 animate-spin" />
+                <span>{processingStatusText}</span>
+              </>
+            ) : (
+              <>
+                <CreditCard className="h-4.5 w-4.5" />
+                <span>COBRAR {formatCurrency(cartTotal)}</span>
+              </>
+            )}
+          </button>
+        </div>
 
       </div>
 
@@ -1438,7 +1575,7 @@ export const POSView: React.FC = () => {
         />
       )}
 
-      {/* FLOATING ACTION LUPA BUTTON FOR BOTH VIEWS */}
+      {/* FLOATING ACTION LUPA BUTTON — above the sticky cobrar footer */}
       <button
         id="btn-floating-lupa-search"
         onClick={() => {
@@ -1448,7 +1585,7 @@ export const POSView: React.FC = () => {
           setShowSelectionModal(true);
           playBeep(705, 0.05);
         }}
-        className="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-40 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
+        className="fixed bottom-28 right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
         title="Buscar Panificados (Modo Lista)"
       >
         <Search className="h-6 w-6 group-hover:rotate-12 transition-transform duration-300" />

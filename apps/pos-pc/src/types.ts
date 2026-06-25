@@ -73,7 +73,7 @@ export interface Sale {
   idempotencyKey: string;
   /** true si el último intento de sync con D1 falló (la venta es local-only por ahora). */
   syncFailed?: boolean;
-  paymentMethod: 'tarjeta' | 'transferencia';
+  paymentMethod: 'efectivo' | 'qr' | 'tarjeta' | 'transferencia';
   paymentStatus: 'completed' | 'failed' | 'pending' | 'voided';
   operatorRole: string;
   operatorName: string;
