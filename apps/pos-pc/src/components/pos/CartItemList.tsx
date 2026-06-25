@@ -43,7 +43,7 @@ export const CartItemList: React.FC<CartItemListProps> = ({
   onEmptyClick,
 }) => {
   return (
-    <div className="flex-1 overflow-y-auto min-h-[120px] max-h-[calc(100vh-520px)] pr-1 divide-y divide-gray-100 dark:divide-zinc-800 space-y-2 mb-4 min-w-0">
+    <div className="pr-1 divide-y divide-gray-100 dark:divide-zinc-800 space-y-2 mb-4 min-w-0">
       {cart.length === 0 ? (
         <button
           type="button"

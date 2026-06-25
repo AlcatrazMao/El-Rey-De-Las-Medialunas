@@ -59,7 +59,7 @@ export interface Promotion {
   active: boolean;
 }
 
-export type PaymentMethodId = 'tarjeta' | 'transferencia';
+export type PaymentMethodId = 'efectivo' | 'qr' | 'tarjeta' | 'transferencia';
 
 export type PaymentAdjustmentType = 'none' | 'recargo' | 'descuento';
 
@@ -91,6 +91,11 @@ export interface DiscountConfig {
   allowManualDiscount: boolean;
 }
 
+export interface PosSettings {
+  defaultPaymentMethod: PaymentMethodId;
+  defaultViewMode: 'visual' | 'list';
+}
+
 export interface AppSettings {
   business: BusinessSettings;
   fiscal: FiscalSettings;
@@ -102,6 +107,7 @@ export interface AppSettings {
   sync: SyncSettings;
   paymentMethods: PaymentMethodConfig[];
   discountConfig: DiscountConfig;
+  pos: PosSettings;
 }
 
 type ObjectSections = Omit<AppSettings, 'gatewayCredentials' | 'priceLists' | 'promotions' | 'paymentMethods' | 'discountConfig'>;
@@ -143,20 +149,26 @@ const DEFAULT_SETTINGS: AppSettings = {
     autoSyncOnClose: true,
   },
   paymentMethods: [
-    { id: 'tarjeta',        label: 'Tarjeta',       icon: '💳', enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
-    { id: 'transferencia',  label: 'Transferencia', icon: '🏦', enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
+    { id: 'efectivo',       label: 'Efectivo',           icon: 'Banknote', enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: true },
+    { id: 'qr',             label: 'QR / Transferencia', icon: 'QrCode',   enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: true },
+    { id: 'tarjeta',        label: 'Tarjeta',            icon: '💳',       enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
+    { id: 'transferencia',  label: 'Transferencia',      icon: '🏦',       enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
   ],
   discountConfig: {
     availablePercents: [5, 10, 15, 20, 25, 30],
     allowManualDiscount: false,
   },
+  pos: {
+    defaultPaymentMethod: 'efectivo',
+    defaultViewMode: 'visual',
+  },
 };
 
 function migratePaymentMethods(stored: unknown): PaymentMethodConfig[] {
   if (!Array.isArray(stored)) return [...DEFAULT_SETTINGS.paymentMethods];
-  // Mantenemos solo tarjeta y transferencia. Los métodos legacy (efectivo,
-  // mercado_pago, paypal) ya no se soportan: se descartan silenciosamente.
-  const VALID: PaymentMethodId[] = ['tarjeta', 'transferencia'];
+  // Métodos soportados. Los métodos legacy no reconocidos (mercado_pago, paypal)
+  // se descartan silenciosamente.
+  const VALID: PaymentMethodId[] = ['efectivo', 'qr', 'tarjeta', 'transferencia'];
   const upgraded: PaymentMethodConfig[] = [];
   for (const pm of stored as Array<Record<string, unknown>>) {
     const id = pm?.id as PaymentMethodId | undefined;
@@ -204,6 +216,7 @@ export function getSettings(): AppSettings {
       sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
       paymentMethods: migratePaymentMethods(parsed.paymentMethods),
       discountConfig: parsed.discountConfig ?? { ...DEFAULT_SETTINGS.discountConfig, availablePercents: [...DEFAULT_SETTINGS.discountConfig.availablePercents] },
+      pos: { ...DEFAULT_SETTINGS.pos, ...(parsed.pos ?? {}) },
     };
   } catch {
     return DEFAULT_SETTINGS;
