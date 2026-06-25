@@ -107,12 +107,12 @@ jobs:
       - name: Deploy to Firebase
         env:
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
           if echo "$FIREBASE_SA" | grep -q '^{'; then
             echo "$FIREBASE_SA" > /tmp/fb-key.json
           else
             echo "$FIREBASE_SA" | base64 -d > /tmp/fb-key.json
           fi
-          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/fb-key.json
           FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
-          npx firebase-tools@15.22.1 deploy --only hosting --project "$FB_PROJECT"
+          npx firebase-tools@latest deploy --only hosting --project "$FB_PROJECT" --token "$FIREBASE_TOKEN"
