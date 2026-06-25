@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
 // Exact validation from workers/api/src/routes/inventory.ts, POST /adjust
-// if (typeof body.quantity !== 'number' || body.quantity <= 0 || !isFinite(body.quantity))
+// if (typeof body.quantity !== 'number' || body.quantity <= 0 || !isFinite(body.quantity) || body.quantity > 1_000_000)
 function isValidQuantity(quantity: unknown): boolean {
-  return typeof quantity === 'number' && quantity > 0 && isFinite(quantity);
+  return typeof quantity === 'number' && quantity > 0 && isFinite(quantity) && quantity <= 1_000_000;
 }
 
 describe('inventory quantity validation', () => {
@@ -45,5 +45,13 @@ describe('inventory quantity validation', () => {
 
   it('rejects undefined', () => {
     expect(isValidQuantity(undefined)).toBe(false);
+  });
+
+  it('rejects quantity > 1,000,000 (server cap)', () => {
+    expect(isValidQuantity(1_000_001)).toBe(false);
+  });
+
+  it('accepts quantity exactly at the cap (1,000,000)', () => {
+    expect(isValidQuantity(1_000_000)).toBe(true);
   });
 });

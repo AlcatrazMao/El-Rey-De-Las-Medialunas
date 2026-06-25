@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 
 // Replica of price list adjustment logic from apps/pos-pc/src/components/POSView.tsx
 //
-// Source (lines 562–571):
+// Source (current):
 //   const pmConfig = posSettings.paymentMethods?.find(m => m.id === paymentMethod);
 //   const activePriceList = pmConfig?.linkedPriceListId
 //     ? (posSettings.priceLists.find(pl => pl.id === pmConfig.linkedPriceListId) ?? null)
 //     : null;
-//   const priceListDiscountPercent = activePriceList?.discountPercent ?? 0;
+//   const priceListDiscountPercent = acumulaDescuentos ? (activePriceList?.discountPercent ?? 0) : 0;
 //   const priceListAdjustmentAmount = priceListDiscountPercent !== 0
 //     ? parseFloat((afterDiscount * priceListDiscountPercent / 100).toFixed(2))
 //     : 0;
@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 //   - Positive discountPercent → descuento (reduces price): adjustment is subtracted from total
 //   - Negative discountPercent → recargo (increases price): adjustment is subtracted (negative value adds)
 //   - No linkedPriceListId on payment method → activePriceList is null → adjustment is 0
+//   - acumulaDescuentos=false on the payment method → priceListDiscountPercent forced to 0 → adjustment is 0
 
 interface PriceList {
   id: string;
@@ -25,19 +26,21 @@ interface PriceList {
 interface PaymentMethodConfig {
   id: string;
   linkedPriceListId?: string;
+  acumulaDescuentos?: boolean;
 }
 
 function calcPriceListAdjustment(
   afterDiscount: number,
   paymentMethodId: string,
   paymentMethods: PaymentMethodConfig[],
-  priceLists: PriceList[]
+  priceLists: PriceList[],
+  acumulaDescuentos = true
 ): number {
   const pmConfig = paymentMethods.find(m => m.id === paymentMethodId);
   const activePriceList = pmConfig?.linkedPriceListId
     ? (priceLists.find(pl => pl.id === pmConfig.linkedPriceListId) ?? null)
     : null;
-  const priceListDiscountPercent = activePriceList?.discountPercent ?? 0;
+  const priceListDiscountPercent = acumulaDescuentos ? (activePriceList?.discountPercent ?? 0) : 0;
   const priceListAdjustmentAmount = priceListDiscountPercent !== 0
     ? parseFloat((afterDiscount * priceListDiscountPercent / 100).toFixed(2))
     : 0;
@@ -105,5 +108,11 @@ describe('price list adjustment calculation', () => {
     const pm: PaymentMethodConfig = { id: 'pm1', linkedPriceListId: 'l10' };
     const adjustment = calcPriceListAdjustment(333.33, 'pm1', [pm], [listDiez]);
     expect(adjustment).toBe(33.33);
+  });
+
+  it('acumulaDescuentos=false → adjustment = 0 aunque haya lista vinculada', () => {
+    // Cuando el método de pago no acumula descuentos, la lista de precios queda anulada
+    const adjustment = calcPriceListAdjustment(1000, 'efectivo', allPMs, allLists, false);
+    expect(adjustment).toBe(0);
   });
 });
