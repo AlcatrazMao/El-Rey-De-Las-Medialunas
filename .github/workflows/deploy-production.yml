@@ -104,7 +104,7 @@ jobs:
           VITE_APP_ENV: production
         run: pnpm build --filter=@medialunas/pos-pc
 
-      - name: Create .firebaserc
+      - name: Deploy to Firebase
         env:
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
@@ -113,14 +113,6 @@ jobs:
           else
             echo "$FIREBASE_SA" | base64 -d > /tmp/fb-key.json
           fi
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/fb-key.json
           FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
-          echo "Firebase project: $FB_PROJECT"
-          printf '{"projects":{"default":"%s"}}' "$FB_PROJECT" > .firebaserc
-
-      - name: Deploy to Firebase
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          channelId: live
-          firebaseToolsVersion: 15.21.0
+          npx firebase-tools@15.22.1 deploy --only hosting --project "$FB_PROJECT"
