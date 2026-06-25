@@ -218,7 +218,7 @@ syncRoutes.post("/push", async (c) => {
       // "FORBIDDEN: ..."). Expose the code to the client so it can react
       // (e.g. skip retrying FORBIDDEN ops); keep the raw message server-side.
       const codeMatch = /^([A-Z_]+):/.exec(msg);
-      const code = codeMatch ? codeMatch[1] : "APPLY_FAILED";
+      const code = codeMatch?.[1] ?? "APPLY_FAILED";
       errors.push({ client_id: op.client_id, entity_type: op.entity_type, code, message: code === "APPLY_FAILED" ? "Error al aplicar operación" : msg.replace(/^[A-Z_]+:\s*/, "") });
     }
   }
