@@ -104,16 +104,14 @@ jobs:
           VITE_APP_ENV: production
         run: pnpm build --filter=@medialunas/pos-pc
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
       - name: Deploy to Firebase
-        env:
-          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
-          if echo "$FIREBASE_SA" | grep -q '^{'; then
-            echo "$FIREBASE_SA" > /tmp/fb-key.json
-          else
-            echo "$FIREBASE_SA" | base64 -d > /tmp/fb-key.json
-          fi
-          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/fb-key.json
-          FB_PROJECT=$(python3 -c "import json; print(json.load(open('/tmp/fb-key.json'))['project_id'])")
           npm install -g firebase-tools@^13.0.0
-          firebase deploy --only hosting --project "$FB_PROJECT" --non-interactive
+          firebase deploy --only hosting \
+            --project "${{ secrets.FIREBASE_PROJECT_ID }}" \
+            --non-interactive
