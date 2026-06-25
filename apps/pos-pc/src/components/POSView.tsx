@@ -33,20 +33,18 @@ export const POSView: React.FC = () => {
   const {
     products,
     addSale,
-    activeUser,
     addSystemNotification,
     currentCashSession,
     setActiveTab,
     selectedSellerId,
-    setSelectedSellerId,
-    users,
     customers,
     addCustomer
   } = useApp();
 
   const posSettings = getSettings();
 
-  const [selectedCategory, setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [selectedCategory, _setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<{
     product: Product;
@@ -208,6 +206,17 @@ export const POSView: React.FC = () => {
     window.addEventListener('blur', clearBuffer);
     return () => window.removeEventListener('blur', clearBuffer);
   }, []);
+
+  // Auto-add si hay exactamente 1 resultado de quick search y la query tiene al menos 2 chars
+  useEffect(() => {
+    if (quickSearchResults.length === 1 && quickSearch.trim().length >= 2) {
+      addToCart(quickSearchResults[0]);
+      setQuickSearch('');
+      setShowQuickResults(false);
+    }
+  // Intencionalmente solo depende del count y la query para evitar re-runs al cambiar cart
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickSearchResults.length, quickSearch]);
 
   // Audio Beep generator
   const playBeep = (freq = 880, duration = 0.08) => {
@@ -841,18 +850,6 @@ export const POSView: React.FC = () => {
         p.code.includes(quickSearch)
       ).slice(0, 8)
     : [];
-
-  // Auto-add si hay exactamente 1 resultado y la query tiene al menos 2 chars
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (quickSearchResults.length === 1 && quickSearch.trim().length >= 2) {
-      addToCart(quickSearchResults[0]);
-      setQuickSearch('');
-      setShowQuickResults(false);
-    }
-  // Intencionalmente solo depende del count y la query para evitar re-runs al cambiar cart
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickSearchResults.length, quickSearch]);
 
   return (
     <div className="flex flex-col gap-6 min-h-[calc(100vh-140px)] transition-all duration-300">
