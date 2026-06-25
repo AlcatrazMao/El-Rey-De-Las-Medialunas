@@ -207,6 +207,14 @@ export const POSView: React.FC = () => {
     return () => window.removeEventListener('blur', clearBuffer);
   }, []);
 
+  // Quick search inline — filtro en tiempo real para el buscador del POS principal
+  const quickSearchResults = quickSearch.trim().length >= 1
+    ? products.filter(p =>
+        p.name.toLowerCase().includes(quickSearch.toLowerCase()) ||
+        p.code.includes(quickSearch)
+      ).slice(0, 8)
+    : [];
+
   // Auto-add si hay exactamente 1 resultado de quick search y la query tiene al menos 2 chars
   useEffect(() => {
     if (quickSearchResults.length === 1 && quickSearch.trim().length >= 2) {
@@ -842,14 +850,6 @@ export const POSView: React.FC = () => {
                           prod.code.includes(searchQuery);
     return matchesCategory && matchesSearch;
   });
-
-  // Quick search inline — filtro en tiempo real para el buscador del POS principal
-  const quickSearchResults = quickSearch.trim().length >= 1
-    ? products.filter(p =>
-        p.name.toLowerCase().includes(quickSearch.toLowerCase()) ||
-        p.code.includes(quickSearch)
-      ).slice(0, 8)
-    : [];
 
   return (
     <div className="flex flex-col gap-6 min-h-[calc(100vh-140px)] transition-all duration-300">
