@@ -13,7 +13,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import * as React from 'react'
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 import { useApp } from '../AppContext';
 import { useSettings } from '../hooks/useSettings';
@@ -56,6 +56,17 @@ export const CashSessionView: React.FC = () => {
   const [historicalClosingAmount, setHistoricalClosingAmount] = useState<number>(0);
   const [historicalClosingNote, setHistoricalClosingNote] = useState<string>('');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [highlightOpenSession, setHighlightOpenSession] = useState(false);
+  const openSessionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showHistoryModal && highlightOpenSession && openSessionRef.current) {
+      const timer = setTimeout(() => {
+        openSessionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 120);
+      return () => clearTimeout(timer);
+    }
+  }, [showHistoryModal, highlightOpenSession]);
 
   // Contador de billetes — claves como string para evitar coerción implícita
   const [billCounts, setBillCounts] = useState<Record<string, number>>({});
@@ -83,8 +94,11 @@ export const CashSessionView: React.FC = () => {
   const handleOpen = (e: React.FormEvent) => {
     e.preventDefault();
     if (openingAmount < 0) return;
-    // Abre la sesión directamente — el backend auto-cierra cualquier sesión anterior.
-    // El warning inline ya le avisa al usuario del estado pendiente.
+    if (openHistoricalSession) {
+      setHighlightOpenSession(true);
+      setShowHistoryModal(true);
+      return;
+    }
     openCashSession(openingAmount, openingNote);
     setOpeningAmount(settings.cash.defaultOpeningAmount);
     setOpeningNote(settings.cash.defaultOpeningNote);
@@ -508,7 +522,7 @@ export const CashSessionView: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setShowHistoryModal(false)}
+                    onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
                     className="flex items-center gap-1.5 text-xs font-black text-gray-500 dark:text-zinc-400 hover:text-gray-800 dark:hover:text-zinc-100 transition-colors cursor-pointer"
                   >
                     <ArrowLeft className="w-4 h-4" /> Volver
@@ -525,7 +539,7 @@ export const CashSessionView: React.FC = () => {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setShowHistoryModal(false)}
+                    onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
                     className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-400 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
@@ -551,8 +565,11 @@ export const CashSessionView: React.FC = () => {
                       return (
                         <div
                           key={sess.id}
-                          className={`border p-4 rounded-2xl space-y-3 ${
-                            isOpen
+                          ref={isOpen ? openSessionRef : undefined}
+                          className={`border p-4 rounded-2xl space-y-3 transition-all ${
+                            isOpen && highlightOpenSession
+                              ? 'bg-orange-50/70 dark:bg-orange-950/20 border-orange-500 dark:border-orange-500 ring-2 ring-orange-400/50 dark:ring-orange-500/40 ring-offset-2 dark:ring-offset-zinc-900'
+                              : isOpen
                               ? 'bg-orange-50/50 dark:bg-orange-950/10 border-orange-400/40 dark:border-orange-700/40'
                               : 'bg-gray-50/50 dark:bg-zinc-950/20 border-gray-150/70 dark:border-zinc-850 hover:border-amber-500/20'
                           }`}
@@ -606,6 +623,13 @@ export const CashSessionView: React.FC = () => {
                           <div className="bg-white/40 dark:bg-zinc-900/40 p-2.5 rounded-lg border border-gray-150/40 dark:border-zinc-850 text-[10.5px] italic text-gray-500 dark:text-zinc-400">
                             "{sess.note || 'Sin observaciones.'}"
                           </div>
+
+                          {isOpen && highlightOpenSession && (
+                            <div className="bg-orange-500 text-white text-[10px] font-black uppercase tracking-wider rounded-xl px-3 py-2 flex items-center gap-2">
+                              <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                              Cerrá esta sesión antes de abrir una nueva
+                            </div>
+                          )}
 
                           {isOpen && (
                             <div className="border-t border-orange-300/30 dark:border-orange-700/30 pt-3 space-y-2">
@@ -683,7 +707,7 @@ export const CashSessionView: React.FC = () => {
               <div className="border-t border-gray-100 dark:border-zinc-800 px-6 py-4">
                 <button
                   type="button"
-                  onClick={() => setShowHistoryModal(false)}
+                  onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
                   className="w-full flex items-center justify-center gap-2 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-600 dark:text-zinc-300 font-black text-xs uppercase tracking-widest rounded-2xl transition-all cursor-pointer"
                 >
                   <ArrowLeft className="w-4 h-4" /> Volver a la Caja
