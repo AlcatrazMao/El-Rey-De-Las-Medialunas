@@ -138,7 +138,16 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
       if (d1Sessions.length === 0) return;
       setCashSessionsHistory(prev => {
         const localIds = new Set(prev.map(s => s.id));
-        const newSessions = d1Sessions.filter(s => !localIds.has(s.id));
+        // También deduplicar por openedAt: si ya existe una sesión local con el
+        // mismo timestamp de apertura (±60s), la sesión de D1 es duplicada (IDs
+        // distintos por race condition del sync) y no debe agregarse.
+        const localOpenedAts = prev.map(s => new Date(s.openedAt).getTime());
+        const newSessions = d1Sessions.filter(s => {
+          if (localIds.has(s.id)) return false;
+          const t = new Date(s.openedAt).getTime();
+          const isDuplicate = localOpenedAts.some(lt => Math.abs(lt - t) < 60_000);
+          return !isDuplicate;
+        });
         if (newSessions.length === 0) return prev;
         return [...prev, ...newSessions].sort(
           (a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()

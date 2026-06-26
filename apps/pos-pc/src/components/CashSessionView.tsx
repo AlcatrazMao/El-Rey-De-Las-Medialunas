@@ -47,7 +47,7 @@ export const CashSessionView: React.FC = () => {
 
   const { settings } = useSettings();
 
-  const [openingAmount, setOpeningAmount] = useState<number>(settings.cash.defaultOpeningAmount);
+  const [openingAmount, setOpeningAmount] = useState<number>(0);
   const [openingNote, setOpeningNote] = useState<string>(settings.cash.defaultOpeningNote);
   const [closingAmount, setClosingAmount] = useState<number>(0);
   const [closingNote, setClosingNote] = useState<string>(settings.cash.defaultClosingNote);
