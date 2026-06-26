@@ -933,7 +933,7 @@ export const POSView: React.FC = () => {
 
         {/* Quick search inline */}
         <div className="relative mb-3">
-          <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 gap-2 focus-within:border-amber-500 transition-colors">
+          <div className="flex items-center bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 gap-2 focus-within:border-amber-500 transition-colors">
             <Search className="h-4 w-4 text-gray-400 flex-shrink-0" />
             <input
               type="text"
@@ -945,7 +945,7 @@ export const POSView: React.FC = () => {
               }}
               onFocus={() => setShowQuickResults(true)}
               onBlur={() => setTimeout(() => setShowQuickResults(false), 150)}
-              className="bg-transparent flex-1 text-sm text-white placeholder-gray-500 outline-none"
+              className="bg-transparent flex-1 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 dark:placeholder-zinc-600 outline-none"
             />
             {quickSearch && (
               <button onClick={() => { setQuickSearch(''); setShowQuickResults(false); }}>
@@ -982,7 +982,7 @@ export const POSView: React.FC = () => {
             <select
               value={fiscalType}
               onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
-              className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+              className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
             >
               <option value="consumidor_final">Consumidor Final</option>
               <option value="exento">IVA Exento</option>
@@ -1104,132 +1104,119 @@ export const POSView: React.FC = () => {
           }}
         />
 
-        {/* Pricing Subtotals block */}
-        <div className="bg-gray-50 dark:bg-zinc-950 p-4 rounded-xl border border-gray-100 dark:border-zinc-800 mb-4 space-y-2">
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>Subtotal:</span>
-            <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
-          </div>
-          {discountAmount > 0 && (
-            <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-              <span>Descuento ({effectiveDiscount}%):</span>
-              <span>- {formatCurrency(discountAmount)}</span>
-            </div>
-          )}
-          {selectedDiscount > 0 && !acumulaDescuentos && (
-            <div className="flex justify-between text-xs text-gray-400 italic">
-              <span>Descuento ignorado: el método de pago no acumula.</span>
-            </div>
-          )}
-          {activePriceList && priceListAdjustmentAmount !== 0 && (
-            <div className={`flex justify-between text-xs font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-              <span>Lista: {activePriceList.name} ({priceListDiscountPercent > 0 ? `-${priceListDiscountPercent}` : `+${Math.abs(priceListDiscountPercent)}`}%):</span>
-              <span>{priceListDiscountPercent > 0 ? `- ${formatCurrency(priceListAdjustmentAmount)}` : `+ ${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
-            </div>
-          )}
-          {adjustmentType === 'recargo' && paymentAdjustmentAmount > 0 && (
-            <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-bold">
-              <span>Recargo método pago ({adjustmentPercent}%):</span>
-              <span>+ {formatCurrency(paymentAdjustmentAmount)}</span>
-            </div>
-          )}
-          {adjustmentType === 'descuento' && paymentAdjustmentAmount < 0 && (
-            <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-              <span>Descuento método pago ({adjustmentPercent}%):</span>
-              <span>- {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
-            </div>
-          )}
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>Neto Gravado (Facturación):</span>
-            <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartTotal - cartTax)}</span>
-          </div>
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>IVA Factura ({(cartIvaRate * 100).toFixed(0)}%):</span>
-            <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartTax)}</span>
-          </div>
-          <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
-          <div className="flex justify-between text-base font-extrabold text-gray-850 dark:text-zinc-50">
-            <span>TOTAL DE COMPRA:</span>
-            <span className="text-amber-600 dark:text-amber-500">{formatCurrency(cartTotal)}</span>
-          </div>
-        </div>
+        {/* Controles + Resumen — 2 columnas */}
+        <div className="grid grid-cols-2 gap-5 mb-2">
 
-        {/* Payment Method — dropdown compacto */}
-        <div className="mb-4">
-          <div className="flex items-center gap-2">
-            <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider whitespace-nowrap">Método de pago</label>
-            <select
-              value={paymentMethod}
-              onChange={e => setPaymentMethod(e.target.value as Sale['paymentMethod'])}
-              className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
-            >
-              {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
-                <option key={pm.id} value={pm.id}>{pm.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Descuento */}
-        {posSettings.discountConfig?.availablePercents?.length > 0 && (
-          <div className="mb-4">
-            <label className="block text-[10px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Descuento</label>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setSelectedDiscount(0)}
-                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${
-                  selectedDiscount === 0
-                    ? 'bg-gray-800 dark:bg-zinc-200 text-white dark:text-zinc-900 border-transparent'
-                    : 'bg-white dark:bg-zinc-850 text-gray-600 dark:text-zinc-400 border-gray-200 dark:border-zinc-700 hover:bg-gray-50'
-                }`}
+          {/* Izquierda: método de pago + descuento */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400 dark:text-zinc-500 mb-1.5">
+                Método de pago
+              </label>
+              <select
+                value={paymentMethod}
+                onChange={e => setPaymentMethod(e.target.value as Sale['paymentMethod'])}
+                className="w-full bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-3 text-sm font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
               >
-                Sin desc.
-              </button>
-              {posSettings.discountConfig.availablePercents.map(pct => (
-                <button
-                  key={pct}
-                  type="button"
-                  onClick={() => setSelectedDiscount(pct)}
-                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${
-                    selectedDiscount === pct
-                      ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
-                      : 'bg-white dark:bg-zinc-850 text-gray-600 dark:text-zinc-400 border-gray-200 dark:border-zinc-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
-                  }`}
+                {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
+                  <option key={pm.id} value={pm.id}>{pm.label}</option>
+                ))}
+              </select>
+              {adjustmentType !== 'none' && adjustmentPercent > 0 && (
+                <p className={`text-[10px] mt-1.5 font-bold ${adjustmentType === 'recargo' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  {adjustmentType === 'recargo' ? '▲ Recargo' : '▼ Descuento'} {adjustmentPercent}% incluido
+                </p>
+              )}
+            </div>
+
+            {posSettings.discountConfig?.availablePercents?.length > 0 && (
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400 dark:text-zinc-500 mb-1.5">
+                  Descuento manual
+                </label>
+                <select
+                  value={selectedDiscount}
+                  onChange={e => setSelectedDiscount(Number(e.target.value))}
+                  className="w-full bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-3 text-sm font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
                 >
-                  -{pct}%
-                </button>
-              ))}
+                  <option value={0}>Sin descuento</option>
+                  {posSettings.discountConfig.availablePercents.map(pct => (
+                    <option key={pct} value={pct}>- {pct}%</option>
+                  ))}
+                </select>
+                {selectedDiscount > 0 && !acumulaDescuentos && (
+                  <p className="text-[10px] mt-1.5 text-gray-400 italic">El método de pago no acumula descuentos</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Derecha: resumen de precios */}
+          <div className="bg-gray-50 dark:bg-zinc-950 rounded-2xl border border-gray-100 dark:border-zinc-800 p-4 flex flex-col">
+            <div className="space-y-2 flex-1 text-xs">
+              <div className="flex justify-between text-gray-500">
+                <span>Subtotal</span>
+                <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
+              </div>
+              {discountAmount > 0 && (
+                <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
+                  <span>Descuento ({effectiveDiscount}%)</span>
+                  <span>- {formatCurrency(discountAmount)}</span>
+                </div>
+              )}
+              {activePriceList && priceListAdjustmentAmount !== 0 && (
+                <div className={`flex justify-between font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  <span className="truncate mr-2">{activePriceList.name}</span>
+                  <span className="shrink-0">{priceListDiscountPercent > 0 ? `- ${formatCurrency(priceListAdjustmentAmount)}` : `+ ${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
+                </div>
+              )}
+              {adjustmentType === 'recargo' && paymentAdjustmentAmount > 0 && (
+                <div className="flex justify-between text-amber-600 dark:text-amber-400 font-bold">
+                  <span>Recargo ({adjustmentPercent}%)</span>
+                  <span>+ {formatCurrency(paymentAdjustmentAmount)}</span>
+                </div>
+              )}
+              {adjustmentType === 'descuento' && paymentAdjustmentAmount < 0 && (
+                <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
+                  <span>Desc. pago ({adjustmentPercent}%)</span>
+                  <span>- {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-gray-400">
+                <span>IVA ({(cartIvaRate * 100).toFixed(0)}%)</span>
+                <span>{formatCurrency(cartTax)}</span>
+              </div>
+            </div>
+            <div className="border-t border-gray-200 dark:border-zinc-800 mt-3 pt-3 flex justify-between items-baseline gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Total</span>
+              <span className="text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums leading-none">{formatCurrency(cartTotal)}</span>
             </div>
           </div>
-        )}
+
+        </div>
 
         </div>{/* end scrollable area */}
 
-        {/* Footer sticky — TOTAL + COBRAR */}
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-gray-900 border-t border-gray-700 p-4" style={{ maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto', left: 0, right: 0 }}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-400">Total</span>
-            <span className="text-xl font-bold text-amber-400">{formatCurrency(cartTotal)}</span>
-          </div>
+        {/* Footer sticky — solo COBRAR */}
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm border-t border-gray-100 dark:border-zinc-800 p-4" style={{ maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto', left: 0, right: 0 }}>
           <button
             id="btn-pos-checkout"
             onClick={handlePayment}
             disabled={cart.length === 0 || isProcessingPayment}
-            className={`w-full py-4 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
+            className={`w-full py-5 rounded-2xl text-base font-extrabold flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
               cart.length === 0
-                ? 'bg-gray-200 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none border-transparent'
+                ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
                 : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white border-b-4 border-amber-700'
             }`}
           >
             {isProcessingPayment ? (
               <>
-                <Cpu className="h-4 w-4 animate-spin" />
+                <Cpu className="h-5 w-5 animate-spin" />
                 <span>{processingStatusText}</span>
               </>
             ) : (
               <>
-                <CreditCard className="h-4.5 w-4.5" />
+                <CreditCard className="h-5 w-5" />
                 <span>COBRAR {formatCurrency(cartTotal)}</span>
               </>
             )}
