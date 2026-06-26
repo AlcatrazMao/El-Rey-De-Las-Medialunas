@@ -17,8 +17,6 @@ const MAX_SIZE_BYTES = 2 * 1024 * 1024;
 const IMAGES_WORKER_URL = "https://imagenes-cf-r2.isosistemas2.workers.dev";
 
 // SECURITY: rate-limit per user — 30 uploads per hour.
-const UPLOAD_RATE_LIMIT = 30;
-const UPLOAD_RATE_WINDOW_S = 3600; // 1 hora en segundos
 
 const errBody = (code: string, message: string) => ({
   success: false as const,
@@ -57,41 +55,6 @@ uploadRoutes.post("/product-image", async (c) => {
   const userId = c.get("userId");
   if (!userId) {
     return c.json(errBody("UNAUTHORIZED", "Token de acceso requerido"), 401);
-  }
-
-  // SECURITY: rate-limit — máximo 30 uploads por hora por usuario.
-  // KV key: ratelimit:upload:{userId}, valor: JSON { count, resetAt (epoch s) }
-  {
-    const rlKey = `ratelimit:upload:${userId}`;
-    const nowEpoch = Math.floor(Date.now() / 1000);
-    const raw = await c.env.RATE_LIMIT.get(rlKey);
-    let rlEntry: { count: number; resetAt: number } = { count: 0, resetAt: nowEpoch + UPLOAD_RATE_WINDOW_S };
-
-    if (raw) {
-      try {
-        rlEntry = JSON.parse(raw) as { count: number; resetAt: number };
-        // Si la ventana ya expiró, reiniciar (> porque en el borde exacto la ventana sigue activa)
-        if (nowEpoch > rlEntry.resetAt) {
-          rlEntry = { count: 0, resetAt: nowEpoch + UPLOAD_RATE_WINDOW_S };
-        }
-      } catch {
-        rlEntry = { count: 0, resetAt: nowEpoch + UPLOAD_RATE_WINDOW_S };
-      }
-    }
-
-    if (rlEntry.count >= UPLOAD_RATE_LIMIT) {
-      const retryAfter = Math.max(1, rlEntry.resetAt - nowEpoch);
-      return c.json(
-        errBody("RATE_LIMITED", `Límite de ${UPLOAD_RATE_LIMIT} uploads/hora superado. Reintentá en ${retryAfter}s.`),
-        429,
-        { "Retry-After": String(retryAfter) },
-      );
-    }
-
-    // Incrementar contador y persistir con TTL hasta el final de la ventana
-    rlEntry.count += 1;
-    const ttl = Math.max(1, rlEntry.resetAt - nowEpoch);
-    await c.env.RATE_LIMIT.put(rlKey, JSON.stringify(rlEntry), { expirationTtl: ttl });
   }
 
   let formData: FormData;

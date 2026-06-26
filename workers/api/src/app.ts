@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { authMiddleware } from "./middleware/auth";
 import { corsMiddleware } from "./middleware/cors";
 import { errorHandler } from "./middleware/error-handler";
-import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { validate } from "./middleware/validate";
 import { adminRoutes } from "./routes/admin";
 import { auditRoutes } from "./routes/audit";
@@ -36,7 +35,6 @@ app.use("*", corsMiddleware());
 // hace DoS del login. Las rutas públicas (/auth/login, /auth/refresh, /health)
 // tienen sus propios rate-limits internos por IP + email hash.
 app.use("*", authMiddleware());
-app.use("*", rateLimitMiddleware());
 app.onError(errorHandler);
 
 app.route("/api/v1/auth", authRoutes);

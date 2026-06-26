@@ -215,6 +215,7 @@ authRoutes.post("/login", async (c) => {
     }
 
     try {
+      const ip = c.req.header("CF-Connecting-IP") || "unknown";
       await c.env.DB.prepare(
         "INSERT INTO audit_log (id, user_id, action, entity_type, entity_id, ip_address, created_at) VALUES (?, ?, 'auth.login', 'users', ?, ?, datetime('now'))",
       ).bind(crypto.randomUUID(), user.id, user.id, ip).run();
@@ -296,21 +297,6 @@ authRoutes.post("/logout", async (c) => {
         await c.env.SESSIONS.put(`revoked:${refresh_token}`, '1', { expirationTtl: revokedTtlSeconds() });
       } catch (err) {
         console.warn('[auth] blocklist write failed on logout:', err);
-      }
-
-      // Registrar el token en el set de tokens del usuario para permitir
-      // invalidación masiva de todas las sesiones del mismo usuario.
-      try {
-        const userTokensKey = `user_tokens:${stored.userId}`;
-        const existingRaw = await c.env.SESSIONS.get(userTokensKey, "text");
-        const existing: string[] = existingRaw ? (JSON.parse(existingRaw) as string[]) : [];
-        // Añadir token actual y descartar duplicados
-        const updated = Array.from(new Set([...existing, refresh_token]));
-        await c.env.SESSIONS.put(userTokensKey, JSON.stringify(updated), {
-          expirationTtl: REFRESH_TOKEN_TTL_SECONDS,
-        });
-      } catch (err) {
-        console.warn('[auth] user_tokens tracking failed on logout:', err);
       }
 
       try {
