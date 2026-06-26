@@ -3,7 +3,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
-  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag
+  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag, MoreHorizontal
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect } from 'react';
@@ -102,6 +102,9 @@ function ERPLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showSessionMenu, setShowSessionMenu] = useState(false);
   const [_showAddSession, setShowAddSession] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  const isPOSMode = activeTab === 'pos' || (activeTab === 'dashboard' && activeUser.role === 'cajero');
 
   // Load saved sessions from localStorage
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>(() => {
@@ -202,58 +205,98 @@ function ERPLayout() {
   return (
     <div className="min-h-screen bg-[#FDFBF7] dark:bg-zinc-950 flex flex-col font-sans transition-colors duration-300">
       <MainHeadLayout />
-      <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-3 lg:py-6 flex flex-col gap-4">
-        <nav className="hidden md:flex items-center justify-between gap-3 py-2 px-3 border border-orange-100/40 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm select-none">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {navItems.map(item => {
-              const isActive = activeTab === item.id;
-              return (
-                <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
-                  className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-200 cursor-pointer ${
-                    isActive ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'}`}>
-                  <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>
-                  <span className="hidden lg:inline">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Session switcher */}
-            <div className="relative">
-              <button onClick={() => setShowSessionMenu(!showSessionMenu)}
-                className="flex items-center gap-2 text-xs py-1.5 px-3 bg-amber-500/5 dark:bg-amber-950/10 border border-amber-500/10 dark:border-zinc-800 rounded-xl">
-                <UserIcon className="w-3.5 h-3.5 text-amber-500" />
-                <span className="font-bold text-gray-700 dark:text-zinc-300 truncate max-w-[100px]">{activeUser.name.split(' ')[0]}</span>
-                <span className="text-[8px] bg-amber-500/15 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-md uppercase font-black">{activeUser.role}</span>
-              </button>
-              {showSessionMenu && (
-                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-zinc-900 border rounded-xl shadow-lg z-50 p-2" onClick={e => e.stopPropagation()}>
-                  <div className="text-[10px] font-bold text-gray-400 uppercase px-2 py-1">Sesiones</div>
-                  {savedSessions.map(s => (
-                    <div key={s.email} className={`flex items-center gap-2 px-2 py-2 rounded-lg text-xs ${s.email === activeUser.email ? 'bg-amber-500/10' : 'hover:bg-gray-50 dark:hover:bg-zinc-800'}`}>
-                      <button onClick={() => handleLogout(s)} className="flex-1 flex items-center gap-2 text-left">
-                        <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center text-[10px] font-bold text-amber-700">{s.name[0]}</div>
-                        <div>
-                          <div className="font-bold text-gray-700 dark:text-zinc-200">{s.name}</div>
-                          <div className="text-[10px] text-gray-400">{s.role} · {s.email}</div>
-                        </div>
-                      </button>
-                      {s.email === activeUser.email && <Check className="w-3.5 h-3.5 text-amber-500" />}
-                      <button onClick={() => removeSession(s.email)} className="text-gray-400 hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
-                    </div>
-                  ))}
-                  <button onClick={() => { setShowSessionMenu(false); logout(); setShowAddSession(true); }}
-                    className="w-full flex items-center gap-2 px-2 py-2 mt-1 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-lg border-t border-gray-100 dark:border-zinc-800">
-                    <PlusCircle className="w-3.5 h-3.5" /> Agregar sesión
-                  </button>
-                </div>
-              )}
+      <main className={`flex-1 w-full max-w-7xl mx-auto flex flex-col gap-2 ${isPOSMode ? 'px-3 py-2' : 'px-3 sm:px-4 lg:px-6 py-3 lg:py-6 gap-4'}`}>
+        {/* Nav desktop */}
+        {isPOSMode ? (
+          /* Slim POS nav */
+          <nav className="hidden md:flex items-center justify-between gap-3 py-2 px-3 border border-orange-100/40 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm select-none">
+            <div className="flex items-center gap-2">
+              <ShoppingCart className="h-4 w-4 text-amber-500" />
+              <span className="text-sm font-extrabold text-gray-800 dark:text-zinc-100">Vender</span>
             </div>
-            <button onClick={logout} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg text-gray-400 hover:text-red-500 transition-colors" title="Cerrar sesión">
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </nav>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setActiveTab('history')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-600 dark:text-zinc-400 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40 hover:text-gray-900 dark:hover:text-zinc-100 transition-all cursor-pointer"
+              >
+                <ReceiptText className="h-4 w-4 text-amber-500" />
+                Historial
+              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setShowMoreMenu(v => !v)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-600 dark:text-zinc-400 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40 transition-all cursor-pointer"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                  Más
+                </button>
+                {showMoreMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl shadow-lg z-50 p-2">
+                    {navItems.filter(item => item.id !== 'pos' && item.id !== 'history' && item.id !== 'dashboard').map(item => (
+                      <button
+                        key={item.id}
+                        onClick={() => { setActiveTab(item.id); setShowMoreMenu(false); }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 rounded-lg text-left transition-colors cursor-pointer"
+                      >
+                        <span className="text-amber-500">{item.icon}</span>
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </nav>
+        ) : (
+          /* Nav completo */
+          <nav className="hidden md:flex items-center justify-between gap-3 py-2 px-3 border border-orange-100/40 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm select-none">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {navItems.map(item => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
+                    className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-200 cursor-pointer ${
+                      isActive ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'}`}>
+                    <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>
+                    <span className="hidden lg:inline">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <button onClick={() => setShowSessionMenu(!showSessionMenu)}
+                  className="flex items-center gap-2 text-xs py-1.5 px-3 bg-amber-500/5 dark:bg-amber-950/10 border border-amber-500/10 dark:border-zinc-800 rounded-xl cursor-pointer">
+                  <UserIcon className="w-3.5 h-3.5 text-amber-500" />
+                  <span className="font-bold text-gray-700 dark:text-zinc-300 truncate max-w-[100px]">{activeUser.name.split(' ')[0]}</span>
+                  <span className="text-[8px] bg-amber-500/15 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-md uppercase font-black">{activeUser.role}</span>
+                </button>
+                {showSessionMenu && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-zinc-900 border rounded-xl shadow-lg z-50 p-2" onClick={e => e.stopPropagation()}>
+                    <div className="text-[10px] font-bold text-gray-400 uppercase px-2 py-1">Sesiones</div>
+                    {savedSessions.map(s => (
+                      <div key={s.email} className={`flex items-center gap-2 px-2 py-2 rounded-lg text-xs ${s.email === activeUser.email ? 'bg-amber-500/10' : 'hover:bg-gray-50 dark:hover:bg-zinc-800'}`}>
+                        <button onClick={() => handleLogout(s)} className="flex-1 flex items-center gap-2 text-left cursor-pointer">
+                          <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center text-[10px] font-bold text-amber-700">{s.name[0]}</div>
+                          <div>
+                            <div className="font-bold text-gray-700 dark:text-zinc-200">{s.name}</div>
+                            <div className="text-[10px] text-gray-400">{s.role} · {s.email}</div>
+                          </div>
+                        </button>
+                        {s.email === activeUser.email && <Check className="w-3.5 h-3.5 text-amber-500" />}
+                        <button onClick={() => removeSession(s.email)} className="text-gray-400 hover:text-red-500 ml-1 cursor-pointer"><X className="w-3 h-3" /></button>
+                      </div>
+                    ))}
+                    <button onClick={() => { setShowSessionMenu(false); logout(); setShowAddSession(true); }}
+                      className="w-full flex items-center gap-2 px-2 py-2 mt-1 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-lg border-t border-gray-100 dark:border-zinc-800 cursor-pointer">
+                      <PlusCircle className="w-3.5 h-3.5" /> Agregar sesión
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </nav>
+        )}
 
         {/* Mobile nav */}
         <div className="md:hidden bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 p-3 rounded-2xl shadow-sm flex flex-col gap-2.5">
@@ -288,7 +331,11 @@ function ERPLayout() {
           )}
         </div>
 
-        <section className="bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 rounded-3xl p-3 md:p-6 shadow-sm min-h-[520px] transition-all duration-350">
+        <section className={`min-h-[520px] transition-all duration-350 ${
+          isPOSMode
+            ? 'flex-1 p-0 bg-transparent border-0'
+            : 'bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 rounded-3xl p-3 md:p-6 shadow-sm'
+        }`}>
           {renderActiveView()}
         </section>
       </main>

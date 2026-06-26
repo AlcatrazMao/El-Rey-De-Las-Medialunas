@@ -1187,7 +1187,7 @@ export const POSView: React.FC = () => {
             className={`w-full py-4 rounded-2xl text-base font-extrabold flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
               cart.length === 0
                 ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
-                : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white border-b-4 border-amber-700'
+                : 'bg-amber-900 hover:bg-amber-800 text-white border-b-4 border-amber-950'
             }`}
           >
             {isProcessingPayment ? (

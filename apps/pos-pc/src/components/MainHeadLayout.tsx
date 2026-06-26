@@ -1,6 +1,7 @@
 import {
   RotateCcw,
-  ChevronDown
+  ChevronDown,
+  LogOut,
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -15,6 +16,7 @@ export const MainHeadLayout: React.FC = () => {
     activeUser,
     setActiveUserRole,
     resetAllData,
+    logout,
     users,
     syncStatus,
     setActiveTab,
@@ -69,8 +71,8 @@ export const MainHeadLayout: React.FC = () => {
               <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
             </div>
 
-            {/* Dropdown list of users */}
-            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 p-2">
+            {/* Dropdown list of users + acciones */}
+            <div className="absolute right-0 mt-2 w-60 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 p-2">
               {users.map(u => (
                 <button
                   key={u.id}
@@ -92,23 +94,30 @@ export const MainHeadLayout: React.FC = () => {
                   </div>
                 </button>
               ))}
+              <div className="border-t border-gray-100 dark:border-zinc-800 mt-1 pt-1 space-y-0.5">
+                <button
+                  onClick={logout}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-gray-600 dark:text-zinc-300 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 dark:hover:text-red-400 transition-colors text-left cursor-pointer"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Cerrar sesión
+                </button>
+                <button
+                  id="btn-system-reset"
+                  onClick={() => {
+                    // eslint-disable-next-line no-alert
+                    if (window.confirm('¿Reiniciar todos los datos? Se perderán las ventas del día.')) {
+                      resetAllData();
+                    }
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-gray-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 dark:hover:text-red-400 transition-colors text-left cursor-pointer"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Restablecer sistema
+                </button>
+              </div>
             </div>
           </div>
-
-          {/* System reset */}
-          <button
-            id="btn-system-reset"
-            onClick={() => {
-              // eslint-disable-next-line no-alert -- confirm is appropriate UX for destructive action
-              if (window.confirm('¿Estás seguro de que deseas reiniciar todos los datos a los valores por defecto? Se perderán las ventas del día.')) {
-                resetAllData();
-              }
-            }}
-            className="p-2 rounded-full border border-gray-200 dark:border-zinc-800 hover:bg-red-50 dark:hover:bg-red-950/20 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
-            title="Restablecer base de datos del ERP"
-          >
-            <RotateCcw className="h-4 w-4" />
-          </button>
         </div>
       </div>
     </header>
