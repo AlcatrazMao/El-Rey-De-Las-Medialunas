@@ -1,6 +1,5 @@
 import {
   ShoppingCart,
-  ScanBarcode,
   Search,
   Plus,
   Minus,
@@ -145,10 +144,6 @@ export const POSView: React.FC = () => {
   };
   // --- END TAB STATE ---
 
-  // Quick search inline states
-  const [quickSearch, setQuickSearch] = useState('');
-  const [showQuickResults, setShowQuickResults] = useState(false);
-
   // Selection Modal states
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [modalSelectedCategory, setModalSelectedCategory] = useState<CategoryType | 'todos' | null>(null);
@@ -163,6 +158,8 @@ export const POSView: React.FC = () => {
   const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', email: '', tax_id: '' });
   const [showCustomerDetailModal, setShowCustomerDetailModal] = useState(false);
   const [closingTabId, setClosingTabId] = useState<string | null>(null);
+  const [modalSearchVisible, setModalSearchVisible] = useState(false);
+  const [modalFiltersOpen, setModalFiltersOpen] = useState(false);
 
   // Barcode scanner (HID keyboard emulator detection)
   const barcodeBufferRef = useRef<string>('');
@@ -179,7 +176,6 @@ export const POSView: React.FC = () => {
   addSystemNotificationRef.current = addSystemNotification;
 
   // Simulation states
-  const [isScanning, setIsScanning] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [latestInvoice, setLatestInvoice] = useState<Sale | null>(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -289,25 +285,6 @@ export const POSView: React.FC = () => {
     return () => window.removeEventListener('blur', clearBuffer);
   }, []);
 
-  // Quick search inline — filtro en tiempo real para el buscador del POS principal
-  const quickSearchResults = quickSearch.trim().length >= 1
-    ? products.filter(p =>
-        p.name.toLowerCase().includes(quickSearch.toLowerCase()) ||
-        p.code.includes(quickSearch)
-      ).slice(0, 8)
-    : [];
-
-  // Auto-add si hay exactamente 1 resultado de quick search y la query tiene al menos 2 chars
-  useEffect(() => {
-    if (quickSearchResults.length === 1 && quickSearch.trim().length >= 2) {
-      addToCart(quickSearchResults[0]);
-      setQuickSearch('');
-      setShowQuickResults(false);
-    }
-  // Intencionalmente solo depende del count y la query para evitar re-runs al cambiar cart
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickSearchResults.length, quickSearch]);
-
   // Audio Beep generator
   const playBeep = (freq = 880, duration = 0.08) => {
     try {
@@ -340,6 +317,16 @@ export const POSView: React.FC = () => {
       }
     } catch { /* storage unavailable */ }
   }, []);
+
+  // Reset modal state cada vez que se abre para que siempre empiece en categorías
+  useEffect(() => {
+    if (showSelectionModal) {
+      setModalSelectedCategory(null);
+      setSearchQuery('');
+      setModalSearchVisible(false);
+      setModalFiltersOpen(false);
+    }
+  }, [showSelectionModal]);
 
   if (!currentCashSession) {
     return (
@@ -758,24 +745,6 @@ export const POSView: React.FC = () => {
     setCart(prev => prev.filter(item => !(item.product.id === productId && (item.presentation ?? null) === presentation)));
   };
 
-  // Demo: simula un scan con producto al azar (solo para pruebas sin hardware)
-  const startBarcodeScanSimulation = () => {
-    if (isScanning) return;
-    setIsScanning(true);
-    playBeep(350, 0.1);
-
-    safeTimeout(() => {
-      if (!isMountedRef.current) return;
-      const randomProduct = products[Math.floor(Math.random() * products.length)];
-      if (randomProduct) {
-        addToCart(randomProduct);
-        addSystemNotification('🧪 Test scan (demo)', `Código simulado: ${randomProduct.code} → ${randomProduct.name}`, 'info');
-        playBeep(1200, 0.08);
-      }
-      setIsScanning(false);
-    }, 1200);
-  };
-
   // Calculate prices — precios con IVA incluido, se extrae: tax = total - total/(1+rate)
   // Use unitPrice (snapshot with group discount already baked in) instead of product.price.
   const cartSubtotal = cart.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
@@ -1030,75 +999,10 @@ export const POSView: React.FC = () => {
               <span className="hidden sm:inline">Buscar</span>
             </button>
 
-            {/* Scanner HID siempre activo — indicador de estado */}
-            <div className="flex items-center gap-1.5">
-              <span className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold" title="Lector USB activo — apuntá y escaneá">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Scanner
-              </span>
-              <button
-                id="btn-scan-trigger"
-                onClick={startBarcodeScanSimulation}
-                disabled={isScanning}
-                className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer ${
-                  isScanning
-                    ? 'bg-amber-100 text-amber-700 animate-pulse border-amber-300'
-                    : 'bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 text-white hover:opacity-90 border-transparent shadow-xs'
-                }`}
-                title="Simula un scan con producto aleatorio (para probar sin hardware)"
-              >
-                <ScanBarcode className="h-4 w-4" />
-                {isScanning ? 'Escaneando...' : 'Test Scan'}
-              </button>
-            </div>
-
             <span className="text-xs bg-amber-100 dark:bg-amber-950/40 text-amber-805 dark:text-amber-400 font-bold px-2.5 py-1 rounded-full whitespace-nowrap">
               Nº Comp: Auto-Gen
             </span>
           </div>
-        </div>
-
-        {/* Quick search inline */}
-        <div className="shrink-0 px-3 py-2 relative">
-          <div className="flex items-center bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 gap-2 focus-within:border-amber-500 transition-colors">
-            <Search className="h-4 w-4 text-gray-400 flex-shrink-0" />
-            <input
-              type="text"
-              placeholder="Búsqueda rápida por nombre o código..."
-              value={quickSearch}
-              onChange={e => {
-                setQuickSearch(e.target.value);
-                setShowQuickResults(true);
-              }}
-              onFocus={() => setShowQuickResults(true)}
-              onBlur={() => setTimeout(() => setShowQuickResults(false), 150)}
-              className="bg-transparent flex-1 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 dark:placeholder-zinc-600 outline-none"
-            />
-            {quickSearch && (
-              <button onClick={() => { setQuickSearch(''); setShowQuickResults(false); }}>
-                <X className="h-4 w-4 text-gray-400 hover:text-white" />
-              </button>
-            )}
-          </div>
-
-          {showQuickResults && quickSearchResults.length > 1 && (
-            <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-64 overflow-y-auto">
-              {quickSearchResults.map(product => (
-                <button
-                  key={product.id}
-                  onMouseDown={() => {
-                    addToCart(product);
-                    setQuickSearch('');
-                    setShowQuickResults(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-700 text-left transition-colors"
-                >
-                  <span className="text-sm text-white">{product.name}</span>
-                  <span className="text-xs text-amber-400">{formatCurrency(product.price)}</span>
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Cart Item rows list */}
@@ -1458,194 +1362,265 @@ export const POSView: React.FC = () => {
         </div>
       )}
 
-      {/* SELECTION MODAL: 🥖 Selección de Panificados */}
+      {/* SELECTION MODAL: Panificados */}
       {showSelectionModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in" onClick={() => setShowSelectionModal(false)}>
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-gray-150 dark:border-zinc-800 max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
-            
-            {/* Header */}
-            <div className="p-4 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-2 sm:p-4 animate-fade-in" onClick={() => setShowSelectionModal(false)}>
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-gray-150 dark:border-zinc-800 max-w-2xl w-full max-h-[92vh] sm:max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+
+            {/* Header compacto */}
+            <div className="shrink-0 px-4 py-2.5 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-2xl" role="img" aria-label="bread">🥖</span>
+                <span className="text-base" role="img" aria-label="pan">🥖</span>
                 <div>
-                  <h3 className="font-extrabold text-base text-gray-850 dark:text-zinc-50">Selección de Panificados</h3>
-                  <p className="text-[10px] text-gray-400">Escoge productos para añadir al ticket de venta</p>
+                  <h3 className="font-extrabold text-sm text-gray-850 dark:text-zinc-50 leading-tight">Panificados</h3>
+                  <p className="text-[9px] text-gray-400 leading-tight">Seleccioná para el ticket</p>
                 </div>
               </div>
-              <button
-                id="btn-close-selection-modal"
-                onClick={() => setShowSelectionModal(false)}
-                className="p-1.5 rounded-xl bg-gray-100 dark:bg-zinc-800 text-gray-500 hover:text-gray-700 dark:hover:text-zinc-200 cursor-pointer transition-colors"
-              >
-                <X className="h-5 w-5" />
+              <button onClick={() => setShowSelectionModal(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-zinc-200 cursor-pointer">
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Persistence search & scanner simulation inside modal */}
-            <div className="p-4 bg-white dark:bg-zinc-900 border-b border-gray-100 dark:border-zinc-850 flex flex-col sm:flex-row gap-3">
-              <div className="relative flex-1">
-                <input
-                  id="modal-pos-search"
-                  type="text"
-                  placeholder="Buscar por nombre o cod..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full text-xs bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-xl py-3 pl-10 pr-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-800 dark:text-zinc-100 font-semibold"
-                />
-                <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-gray-400" />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 font-bold"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
+            {/* Toolbar */}
+            <div className="shrink-0 border-b border-gray-100 dark:border-zinc-800">
+              {/* Desktop: barra de búsqueda siempre visible */}
+              <div className="hidden sm:flex px-4 py-2 items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por nombre o código..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="w-full text-xs bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-lg py-2 pl-9 pr-8 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-800 dark:text-zinc-100 font-medium"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <button
-                id="btn-modal-scan-trigger"
-                onClick={startBarcodeScanSimulation}
-                disabled={isScanning}
-                className={`px-4 py-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all cursor-pointer select-none ${
-                  isScanning
-                    ? 'bg-amber-100 text-amber-700 animate-pulse border-amber-300'
-                    : 'bg-zinc-950 dark:bg-zinc-100 dark:text-zinc-900 text-white hover:opacity-90 border-transparent shadow-xs'
-                }`}
-                title="Simula un scan con producto aleatorio (para probar sin hardware)"
-              >
-                <ScanBarcode className="h-4 w-4" />
-                <span>{isScanning ? 'Escaneando...' : 'Test Scan'}</span>
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-4 bg-amber-50/10 dark:bg-zinc-950/20">
-              {modalMode === 'list' ? (
-                /* ── MODO LISTA: todos los productos en tabla directamente ── */
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
-                      {searchQuery
-                        ? `Resultados de búsqueda (${filteredProducts.length})`
-                        : `Todos los productos (${products.length})`}
-                    </span>
-                    {searchQuery && (
+              {/* Mobile: lupa toggle / barra */}
+              <div className="flex sm:hidden px-3 py-2 items-center gap-2 min-h-[44px]">
+                {modalSearchVisible ? (
+                  <>
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Buscar..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        className="w-full text-xs bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-lg py-2 pl-8 pr-8 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-800 dark:text-zinc-100"
+                      />
+                      {searchQuery && (
+                        <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-2.5 text-gray-400 cursor-pointer">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setModalSearchVisible(false); setSearchQuery(''); }}
+                      className="p-1.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {modalSelectedCategory !== null && (
                       <button
-                        onClick={() => setSearchQuery('')}
-                        className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer"
+                        onClick={() => { setModalSelectedCategory(null); playBeep(600, 0.05); }}
+                        className="text-xs font-bold text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer"
                       >
-                        Limpiar filtro
+                        ← Categorías
                       </button>
                     )}
-                  </div>
-                  {renderProductList(searchQuery ? filteredProducts : products)}
-                </div>
-              ) : (
-                /* ── MODO VISUAL: categorías → grid de productos ── */
-                <>
-                  {searchQuery ? (
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">Resultados ({filteredProducts.length})</span>
-                        <button onClick={() => setSearchQuery('')} className="text-[10px] text-amber-600 font-bold hover:underline cursor-pointer">Limpiar</button>
-                      </div>
-                      {renderProductList(filteredProducts)}
-                    </div>
-                  ) : modalSelectedCategory === null ? (
-                    /* Categorías como cards */
-                    <div>
-                      <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-3">Filtrar por Categoría</p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {categoriesList.map(cat => {
-                          const count = cat.id === 'todos' ? products.length : products.filter(p => p.category === cat.id).length;
-                          return (
-                            <button
-                              key={cat.id}
-                              id={`btn-modal-cat-card-${cat.id}`}
-                              onClick={() => { setModalSelectedCategory(cat.id); playBeep(800, 0.05); }}
-                              className="p-5 rounded-3xl border bg-white dark:bg-zinc-900 border-gray-150 dark:border-zinc-800 hover:border-amber-400 dark:hover:border-amber-500 text-left flex flex-col justify-between h-32 cursor-pointer transition-all duration-305 transform hover:-translate-y-1 active:scale-97 hover:shadow-md group shadow-xs"
-                            >
-                              <div className="flex justify-between items-start w-full">
-                                <span className="text-3xl filter drop-shadow-xs transition-transform group-hover:scale-110" role="img" aria-label={cat.label}>{cat.icon}</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded-full font-extrabold bg-gray-100 dark:bg-zinc-800 text-gray-500">{count}</span>
-                              </div>
-                              <div>
-                                <p className="font-extrabold text-sm text-gray-850 dark:text-zinc-100 capitalize">{cat.label}</p>
-                                <p className="text-[10px] text-gray-400 font-medium leading-none mt-0.5">Explorar menú →</p>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    /* Grid de productos en categoría seleccionada */
-                    <div>
-                      <div className="flex flex-col gap-2 pb-3 border-b border-gray-150 dark:border-zinc-800 mb-3">
-                        <div className="flex items-center justify-between">
-                          <button
-                            onClick={() => { setModalSelectedCategory(null); playBeep(600, 0.05); }}
-                            className="text-xs font-extrabold text-amber-600 dark:text-amber-500 hover:text-amber-700 bg-amber-50 dark:bg-zinc-900 border border-amber-200 dark:border-zinc-800 px-3 py-1.5 rounded-xl cursor-pointer flex items-center gap-1 transition-colors"
-                          >
-                            ← Volver a Categorías
-                          </button>
-                          <span className="text-xs font-black text-gray-800 dark:text-zinc-50 capitalize bg-gray-100 dark:bg-zinc-800 px-3 py-1 rounded-lg">
-                            {modalSelectedCategory === 'todos' ? 'Todos' : `Categoría: ${modalSelectedCategory}`}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-50 dark:bg-zinc-950 p-2 rounded-xl border border-gray-150 dark:border-zinc-850 mt-1 select-none">
-                          <span className="text-[10px] font-bold text-gray-550 uppercase tracking-wider">Ordenar:</span>
-                          <div className="flex items-center gap-1">
+                    {modalSelectedCategory !== null && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setModalFiltersOpen(v => !v)}
+                          className={`text-xs font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer border transition-colors ${modalSortKey ? 'text-amber-700 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800' : 'text-gray-600 dark:text-zinc-400 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700'}`}
+                        >
+                          Filtros {modalSortKey ? '✓' : '▾'}
+                        </button>
+                        {modalFiltersOpen && (
+                          <div className="absolute left-0 top-full mt-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl shadow-xl z-20 p-1.5 min-w-[170px]">
                             {([
                               { id: 'monto', label: '💵 Precio' },
                               { id: 'orden', label: '🔤 Nombre' },
-                              { id: 'fecha_elaboracion', label: '📅 Elaboración' }
+                              { id: 'fecha_elaboracion', label: '📅 Elaboración' },
                             ] as const).map(col => {
                               const isSorted = modalSortKey === col.id;
                               return (
                                 <button
                                   key={col.id}
                                   onClick={() => {
-                                    if (isSorted) { setModalSortOrder(prev => prev === 'asc' ? 'desc' : 'asc'); }
-                                    else { setModalSortKey(col.id as 'monto' | 'orden' | 'fecha_elaboracion'); setModalSortOrder('asc'); }
+                                    if (isSorted) setModalSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                                    else { setModalSortKey(col.id); setModalSortOrder('asc'); }
+                                    setModalFiltersOpen(false);
                                     playBeep(900, 0.05);
                                   }}
-                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${isSorted ? 'bg-amber-500 text-white border-amber-600 shadow-sm' : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 border-gray-200 dark:border-zinc-800'}`}
+                                  className={`w-full text-left px-2.5 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer ${isSorted ? 'text-amber-700 bg-amber-50 dark:bg-amber-950/20' : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800'}`}
                                 >
                                   {col.label} {isSorted && (modalSortOrder === 'asc' ? '▲' : '▼')}
                                 </button>
                               );
                             })}
                             {modalSortKey && (
-                              <button onClick={() => { setModalSortKey(null); setModalSortOrder('asc'); }} className="text-[10px] font-bold text-red-500 px-1.5 hover:underline cursor-pointer">Limpiar</button>
+                              <button
+                                onClick={() => { setModalSortKey(null); setModalSortOrder('asc'); setModalFiltersOpen(false); }}
+                                className="w-full text-left px-2.5 py-1.5 text-xs text-red-500 font-bold border-t border-gray-100 dark:border-zinc-800 mt-1 pt-2 cursor-pointer"
+                              >
+                                Limpiar filtro
+                              </button>
                             )}
                           </div>
-                        </div>
+                        )}
                       </div>
-                      {renderProductGrid(getSortedModalProducts())}
+                    )}
+                    <button
+                      onClick={() => setModalSearchVisible(true)}
+                      className="ml-auto p-1.5 text-gray-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-lg cursor-pointer transition-colors"
+                    >
+                      <Search className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-amber-50/10 dark:bg-zinc-950/20">
+              {modalMode === 'list' ? (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                      {searchQuery ? `Resultados (${filteredProducts.length})` : `Todos (${products.length})`}
+                    </span>
+                    {searchQuery && (
+                      <button onClick={() => setSearchQuery('')} className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer">Limpiar</button>
+                    )}
+                  </div>
+                  {renderProductList(searchQuery ? filteredProducts : products)}
+                </div>
+              ) : searchQuery ? (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">Resultados ({filteredProducts.length})</span>
+                    <button onClick={() => setSearchQuery('')} className="text-[10px] text-amber-600 font-bold hover:underline cursor-pointer">Limpiar</button>
+                  </div>
+                  {renderProductList(filteredProducts)}
+                </div>
+              ) : modalSelectedCategory === null ? (
+                /* Grid de categorías */
+                <div>
+                  <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-2">Categorías</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+                    {categoriesList.map(cat => {
+                      const count = cat.id === 'todos' ? products.length : products.filter(p => p.category === cat.id).length;
+                      return (
+                        <button
+                          key={cat.id}
+                          id={`btn-modal-cat-card-${cat.id}`}
+                          onClick={() => { setModalSelectedCategory(cat.id); playBeep(800, 0.05); }}
+                          className="p-4 rounded-2xl border bg-white dark:bg-zinc-900 border-gray-150 dark:border-zinc-800 hover:border-amber-400 dark:hover:border-amber-500 text-left flex flex-col justify-between h-28 sm:h-32 cursor-pointer transition-all hover:-translate-y-0.5 active:scale-97 hover:shadow-md group shadow-xs"
+                        >
+                          <div className="flex justify-between items-start w-full">
+                            <span className="text-2xl sm:text-3xl filter drop-shadow-xs transition-transform group-hover:scale-110" role="img" aria-label={cat.label}>{cat.icon}</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-extrabold bg-gray-100 dark:bg-zinc-800 text-gray-500">{count}</span>
+                          </div>
+                          <div>
+                            <p className="font-extrabold text-sm text-gray-850 dark:text-zinc-100 capitalize">{cat.label}</p>
+                            <p className="text-[9px] text-gray-400 font-medium mt-0.5 hidden sm:block">Explorar →</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* Grid de productos de la categoría */
+                <div>
+                  {/* Header fila: PC tiene volver + filtros a la derecha; mobile lo maneja el toolbar */}
+                  <div className="hidden sm:flex items-center justify-between mb-3 pb-2 border-b border-gray-150 dark:border-zinc-800">
+                    <span className="text-xs font-black text-gray-700 dark:text-zinc-200 capitalize">
+                      {modalSelectedCategory === 'todos' ? 'Todos los productos' : modalSelectedCategory}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {([
+                        { id: 'monto', label: '💵 Precio' },
+                        { id: 'orden', label: '🔤 Nombre' },
+                        { id: 'fecha_elaboracion', label: '📅 Fecha' },
+                      ] as const).map(col => {
+                        const isSorted = modalSortKey === col.id;
+                        return (
+                          <button
+                            key={col.id}
+                            onClick={() => {
+                              if (isSorted) setModalSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                              else { setModalSortKey(col.id); setModalSortOrder('asc'); }
+                              playBeep(900, 0.05);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${isSorted ? 'bg-amber-500 text-white border-amber-600 shadow-sm' : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-400 border-gray-200 dark:border-zinc-800 hover:bg-gray-100 dark:hover:bg-zinc-800'}`}
+                          >
+                            {col.label} {isSorted && (modalSortOrder === 'asc' ? '▲' : '▼')}
+                          </button>
+                        );
+                      })}
+                      {modalSortKey && (
+                        <button onClick={() => { setModalSortKey(null); setModalSortOrder('asc'); }} className="text-[10px] font-bold text-red-500 px-1.5 hover:underline cursor-pointer">✕</button>
+                      )}
+                      <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700 mx-1" />
+                      <button
+                        onClick={() => { setModalSelectedCategory(null); playBeep(600, 0.05); }}
+                        className="text-xs font-bold text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-zinc-900 border border-amber-200 dark:border-zinc-800 px-2.5 py-1.5 rounded-xl cursor-pointer flex items-center gap-1 hover:bg-amber-100 dark:hover:bg-amber-950/20 transition-colors"
+                      >
+                        ← Volver
+                      </button>
                     </div>
-                  )}
-                </>
+                  </div>
+                  {renderProductGrid(getSortedModalProducts())}
+                </div>
               )}
             </div>
 
-            {/* Quick checkout summary footer inside the selection modal */}
-            <div className="p-4 border-t border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 flex items-center justify-between">
-              <div className="text-left font-sans">
-                <p className="text-[10px] text-gray-400 font-extrabold uppercase tracking-wider leading-none">Elementos en ticket</p>
-                <p className="text-sm font-extrabold text-gray-800 dark:text-zinc-100 mt-1 leading-none">
-                  {cart.reduce((s, c) => s + c.quantity, 0)} unidades / <span className="text-amber-600 dark:text-amber-500 font-black">{formatCurrency(cartTotal)}</span>
+            {/* Footer */}
+            <div className="shrink-0 px-4 py-3 border-t border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 flex items-center justify-between">
+              <div>
+                <p className="text-[9px] text-gray-400 font-extrabold uppercase tracking-wider leading-none">Ticket</p>
+                <p className="text-sm font-extrabold text-gray-800 dark:text-zinc-100 mt-0.5 leading-none">
+                  {cart.reduce((s, c) => s + c.quantity, 0)} ud. / <span className="text-amber-600 dark:text-amber-500">{formatCurrency(cartTotal)}</span>
                 </p>
               </div>
-              
-              <button
-                id="btn-selection-modal-done"
-                onClick={() => setShowSelectionModal(false)}
-                className="py-2.5 px-5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-md cursor-pointer transition-all hover:-translate-y-0.5 active:scale-95"
-              >
-                Cerrar y Ver Ticket
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5 gap-0.5">
+                  <button
+                    onClick={() => setModalMode('visual')}
+                    className={`p-1.5 rounded cursor-pointer ${modalMode === 'visual' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}
+                    title="Vista visual"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setModalMode('list')}
+                    className={`p-1.5 rounded cursor-pointer ${modalMode === 'list' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}
+                    title="Vista lista"
+                  >
+                    <List className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <button
+                  id="btn-selection-modal-done"
+                  onClick={() => setShowSelectionModal(false)}
+                  className="py-2 px-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-md cursor-pointer transition-all hover:-translate-y-0.5 active:scale-95"
+                >
+                  Ver Ticket
+                </button>
+              </div>
             </div>
 
           </div>
@@ -1667,22 +1642,6 @@ export const POSView: React.FC = () => {
           onClose={() => setGroupSelectorProduct(null)}
         />
       )}
-
-      {/* FLOATING ACTION LUPA BUTTON — above the sticky cobrar footer */}
-      <button
-        id="btn-floating-lupa-search"
-        onClick={() => {
-          setModalMode('visual');
-          setModalSelectedCategory(null);
-          setSearchQuery('');
-          setShowSelectionModal(true);
-          playBeep(705, 0.05);
-        }}
-        className="hidden md:flex fixed bottom-28 right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
-        title="Buscar Panificados (Modo Lista)"
-      >
-        <Search className="h-6 w-6 group-hover:rotate-12 transition-transform duration-300" />
-      </button>
 
       {/* MODAL: Nuevo Cliente */}
       {/* MODAL: Confirmar cierre de tab con ítems */}
