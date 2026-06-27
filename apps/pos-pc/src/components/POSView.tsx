@@ -28,6 +28,26 @@ import { calcularPrecioUnitarioGrupo } from '../utils/productGroups';
 import { GroupSelectorModal } from './GroupSelectorModal';
 import { CartItemList } from './pos/CartItemList';
 
+interface CartLine {
+  product: Product;
+  quantity: number;
+  unitPrice: number;
+  presentation?: string;
+  admite_acum_desc?: 0 | 1;
+}
+
+interface SaleTab {
+  id: string;
+  label: string;
+  cart: CartLine[];
+  paymentMethod: string;
+  selectedDiscount: number;
+  customerName: string;
+  customerDoc: string;
+  selectedCustomerId: string | null;
+  fiscalType: 'consumidor_final' | 'exento' | 'responsable_inscripto' | 'monotributista';
+}
+
 export const POSView: React.FC = () => {
   const {
     products,
@@ -45,24 +65,84 @@ export const POSView: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedCategory, _setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
   const [searchQuery, setSearchQuery] = useState('');
-  const [cart, setCart] = useState<{
-    product: Product;
-    quantity: number;
-    unitPrice: number;
-    presentation?: string;
-    admite_acum_desc?: 0 | 1;
-  }[]>([]);
   const [groupSelectorProduct, setGroupSelectorProduct] = useState<Product | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<Sale['paymentMethod']>(
-    (posSettings.pos?.defaultPaymentMethod as Sale['paymentMethod']) ?? 'efectivo'
-  );
-  const [selectedDiscount, setSelectedDiscount] = useState<number>(0);
-  const [customerName, setCustomerName] = useState('');
-  const [customerDoc, setCustomerDoc] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [fiscalType, setFiscalType] = useState<'consumidor_final' | 'exento' | 'responsable_inscripto' | 'monotributista'>('consumidor_final');
+
+  // --- TAB STATE ---
+  const defaultPm = (posSettings.pos?.defaultPaymentMethod as Sale['paymentMethod']) ?? 'efectivo';
+  const [tabs, setTabs] = useState<SaleTab[]>(() => [{
+    id: 'tab_1',
+    label: 'Venta 1',
+    cart: [],
+    paymentMethod: defaultPm,
+    selectedDiscount: 0,
+    customerName: '',
+    customerDoc: '',
+    selectedCustomerId: null,
+    fiscalType: 'consumidor_final' as const,
+  }]);
+  const [activeTabId, setActiveTabId] = useState('tab_1');
+
+  const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
+
+  // Derived from active tab
+  const cart = activeTab.cart;
+  const paymentMethod = activeTab.paymentMethod as Sale['paymentMethod'];
+  const selectedDiscount = activeTab.selectedDiscount;
+  const customerName = activeTab.customerName;
+  const customerDoc = activeTab.customerDoc;
+  const selectedCustomerId = activeTab.selectedCustomerId;
+  const fiscalType = activeTab.fiscalType;
+
+  // Helper
+  const updateActiveTab = (patch: Partial<SaleTab>) => {
+    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, ...patch } : t));
+  };
+
+  // Tab-aware setters (misma firma que antes para que el JSX no cambie)
+  const setCart: React.Dispatch<React.SetStateAction<CartLine[]>> = (value) => {
+    setTabs(prev => prev.map(t => {
+      if (t.id !== activeTabId) return t;
+      const newCart = typeof value === 'function' ? (value as (p: CartLine[]) => CartLine[])(t.cart) : value;
+      return { ...t, cart: newCart };
+    }));
+  };
+  const setPaymentMethod = (pm: string) => updateActiveTab({ paymentMethod: pm });
+  const setSelectedDiscount = (d: number) => updateActiveTab({ selectedDiscount: d });
+  const setCustomerName = (n: string) => updateActiveTab({ customerName: n });
+  const setCustomerDoc = (d: string) => updateActiveTab({ customerDoc: d });
+  const setSelectedCustomerId = (id: string | null) => updateActiveTab({ selectedCustomerId: id });
+  const setFiscalType = (ft: SaleTab['fiscalType']) => updateActiveTab({ fiscalType: ft });
+
+  // Tab management
+  const tabCounter = useRef(2);
+  const addTab = () => {
+    const n = tabCounter.current++;
+    const id = `tab_${n}`;
+    setTabs(prev => [...prev, {
+      id,
+      label: `Venta ${n}`,
+      cart: [],
+      paymentMethod: defaultPm,
+      selectedDiscount: 0,
+      customerName: '',
+      customerDoc: '',
+      selectedCustomerId: null,
+      fiscalType: 'consumidor_final' as const,
+    }]);
+    setActiveTabId(id);
+  };
+  const closeTab = (id: string) => {
+    if (tabs.length === 1) return;
+    const idx = tabs.findIndex(t => t.id === id);
+    const next = tabs.filter(t => t.id !== id);
+    setTabs(next);
+    if (activeTabId === id) {
+      setActiveTabId(next[Math.max(0, idx - 1)].id);
+    }
+  };
+  // --- END TAB STATE ---
 
   // Quick search inline states
   const [quickSearch, setQuickSearch] = useState('');
@@ -827,12 +907,14 @@ export const POSView: React.FC = () => {
           // Print ticket automatically on sound success
           printTicketOrInvoice(result.invoice, 'receipt');
           // Clear Cart and customer state
-          setCart([]);
-          setCustomerDoc('');
-          setCustomerName('');
-          setSelectedCustomerId(null);
+          updateActiveTab({
+            cart: [],
+            customerName: '',
+            customerDoc: '',
+            selectedCustomerId: null,
+            selectedDiscount: 0,
+          });
           setCustomerSearch('');
-          setSelectedDiscount(0);
         } else {
           // Validaciones de negocio fallidas (carrito vacío, producto inexistente, etc).
           // NUNCA bloqueamos por stock — esos son warnings.
@@ -852,20 +934,53 @@ export const POSView: React.FC = () => {
   });
 
   return (
-    <div className="flex flex-col transition-all duration-300 h-[calc(100dvh-60px)] md:h-auto md:min-h-[calc(100vh-120px)]">
-
+    <div className="flex flex-col flex-1 min-h-0">
 
       {/* RIGHT COLUMN: POS CHECKOUT CART PANEL (Nueva Venta) */}
-      <div className="flex-1 min-h-0 overflow-y-auto md:overflow-visible w-full max-w-5xl mx-auto bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs md:pb-[380px]">
+      <div className="flex flex-col flex-1 min-h-0 w-full max-w-5xl mx-auto bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs">
 
-        {/* Scrollable area — header, search, fiscal, cart, subtotals, payment, discount */}
-        <div className="p-5">
+        {/* Tab bar — Chrome style */}
+        <div className="shrink-0 flex items-center gap-0.5 px-2 pt-1 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 rounded-t-2xl overflow-x-auto">
+          {tabs.map(tab => (
+            <div
+              key={tab.id}
+              onClick={() => setActiveTabId(tab.id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-t-lg text-xs font-bold cursor-pointer transition-all whitespace-nowrap select-none group shrink-0 ${
+                tab.id === activeTabId
+                  ? 'bg-white dark:bg-zinc-900 text-gray-800 dark:text-zinc-100 border border-b-0 border-gray-200 dark:border-zinc-700 -mb-px'
+                  : 'text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300 hover:bg-white/60 dark:hover:bg-zinc-800/60'
+              }`}
+            >
+              <span>{tab.label}</span>
+              {tab.cart.length > 0 && (
+                <span className="text-[9px] bg-amber-500 text-white rounded-full px-1 py-0 leading-4 font-black">
+                  {tab.cart.reduce((s, i) => s + i.quantity, 0)}
+                </span>
+              )}
+              {tabs.length > 1 && (
+                <button
+                  onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
+                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity cursor-pointer"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={addTab}
+            title="Nueva venta"
+            className="p-1 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-md transition-colors cursor-pointer ml-0.5 shrink-0"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
 
         {/* Header detail */}
-        <div className="flex items-center justify-between border-b pb-3 border-gray-100 dark:border-zinc-800 mb-4">
+        <div className="shrink-0 px-3 py-1.5 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5 text-amber-500" />
-            <h2 className="font-extrabold text-gray-800 dark:text-zinc-100 text-base">Nueva Venta</h2>
+            <ShoppingCart className="h-3.5 w-3.5 text-amber-500" />
+            <h2 className="font-extrabold text-gray-800 dark:text-zinc-100 text-xs">Nueva Venta</h2>
           </div>
 
           <div className="flex items-center gap-2">
@@ -932,7 +1047,7 @@ export const POSView: React.FC = () => {
         </div>
 
         {/* Quick search inline */}
-        <div className="relative mb-3">
+        <div className="shrink-0 px-3 py-2 relative">
           <div className="flex items-center bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 gap-2 focus-within:border-amber-500 transition-colors">
             <Search className="h-4 w-4 text-gray-400 flex-shrink-0" />
             <input
@@ -974,32 +1089,29 @@ export const POSView: React.FC = () => {
           )}
         </div>
 
-
-
         {/* Cart Item rows list */}
-        <CartItemList
-          cart={cart}
-          setCart={setCart}
-          decreaseQuantity={decreaseQuantity}
-          addUnitToCart={addUnitToCart}
-          playBeep={playBeep}
-          onEmptyClick={() => {
-            setModalMode('visual');
-            setModalSelectedCategory('todos');
-            setSearchQuery('');
-            setShowSelectionModal(true);
-            playBeep(705, 0.05);
-          }}
-        />
-
-
-        </div>{/* end scrollable area */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
+          <CartItemList
+            cart={cart}
+            setCart={setCart}
+            decreaseQuantity={decreaseQuantity}
+            addUnitToCart={addUnitToCart}
+            playBeep={playBeep}
+            onEmptyClick={() => {
+              setModalMode('visual');
+              setModalSelectedCategory('todos');
+              setSearchQuery('');
+              setShowSelectionModal(true);
+              playBeep(705, 0.05);
+            }}
+          />
+        </div>
 
       </div>{/* end panel carrito */}
 
       {/* Footer sticky — tipo cliente + pago + resumen + COBRAR */}
-      <div className="shrink-0 md:fixed md:bottom-0 md:left-0 md:right-0 md:z-40 bg-white/97 dark:bg-zinc-900/97 backdrop-blur-sm border-t border-gray-100 dark:border-zinc-800 p-3 md:p-4 md:max-w-4xl md:mx-auto">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+      <div className="shrink-0 bg-white/97 dark:bg-zinc-900/97 backdrop-blur-sm border-t border-gray-100 dark:border-zinc-800 px-2 py-1.5 md:px-3 md:py-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-1.5">
 
             {/* Izquierda: tipo cliente + datos cliente + pago + descuento */}
             <div className="space-y-2">
@@ -1102,7 +1214,7 @@ export const POSView: React.FC = () => {
                 <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[44px]">Pago</span>
                 <select
                   value={paymentMethod}
-                  onChange={e => setPaymentMethod(e.target.value as Sale['paymentMethod'])}
+                  onChange={e => setPaymentMethod(e.target.value)}
                   className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
                 >
                   {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
@@ -1139,8 +1251,8 @@ export const POSView: React.FC = () => {
             </div>
 
             {/* Derecha: resumen */}
-            <div className="bg-gray-50 dark:bg-zinc-950 rounded-xl border border-gray-100 dark:border-zinc-800 p-3 flex flex-col">
-              <div className="space-y-1.5 flex-1 text-xs">
+            <div className="hidden md:flex bg-gray-50 dark:bg-zinc-950 rounded-xl border border-gray-100 dark:border-zinc-800 p-2.5 flex-col">
+              <div className="space-y-1 flex-1 text-xs">
                 <div className="flex justify-between text-gray-500">
                   <span>Subtotal</span>
                   <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
@@ -1172,10 +1284,6 @@ export const POSView: React.FC = () => {
                   <span>{formatCurrency(cartTax)}</span>
                 </div>
               </div>
-              <div className="border-t border-gray-200 dark:border-zinc-800 mt-2 pt-2 flex justify-between items-baseline gap-2">
-                <span className="text-[9px] font-black uppercase tracking-wider text-gray-400">Total</span>
-                <span className="text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums leading-none">{formatCurrency(cartTotal)}</span>
-              </div>
             </div>
 
           </div>
@@ -1185,7 +1293,7 @@ export const POSView: React.FC = () => {
             id="btn-pos-checkout"
             onClick={handlePayment}
             disabled={cart.length === 0 || isProcessingPayment}
-            className={`w-full py-4 rounded-2xl text-base font-extrabold flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
+            className={`w-full py-2.5 md:py-3.5 rounded-2xl text-base font-extrabold flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
               cart.length === 0
                 ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
                 : 'bg-amber-850 hover:bg-amber-805 text-white border-b-4 border-amber-955'

@@ -206,7 +206,7 @@ function ERPLayout() {
   const navItems = getNavItemsByRole();
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] dark:bg-zinc-950 flex flex-col font-sans transition-colors duration-300">
+    <div className={`${isPOSMode ? 'h-dvh overflow-hidden' : 'min-h-screen'} bg-[#FDFBF7] dark:bg-zinc-950 flex flex-col font-sans transition-colors duration-300`}>
 
       {/* Navbar mobile — única barra de nav en celular */}
       <div className="md:hidden bg-white dark:bg-zinc-900 border-b border-orange-100/40 dark:border-zinc-800 px-3 py-3 flex flex-col gap-2.5 select-none shadow-sm">
@@ -250,11 +250,11 @@ function ERPLayout() {
         )}
       </div>
 
-      <main className={`flex-1 w-full max-w-7xl mx-auto flex flex-col gap-2 ${isPOSMode ? 'px-3 py-0 md:py-2' : 'px-3 sm:px-4 lg:px-6 py-3 lg:py-6 gap-4'}`}>
+      <main className={`flex-1 min-h-0 w-full max-w-7xl mx-auto flex flex-col gap-2 ${isPOSMode ? 'px-3 py-0 md:py-2 overflow-hidden' : 'px-3 sm:px-4 lg:px-6 py-3 lg:py-6 gap-4'}`}>
         {/* Nav desktop */}
         {isPOSMode ? (
           /* Slim POS nav */
-          <nav className="hidden md:flex items-center justify-between gap-3 py-2 px-3 border border-orange-100/40 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm select-none">
+          <nav className="hidden md:flex shrink-0 items-center justify-between gap-3 py-1 px-3 border border-orange-100/40 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm select-none">
             <div className="flex items-center gap-2.5">
               <span className="text-base" role="img" aria-label="croissant">🥐</span>
               <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700" />
@@ -384,10 +384,10 @@ function ERPLayout() {
           </nav>
         )}
 
-        <section className={`min-h-[520px] transition-all duration-350 ${
+        <section className={`transition-all duration-350 ${
           isPOSMode
-            ? 'flex-1 p-0 bg-transparent border-0'
-            : 'bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 rounded-3xl p-3 md:p-6 shadow-sm'
+            ? 'flex-1 min-h-0 p-0 bg-transparent border-0'
+            : 'min-h-[520px] bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 rounded-3xl p-3 md:p-6 shadow-sm'
         }`}>
           {renderActiveView()}
         </section>
