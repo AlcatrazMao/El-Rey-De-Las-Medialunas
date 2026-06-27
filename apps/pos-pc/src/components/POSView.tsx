@@ -1145,12 +1145,10 @@ export const POSView: React.FC = () => {
                   <span>Subtotal</span>
                   <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
                 </div>
-                {effectiveDiscount > 0 && (
-                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
-                    <span>Descuento ({effectiveDiscount}%)</span>
-                    <span>- {formatCurrency(discountAmount)}</span>
-                  </div>
-                )}
+                <div className={`flex justify-between font-bold ${effectiveDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-zinc-600'}`}>
+                  <span>Descuento{effectiveDiscount > 0 ? ` (${effectiveDiscount}%)` : ''}</span>
+                  <span>- {formatCurrency(discountAmount)}</span>
+                </div>
                 {activePriceList && priceListAdjustmentAmount !== 0 && (
                   <div className={`flex justify-between font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                     <span className="truncate mr-2">{activePriceList.name}</span>
