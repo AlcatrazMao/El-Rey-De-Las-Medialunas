@@ -704,10 +704,11 @@ export const POSView: React.FC = () => {
   // Si el método de pago NO acumula descuentos, los anulamos en el cálculo del POS.
   const effectiveDiscount = acumulaDescuentos ? selectedDiscount : 0;
 
-  // Solo aplica el descuento manual sobre las líneas que admiten acumulación
-  // (sin presentation = siempre admiten; con presentation = depende de admite_acum_desc).
+  // Solo aplica el descuento manual sobre las líneas que admiten acumulación.
+  // Si allowDiscountsOnOffers está activo, todos los ítems son elegibles.
+  const allowDiscountsOnOffers = posSettings.discountConfig?.allowDiscountsOnOffers ?? false;
   const eligibleSubtotal = cart.reduce((acc, item) => {
-    const admits = !item.presentation || item.admite_acum_desc === 1;
+    const admits = !item.presentation || allowDiscountsOnOffers || item.admite_acum_desc === 1;
     return admits ? acc + item.unitPrice * item.quantity : acc;
   }, 0);
   const discountAmount = effectiveDiscount > 0 ? parseFloat((eligibleSubtotal * effectiveDiscount / 100).toFixed(2)) : 0;
@@ -1046,10 +1047,10 @@ export const POSView: React.FC = () => {
                       {showCustomerDropdown && (
                         <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
                           <button
-                            onClick={() => { setCustomerName('Consumidor Final'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                            onClick={() => { setCustomerName('Anónimo'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
                             className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800"
                           >
-                            👤 Consumidor Final
+                            👤 Anónimo
                           </button>
                           {customers.filter(c => {
                             const q = customerSearch.toLowerCase();

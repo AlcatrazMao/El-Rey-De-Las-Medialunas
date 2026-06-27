@@ -65,7 +65,7 @@ export type PaymentMethodId = 'efectivo' | 'qr' | 'tarjeta' | 'transferencia';
 export type PaymentAdjustmentType = 'none' | 'recargo' | 'descuento';
 
 export interface PaymentMethodConfig {
-  id: PaymentMethodId;
+  id: string;
   label: string;
   icon: string;
   enabled: boolean;
@@ -90,6 +90,8 @@ export interface PaymentMethodConfig {
 export interface DiscountConfig {
   availablePercents: number[];
   allowManualDiscount: boolean;
+  /** Cuando es true, los descuentos manuales/lista aplican también sobre ítems con precio de grupo. */
+  allowDiscountsOnOffers: boolean;
 }
 
 export interface PosSettings {
@@ -152,13 +154,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   paymentMethods: [
     { id: 'efectivo',       label: 'Efectivo',           icon: 'Banknote', enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: true },
-    { id: 'qr',             label: 'QR / Transferencia', icon: 'QrCode',   enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: true },
-    { id: 'tarjeta',        label: 'Tarjeta',            icon: '💳',       enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
+    { id: 'qr',             label: 'QR / Transferencia', icon: 'QrCode',   enabled: true, adjustmentType: 'recargo', adjustmentPercent: 15, acumulaDescuentos: true },
+    { id: 'tarjeta',        label: 'Tarjeta',            icon: '💳',       enabled: true, adjustmentType: 'recargo', adjustmentPercent: 15, acumulaDescuentos: false },
     { id: 'transferencia',  label: 'Transferencia',      icon: '🏦',       enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
   ],
   discountConfig: {
     availablePercents: [5, 10, 15, 20, 25, 30],
     allowManualDiscount: false,
+    allowDiscountsOnOffers: false,
   },
   pos: {
     defaultPaymentMethod: 'efectivo',
@@ -168,31 +171,42 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 function migratePaymentMethods(stored: unknown): PaymentMethodConfig[] {
   if (!Array.isArray(stored)) return [...DEFAULT_SETTINGS.paymentMethods];
-  // Métodos soportados. Los métodos legacy no reconocidos (mercado_pago, paypal)
-  // se descartan silenciosamente.
   const VALID: PaymentMethodId[] = ['efectivo', 'qr', 'tarjeta', 'transferencia'];
   const upgraded: PaymentMethodConfig[] = [];
   for (const pm of stored as Array<Record<string, unknown>>) {
-    const id = pm?.id as PaymentMethodId | undefined;
-    if (!id || !VALID.includes(id)) continue;
-    const legacySurcharge = typeof pm.surchargePercent === 'number' ? (pm.surchargePercent as number) : 0;
-    const adjustmentType = (pm.adjustmentType as PaymentAdjustmentType | undefined)
-      ?? (legacySurcharge > 0 ? 'recargo' : 'none');
-    const adjustmentPercent = typeof pm.adjustmentPercent === 'number'
-      ? (pm.adjustmentPercent as number)
-      : legacySurcharge;
-    upgraded.push({
-      id,
-      label: typeof pm.label === 'string' ? (pm.label as string) : (id === 'tarjeta' ? 'Tarjeta' : 'Transferencia'),
-      icon: typeof pm.icon === 'string' ? (pm.icon as string) : (id === 'tarjeta' ? '💳' : '🏦'),
-      enabled: typeof pm.enabled === 'boolean' ? (pm.enabled as boolean) : true,
-      adjustmentType,
-      adjustmentPercent,
-      acumulaDescuentos: typeof pm.acumulaDescuentos === 'boolean' ? (pm.acumulaDescuentos as boolean) : false,
-      linkedPriceListId: typeof pm.linkedPriceListId === 'string' ? (pm.linkedPriceListId as string) : undefined,
-    });
+    const id = pm?.id as string | undefined;
+    if (!id) continue;
+    if (VALID.includes(id as PaymentMethodId)) {
+      const legacySurcharge = typeof pm.surchargePercent === 'number' ? (pm.surchargePercent as number) : 0;
+      const adjustmentType = (pm.adjustmentType as PaymentAdjustmentType | undefined)
+        ?? (legacySurcharge > 0 ? 'recargo' : 'none');
+      const adjustmentPercent = typeof pm.adjustmentPercent === 'number'
+        ? (pm.adjustmentPercent as number)
+        : legacySurcharge;
+      upgraded.push({
+        id,
+        label: typeof pm.label === 'string' ? (pm.label as string) : id,
+        icon: typeof pm.icon === 'string' ? (pm.icon as string) : '💳',
+        enabled: typeof pm.enabled === 'boolean' ? (pm.enabled as boolean) : true,
+        adjustmentType,
+        adjustmentPercent,
+        acumulaDescuentos: typeof pm.acumulaDescuentos === 'boolean' ? (pm.acumulaDescuentos as boolean) : false,
+        linkedPriceListId: typeof pm.linkedPriceListId === 'string' ? (pm.linkedPriceListId as string) : undefined,
+      });
+    } else if (id.startsWith('custom_') && typeof pm.label === 'string') {
+      // Preservar métodos personalizados creados por el usuario
+      upgraded.push({
+        id,
+        label: pm.label as string,
+        icon: typeof pm.icon === 'string' ? (pm.icon as string) : '💳',
+        enabled: typeof pm.enabled === 'boolean' ? (pm.enabled as boolean) : true,
+        adjustmentType: (pm.adjustmentType as PaymentAdjustmentType | undefined) ?? 'none',
+        adjustmentPercent: typeof pm.adjustmentPercent === 'number' ? (pm.adjustmentPercent as number) : 0,
+        acumulaDescuentos: typeof pm.acumulaDescuentos === 'boolean' ? (pm.acumulaDescuentos as boolean) : false,
+      });
+    }
   }
-  // Si faltó alguno de los métodos válidos, lo agregamos desde defaults.
+  // Si faltó alguno de los métodos base, lo agregamos desde defaults.
   for (const id of VALID) {
     if (!upgraded.some(pm => pm.id === id)) {
       const def = DEFAULT_SETTINGS.paymentMethods.find(pm => pm.id === id);
@@ -217,7 +231,9 @@ export function getSettings(): AppSettings {
       promotions: parsed.promotions ?? [...DEFAULT_SETTINGS.promotions],
       sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
       paymentMethods: migratePaymentMethods(parsed.paymentMethods),
-      discountConfig: parsed.discountConfig ?? { ...DEFAULT_SETTINGS.discountConfig, availablePercents: [...DEFAULT_SETTINGS.discountConfig.availablePercents] },
+      discountConfig: parsed.discountConfig
+        ? { ...DEFAULT_SETTINGS.discountConfig, ...parsed.discountConfig, availablePercents: parsed.discountConfig.availablePercents ?? [...DEFAULT_SETTINGS.discountConfig.availablePercents] }
+        : { ...DEFAULT_SETTINGS.discountConfig, availablePercents: [...DEFAULT_SETTINGS.discountConfig.availablePercents] },
       pos: { ...DEFAULT_SETTINGS.pos, ...(parsed.pos ?? {}) },
     };
   } catch {

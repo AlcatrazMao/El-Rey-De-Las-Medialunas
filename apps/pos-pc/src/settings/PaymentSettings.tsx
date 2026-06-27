@@ -1,4 +1,4 @@
-import { CreditCard, CheckCircle, Circle } from 'lucide-react';
+import { CreditCard, CheckCircle, Circle, Plus, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { useState } from 'react';
 
@@ -19,6 +19,8 @@ interface Props {
   setDiscountConfig: (discountConfig: DiscountConfig) => void;
 }
 
+const CORE_IDS = ['efectivo', 'qr', 'tarjeta', 'transferencia'];
+
 const GATEWAY_META: Record<string, { name: string; logo: string; chargeFee: number }> = {
   gate_stripe: { name: 'Stripe', logo: '💳', chargeFee: 2.9 },
   gate_mp: { name: 'Mercado Pago', logo: '🤝', chargeFee: 3.4 },
@@ -38,7 +40,33 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
   const [paymentMethods, setLocalPaymentMethods] = useState<PaymentMethodConfig[]>(() => settings.paymentMethods ?? []);
   const [discountPercents, setDiscountPercents] = useState<number[]>(() => settings.discountConfig?.availablePercents ?? [5, 10, 15, 20, 25, 30]);
   const [allowManual, setAllowManual] = useState(() => settings.discountConfig?.allowManualDiscount ?? false);
+  const [allowDiscountsOnOffers, setAllowDiscountsOnOffers] = useState(() => settings.discountConfig?.allowDiscountsOnOffers ?? false);
   const [newPercent, setNewPercent] = useState('');
+
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newMethod, setNewMethod] = useState<{ label: string; icon: string; adjustmentType: PaymentAdjustmentType; adjustmentPercent: number; acumulaDescuentos: boolean }>({
+    label: '', icon: '💳', adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: true,
+  });
+
+  const handleAddMethod = () => {
+    if (!newMethod.label.trim()) return;
+    const id = `custom_${Date.now()}`;
+    setLocalPaymentMethods(prev => [...prev, {
+      id,
+      label: newMethod.label.trim(),
+      icon: newMethod.icon || '💳',
+      enabled: true,
+      adjustmentType: newMethod.adjustmentType,
+      adjustmentPercent: newMethod.adjustmentPercent,
+      acumulaDescuentos: newMethod.acumulaDescuentos,
+    }]);
+    setNewMethod({ label: '', icon: '💳', adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: true });
+    setShowAddForm(false);
+  };
+
+  const handleDeleteMethod = (id: string) => {
+    setLocalPaymentMethods(prev => prev.filter(pm => pm.id !== id));
+  };
 
   const handleTestConnection = (gatewayId: string) => {
     const meta = GATEWAY_META[gatewayId];
@@ -48,7 +76,7 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
 
   const handleSavePaymentConfig = () => {
     setPaymentMethods(paymentMethods);
-    setDiscountConfig({ availablePercents: discountPercents, allowManualDiscount: allowManual });
+    setDiscountConfig({ availablePercents: discountPercents, allowManualDiscount: allowManual, allowDiscountsOnOffers });
     onSaved();
   };
 
@@ -171,6 +199,16 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
                       className="rounded text-amber-500 border-gray-300 focus:ring-amber-500 h-4 w-4"
                     />
                   </label>
+                  {!CORE_IDS.includes(pm.id) && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteMethod(pm.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors cursor-pointer shrink-0"
+                      title="Eliminar método"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -228,6 +266,101 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
             );
           })}
         </div>
+
+        {/* Agregar método custom */}
+        {!showAddForm ? (
+          <button
+            type="button"
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 px-4 py-2.5 border-2 border-dashed border-gray-300 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:border-amber-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-2xl text-xs font-bold transition-colors cursor-pointer w-full justify-center"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Agregar método de pago
+          </button>
+        ) : (
+          <div className="bg-amber-50 dark:bg-amber-950/10 border border-amber-200 dark:border-amber-800/40 rounded-2xl p-4 space-y-3">
+            <p className="text-xs font-extrabold text-amber-700 dark:text-amber-400">Nuevo método de pago</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Nombre</label>
+                <input
+                  type="text"
+                  value={newMethod.label}
+                  onChange={e => setNewMethod(p => ({ ...p, label: e.target.value }))}
+                  placeholder="Ej: Cheque"
+                  className="w-full text-xs font-semibold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Ícono (emoji)</label>
+                <input
+                  type="text"
+                  value={newMethod.icon}
+                  onChange={e => setNewMethod(p => ({ ...p, icon: e.target.value }))}
+                  placeholder="💳"
+                  className="w-full text-xs font-semibold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Tipo de ajuste</label>
+                <select
+                  value={newMethod.adjustmentType}
+                  onChange={e => setNewMethod(p => ({ ...p, adjustmentType: e.target.value as PaymentAdjustmentType }))}
+                  className="w-full text-xs font-bold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                >
+                  <option value="none">Ninguno</option>
+                  <option value="recargo">Recargo (%)</option>
+                  <option value="descuento">Descuento (%)</option>
+                </select>
+              </div>
+              {newMethod.adjustmentType !== 'none' && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Porcentaje</label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      max="99.99"
+                      step="0.01"
+                      value={newMethod.adjustmentPercent}
+                      onChange={e => setNewMethod(p => ({ ...p, adjustmentPercent: clampPercent(e.target.value) }))}
+                      className="flex-1 text-xs font-bold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                    />
+                    <span className="text-xs font-extrabold text-gray-500">%</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={newMethod.acumulaDescuentos}
+                onChange={e => setNewMethod(p => ({ ...p, acumulaDescuentos: e.target.checked }))}
+                className="rounded text-amber-500 border-gray-300 focus:ring-amber-500 h-4 w-4"
+              />
+              <span className="text-xs font-bold text-gray-600 dark:text-zinc-400">Acumula descuentos</span>
+            </label>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleAddMethod}
+                disabled={!newMethod.label.trim()}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Agregar
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddForm(false)}
+                className="px-4 py-2 text-gray-500 dark:text-zinc-400 hover:text-gray-700 text-xs font-bold cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-gray-100 dark:border-zinc-800 pt-5 space-y-4">
@@ -283,6 +416,18 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
           />
           <label htmlFor="allow-manual-discount" className="text-xs font-bold text-gray-600 dark:text-zinc-400 cursor-pointer">
             Permitir descuento manual (ingreso libre de porcentaje)
+          </label>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            id="allow-discounts-on-offers"
+            type="checkbox"
+            checked={allowDiscountsOnOffers}
+            onChange={e => setAllowDiscountsOnOffers(e.target.checked)}
+            className="rounded text-amber-500 border-gray-300 focus:ring-amber-500 h-3.5 w-3.5"
+          />
+          <label htmlFor="allow-discounts-on-offers" className="text-xs font-bold text-gray-600 dark:text-zinc-400 cursor-pointer">
+            Acumular descuentos sobre ítems con precio de grupo / oferta
           </label>
         </div>
       </div>
