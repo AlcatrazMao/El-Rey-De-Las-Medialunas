@@ -13,6 +13,8 @@ import {
   CircleAlert,
   LayoutGrid,
   List,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
@@ -117,6 +119,7 @@ export const POSView: React.FC = () => {
 
   // Tab management
   const tabCounter = useRef(2);
+  const tabsScrollRef = useRef<HTMLDivElement>(null);
   const addTab = () => {
     const n = tabCounter.current++;
     const id = `tab_${n}`;
@@ -912,78 +915,79 @@ export const POSView: React.FC = () => {
       {/* RIGHT COLUMN: POS CHECKOUT CART PANEL (Nueva Venta) */}
       <div className="flex flex-col flex-1 min-h-0 w-full max-w-5xl mx-auto bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs">
 
-        {/* Tab bar — Chrome style */}
-        <div className="shrink-0 flex items-center gap-0.5 px-2 pt-1 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 rounded-t-2xl overflow-x-auto">
-          {tabs.map(tab => (
-            <div
-              key={tab.id}
-              onClick={() => setActiveTabId(tab.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-t-lg text-xs font-bold cursor-pointer transition-all whitespace-nowrap select-none group shrink-0 ${
-                tab.id === activeTabId
-                  ? 'bg-white dark:bg-zinc-900 text-gray-800 dark:text-zinc-100 border border-b-0 border-gray-200 dark:border-zinc-700 -mb-px'
-                  : 'text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300 hover:bg-white/60 dark:hover:bg-zinc-800/60'
-              }`}
-            >
-              <span>{tab.label}</span>
-              {tab.cart.length > 0 && (
-                <span className="text-[9px] bg-amber-500 text-white rounded-full px-1 py-0 leading-4 font-black">
-                  {tab.cart.reduce((s, i) => s + i.quantity, 0)}
-                </span>
-              )}
-              {tabs.length > 1 && (
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    const itemCount = tab.cart.reduce((s, i) => s + i.quantity, 0);
-                    if (itemCount > 0) {
-                      setClosingTabId(tab.id);
-                    } else {
-                      closeTab(tab.id);
-                    }
-                  }}
-                  className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-amber-900/60 dark:text-amber-700 hover:text-red-500 transition-opacity cursor-pointer"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              )}
-            </div>
-          ))}
+        {/* BARRA UNIFICADA: carrusel de ventas + acciones */}
+        <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 rounded-t-2xl">
+          {/* Flecha izquierda */}
           <button
-            onClick={addTab}
-            title="Nueva venta"
-            className="p-1 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-md transition-colors cursor-pointer ml-0.5 shrink-0"
+            onClick={() => tabsScrollRef.current?.scrollBy({ left: -150, behavior: 'smooth' })}
+            className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300 cursor-pointer"
           >
-            <Plus className="h-3 w-3" />
+            <ChevronLeft className="h-3 w-3" />
           </button>
-        </div>
 
-        {/* Header detail */}
-        <div className="shrink-0 px-3 py-1.5 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShoppingCart className="h-3.5 w-3.5 text-amber-500" />
-            <h2 className="font-extrabold text-gray-800 dark:text-zinc-100 text-xs">Nueva Venta</h2>
+          {/* Tabs — carrusel sin scrollbar visible */}
+          <div
+            ref={tabsScrollRef}
+            className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
+          >
+            {tabs.map(tab => (
+              <div
+                key={tab.id}
+                onClick={() => setActiveTabId(tab.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-t-lg text-xs font-bold cursor-pointer transition-all whitespace-nowrap select-none group shrink-0 ${
+                  tab.id === activeTabId
+                    ? 'bg-white dark:bg-zinc-900 text-gray-800 dark:text-zinc-100 border border-b-0 border-gray-200 dark:border-zinc-700 -mb-px'
+                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300 hover:bg-white/60 dark:hover:bg-zinc-800/60'
+                }`}
+              >
+                <span>{tab.label}</span>
+                {tab.cart.length > 0 && (
+                  <span className="text-[9px] bg-amber-500 text-white rounded-full px-1 py-0 leading-4 font-black">
+                    {tab.cart.reduce((s, i) => s + i.quantity, 0)}
+                  </span>
+                )}
+                {tabs.length > 1 && (
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      const itemCount = tab.cart.reduce((s, i) => s + i.quantity, 0);
+                      if (itemCount > 0) {
+                        setClosingTabId(tab.id);
+                      } else {
+                        closeTab(tab.id);
+                      }
+                    }}
+                    className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-amber-900/60 dark:text-amber-700 hover:text-red-500 transition-opacity cursor-pointer"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Mini toggle Visual/Lista */}
-            <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-1">
-              <button
-                onClick={() => setModalMode('visual')}
-                className={`p-1.5 rounded ${modalMode === 'visual' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}
-                title="Vista visual"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setModalMode('list')}
-                className={`p-1.5 rounded ${modalMode === 'list' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}
-                title="Vista lista"
-              >
-                <List className="h-4 w-4" />
-              </button>
-            </div>
+          {/* Flecha derecha */}
+          <button
+            onClick={() => tabsScrollRef.current?.scrollBy({ left: 150, behavior: 'smooth' })}
+            className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300 cursor-pointer"
+          >
+            <ChevronRight className="h-3 w-3" />
+          </button>
 
-            {/* Lupa button */}
+          {/* Divisor */}
+          <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700 mx-1 shrink-0" />
+
+          {/* Acciones */}
+          <div className="shrink-0 flex items-center gap-1">
+            <button
+              onClick={addTab}
+              title="Nueva venta"
+              className="p-1.5 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-md transition-colors cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+
             <button
               id="btn-trigger-search-modal"
               onClick={() => {
@@ -992,15 +996,32 @@ export const POSView: React.FC = () => {
                 setShowSelectionModal(true);
                 playBeep(705, 0.05);
               }}
-              className="p-2 sm:px-3 sm:py-1.5 rounded-xl border border-amber-200 dark:border-zinc-850 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-xs"
+              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-amber-200 dark:border-zinc-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/40 text-amber-700 dark:text-amber-400 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
               title="Seleccionar Panificados"
             >
-              <Search className="h-4 w-4" />
+              <Search className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Buscar</span>
             </button>
 
-            <span className="text-xs bg-amber-100 dark:bg-amber-950/40 text-amber-805 dark:text-amber-400 font-bold px-2.5 py-1 rounded-full whitespace-nowrap">
-              Nº Comp: Auto-Gen
+            <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-md p-0.5 gap-0.5">
+              <button
+                onClick={() => setModalMode('visual')}
+                className={`p-1 rounded cursor-pointer ${modalMode === 'visual' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-gray-600'}`}
+                title="Vista visual"
+              >
+                <LayoutGrid className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => setModalMode('list')}
+                className={`p-1 rounded cursor-pointer ${modalMode === 'list' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-gray-600'}`}
+                title="Vista lista"
+              >
+                <List className="h-3 w-3" />
+              </button>
+            </div>
+
+            <span className="hidden sm:block text-[9px] bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold px-2 py-1 rounded-full whitespace-nowrap">
+              Auto-Gen
             </span>
           </div>
         </div>
@@ -1023,202 +1044,189 @@ export const POSView: React.FC = () => {
           />
         </div>
 
+        {/* Resumen del carrito — footer interno del panel */}
+        <div className="shrink-0 px-3 py-2 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60">
+          <div className="flex items-end justify-between gap-3">
+            {/* Izquierda: desglose */}
+            <div className="space-y-0.5 text-xs min-w-0">
+              <div className="flex items-center gap-2 text-gray-500">
+                <span className="w-16 shrink-0">Subtotal</span>
+                <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
+              </div>
+              <div className={`flex items-center gap-2 font-bold ${effectiveDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-zinc-700'}`}>
+                <span className="w-16 shrink-0">Descuento{effectiveDiscount > 0 ? ` (${effectiveDiscount}%)` : ''}</span>
+                <span>- {formatCurrency(discountAmount)}</span>
+              </div>
+              {activePriceList && priceListAdjustmentAmount !== 0 && (
+                <div className={`flex items-center gap-2 font-bold text-[10px] ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  <span className="w-16 shrink-0 truncate">{activePriceList.name}</span>
+                  <span>{priceListDiscountPercent > 0 ? `- ${formatCurrency(priceListAdjustmentAmount)}` : `+ ${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
+                </div>
+              )}
+              {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold">
+                  <span className="w-16 shrink-0">Recargo ({adjustmentPercent}%)</span>
+                  <span>+ {formatCurrency(paymentAdjustmentAmount)}</span>
+                </div>
+              )}
+              {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
+                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
+                  <span className="w-16 shrink-0">Desc. pago ({adjustmentPercent}%)</span>
+                  <span>- {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-gray-400 text-[10px]">
+                <span className="w-16 shrink-0">IVA ({(cartIvaRate * 100).toFixed(0)}%)</span>
+                <span>{formatCurrency(cartTax)}</span>
+              </div>
+            </div>
+            {/* Derecha: total */}
+            <div className="text-right shrink-0">
+              <p className="text-[8px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider leading-none">Total</p>
+              <p className="text-xl font-black text-gray-900 dark:text-white leading-tight">{formatCurrency(cartTotal)}</p>
+            </div>
+          </div>
+        </div>
+
       </div>{/* end panel carrito */}
 
-      {/* Footer sticky — tipo cliente + pago + resumen + COBRAR */}
-      <div className="shrink-0 bg-white/97 dark:bg-zinc-900/97 backdrop-blur-sm border-t border-gray-100 dark:border-zinc-800 px-2 py-1.5 md:px-3 md:py-2">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-1.5">
+      {/* Footer — formulario 2 filas + COBRAR */}
+      <div className="shrink-0 bg-white/97 dark:bg-zinc-900/97 backdrop-blur-sm border-t border-gray-100 dark:border-zinc-800 px-2 py-2 md:px-3">
 
-            {/* Izquierda: tipo cliente + datos cliente + pago + descuento */}
-            <div className="space-y-2">
+        {/* Fila 1: Tipo | Pago */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 mb-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[36px] shrink-0">Tipo</span>
+            <select
+              value={fiscalType}
+              onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
+              className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
+            >
+              <option value="consumidor_final">Consumidor Final</option>
+              <option value="exento">IVA Exento</option>
+              <option value="responsable_inscripto">Resp. Inscripto</option>
+              <option value="monotributista">Monotributista</option>
+            </select>
+          </div>
 
-              {/* Tipo fiscal */}
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[44px]">Tipo</span>
-                <select
-                  value={fiscalType}
-                  onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
-                  className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
-                >
-                  <option value="consumidor_final">Consumidor Final</option>
-                  <option value="exento">IVA Exento</option>
-                  <option value="responsable_inscripto">Responsable Inscripto</option>
-                  <option value="monotributista">Monotributista</option>
-                </select>
-              </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[36px] shrink-0">Pago</span>
+            <select
+              value={paymentMethod}
+              onChange={e => setPaymentMethod(e.target.value)}
+              className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
+            >
+              {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
+                <option key={pm.id} value={pm.id}>{pm.label}</option>
+              ))}
+            </select>
+            {adjustmentType !== 'none' && adjustmentPercent > 0 && (
+              <span className={`text-[9px] font-bold shrink-0 ${adjustmentType === 'recargo' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {adjustmentType === 'recargo' ? '▲' : '▼'}{adjustmentPercent}%
+              </span>
+            )}
+          </div>
+        </div>
 
-              {/* Cliente */}
-              <div className="flex items-start gap-2">
-                <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[44px] mt-1.5">Cliente</span>
-                <div className="flex-1 relative">
-                  {customerName ? (
-                    <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5">
-                      <span className="text-xs font-bold text-gray-800 dark:text-zinc-100 truncate flex-1">{customerName}</span>
-                      {customerDoc && <span className="text-[10px] text-gray-400 shrink-0">{customerDoc}</span>}
-                      {selectedCustomerId && (
-                        <button
-                          onClick={() => setShowCustomerDetailModal(true)}
-                          className="text-gray-400 hover:text-amber-500 shrink-0 cursor-pointer"
-                          title="Ver ficha del cliente"
-                        >
-                          <Search className="h-3 w-3" />
-                        </button>
-                      )}
+        {/* Fila 2: Cliente | Descuento | COBRAR */}
+        <div className="flex items-center gap-1.5">
+
+          {/* Cliente */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider shrink-0 hidden sm:block">CLI.</span>
+            <div className="flex-1 min-w-0 relative">
+              {customerName ? (
+                <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 min-w-0">
+                  <span className="text-xs font-bold text-gray-800 dark:text-zinc-100 flex-1 min-w-0 overflow-hidden whitespace-nowrap text-ellipsis">{customerName}</span>
+                  {customerDoc && <span className="text-[10px] text-gray-400 shrink-0 hidden md:inline">{customerDoc}</span>}
+                  {selectedCustomerId && (
+                    <button
+                      onClick={() => setShowCustomerDetailModal(true)}
+                      className="text-gray-400 hover:text-amber-500 shrink-0 cursor-pointer"
+                      title="Ver ficha del cliente"
+                    >
+                      <Search className="h-3 w-3" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }}
+                    className="text-gray-400 hover:text-red-500 shrink-0 cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente..."
+                    value={customerSearch}
+                    onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
+                    onFocus={() => setShowCustomerDropdown(true)}
+                    className="w-full text-xs bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+                  />
+                  {showCustomerDropdown && (
+                    <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
                       <button
-                        onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }}
-                        className="text-gray-400 hover:text-red-500 shrink-0 cursor-pointer"
+                        onClick={() => { setCustomerName('Anónimo'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                        className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800"
                       >
-                        <X className="h-3 w-3" />
+                        👤 Anónimo
+                      </button>
+                      {customers.filter(c => {
+                        const q = customerSearch.toLowerCase();
+                        return (
+                          (c.name ?? '').toLowerCase().includes(q) ||
+                          (c.tax_id ?? '').toLowerCase().includes(q) ||
+                          (c.email ?? '').toLowerCase().includes(q) ||
+                          (c.phone ?? '').toLowerCase().includes(q)
+                        );
+                      }).slice(0, 5).map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800"
+                        >
+                          <div className="font-bold">{c.name}</div>
+                          {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
+                        className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800"
+                      >
+                        + Crear nuevo cliente
                       </button>
                     </div>
-                  ) : (
-                    <div>
-                      <input
-                        type="text"
-                        placeholder="Buscar cliente..."
-                        value={customerSearch}
-                        onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
-                        onFocus={() => setShowCustomerDropdown(true)}
-                        className="w-full text-xs bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
-                      />
-                      {showCustomerDropdown && (
-                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
-                          <button
-                            onClick={() => { setCustomerName('Anónimo'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
-                            className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800"
-                          >
-                            👤 Anónimo
-                          </button>
-                          {customers.filter(c => {
-                            const q = customerSearch.toLowerCase();
-                            return (
-                              (c.name ?? '').toLowerCase().includes(q) ||
-                              (c.tax_id ?? '').toLowerCase().includes(q) ||
-                              (c.email ?? '').toLowerCase().includes(q) ||
-                              (c.phone ?? '').toLowerCase().includes(q)
-                            );
-                          }).slice(0, 5).map(c => (
-                            <button
-                              key={c.id}
-                              onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
-                              className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800"
-                            >
-                              <div className="font-bold">{c.name}</div>
-                              {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
-                            </button>
-                          ))}
-                          <button
-                            onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
-                            className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800"
-                          >
-                            + Crear nuevo cliente
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Credit warning compacto */}
-              {selectedCustomerId && (() => {
-                const sc = customers.find(c => c.id === selectedCustomerId);
-                if (!sc || sc.credit_limit <= 0) return null;
-                const overLimit = sc.current_debt >= sc.credit_limit;
-                const nearLimit = !overLimit && sc.current_debt / sc.credit_limit >= 0.8;
-                if (!overLimit && !nearLimit) return null;
-                return (
-                  <div className={`ml-[52px] text-[9px] font-bold px-2 py-1 rounded-lg ${overLimit ? 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400'}`}>
-                    {overLimit ? `⛔ Límite excedido: ${formatCurrency(sc.current_debt)} / ${formatCurrency(sc.credit_limit)}` : `⚠ Cerca del límite: ${formatCurrency(sc.current_debt)} / ${formatCurrency(sc.credit_limit)}`}
-                  </div>
-                );
-              })()}
-
-              {/* Método de pago */}
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[44px]">Pago</span>
-                <select
-                  value={paymentMethod}
-                  onChange={e => setPaymentMethod(e.target.value)}
-                  className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
-                >
-                  {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
-                    <option key={pm.id} value={pm.id}>{pm.label}</option>
-                  ))}
-                </select>
-                {adjustmentType !== 'none' && adjustmentPercent > 0 && (
-                  <span className={`text-[9px] font-bold shrink-0 ${adjustmentType === 'recargo' ? 'text-amber-600' : 'text-emerald-600'}`}>
-                    {adjustmentType === 'recargo' ? '▲' : '▼'}{adjustmentPercent}%
-                  </span>
-                )}
-              </div>
-
-              {/* Descuento */}
-              {posSettings.discountConfig?.availablePercents?.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[44px]">Desc.</span>
-                  <select
-                    value={selectedDiscount}
-                    onChange={e => setSelectedDiscount(Number(e.target.value))}
-                    className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
-                  >
-                    <option value={0}>Sin descuento</option>
-                    {posSettings.discountConfig.availablePercents.map(pct => (
-                      <option key={pct} value={pct}>- {pct}%</option>
-                    ))}
-                  </select>
-                  {selectedDiscount > 0 && !acumulaDescuentos && (
-                    <span className="text-[9px] text-gray-400 italic shrink-0">No acumula</span>
                   )}
                 </div>
               )}
-
             </div>
-
-            {/* Derecha: resumen */}
-            <div className="hidden md:flex bg-gray-50 dark:bg-zinc-950 rounded-xl border border-gray-100 dark:border-zinc-800 p-2.5 flex-col">
-              <div className="space-y-1 flex-1 text-xs">
-                <div className="flex justify-between text-gray-500">
-                  <span>Subtotal</span>
-                  <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
-                </div>
-                <div className={`flex justify-between font-bold ${effectiveDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-zinc-600'}`}>
-                  <span>Descuento{effectiveDiscount > 0 ? ` (${effectiveDiscount}%)` : ''}</span>
-                  <span>- {formatCurrency(discountAmount)}</span>
-                </div>
-                {activePriceList && priceListAdjustmentAmount !== 0 && (
-                  <div className={`flex justify-between font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                    <span className="truncate mr-2">{activePriceList.name}</span>
-                    <span className="shrink-0">{priceListDiscountPercent > 0 ? `- ${formatCurrency(priceListAdjustmentAmount)}` : `+ ${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
-                  </div>
-                )}
-                {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
-                  <div className="flex justify-between text-amber-600 dark:text-amber-400 font-bold">
-                    <span>Recargo ({adjustmentPercent}%)</span>
-                    <span>+ {formatCurrency(paymentAdjustmentAmount)}</span>
-                  </div>
-                )}
-                {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
-                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
-                    <span>Desc. pago ({adjustmentPercent}%)</span>
-                    <span>- {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-gray-400">
-                  <span>IVA ({(cartIvaRate * 100).toFixed(0)}%)</span>
-                  <span>{formatCurrency(cartTax)}</span>
-                </div>
-              </div>
-            </div>
-
           </div>
+
+          {/* Descuento */}
+          {posSettings.discountConfig?.availablePercents?.length > 0 && (
+            <div className="shrink-0 flex items-center gap-1">
+              <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider hidden md:block">Desc.</span>
+              <select
+                value={selectedDiscount}
+                onChange={e => setSelectedDiscount(Number(e.target.value))}
+                className="bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+              >
+                <option value={0}>Sin desc.</option>
+                {posSettings.discountConfig.availablePercents.map(pct => (
+                  <option key={pct} value={pct}>- {pct}%</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* COBRAR */}
           <button
             id="btn-pos-checkout"
             onClick={handlePayment}
             disabled={cart.length === 0 || isProcessingPayment}
-            className={`w-full py-2.5 md:py-3.5 rounded-2xl text-base font-extrabold flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
+            className={`shrink-0 px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
               cart.length === 0
                 ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
                 : 'bg-amber-850 hover:bg-amber-805 text-white border-b-4 border-amber-955'
@@ -1226,16 +1234,35 @@ export const POSView: React.FC = () => {
           >
             {isProcessingPayment ? (
               <>
-                <Cpu className="h-5 w-5 animate-spin" />
-                <span>{processingStatusText}</span>
+                <Cpu className="h-4 w-4 animate-spin" />
+                <span className="hidden md:inline">{processingStatusText}</span>
+                <span className="md:hidden">...</span>
               </>
             ) : (
               <>
-                <CreditCard className="h-5 w-5" />
-                <span>COBRAR {formatCurrency(cartTotal)}</span>
+                <CreditCard className="h-4 w-4" />
+                <span className="hidden sm:inline">COBRAR </span>{formatCurrency(cartTotal)}
               </>
             )}
           </button>
+        </div>
+
+        {/* Avisos: crédito + no acumula */}
+        {selectedCustomerId && (() => {
+          const sc = customers.find(c => c.id === selectedCustomerId);
+          if (!sc || sc.credit_limit <= 0) return null;
+          const overLimit = sc.current_debt >= sc.credit_limit;
+          const nearLimit = !overLimit && sc.current_debt / sc.credit_limit >= 0.8;
+          if (!overLimit && !nearLimit) return null;
+          return (
+            <div className={`mt-1 text-[9px] font-bold px-2 py-1 rounded-lg ${overLimit ? 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400'}`}>
+              {overLimit ? `⛔ Límite excedido: ${formatCurrency(sc.current_debt)} / ${formatCurrency(sc.credit_limit)}` : `⚠ Cerca del límite: ${formatCurrency(sc.current_debt)} / ${formatCurrency(sc.credit_limit)}`}
+            </div>
+          );
+        })()}
+        {selectedDiscount > 0 && !acumulaDescuentos && (
+          <p className="mt-0.5 text-[9px] text-gray-400 italic">Desc. no acumula con este método de pago</p>
+        )}
       </div>
 
       {/* MODAL / POPUP: TRANSACTION CONFIRMATION / PRINT PREVIEW */}
