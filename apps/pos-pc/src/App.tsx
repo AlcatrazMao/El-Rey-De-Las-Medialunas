@@ -417,10 +417,23 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Step 2: Validate against D1 via API Worker
+  // Step 2: Validate against D1 via API Worker — with offline-first cache fallback.
+  // First login requires network. Subsequent loads (even offline) reuse the cached
+  // role/panels so the app starts without hitting the backend.
   useEffect(() => {
     if (!firebaseUser) return;
     let cancelled = false;
+
+    const CACHE_KEY = `auth_cache_${firebaseUser.uid}`;
+
+    const applyCache = (cached: { role: string; panels: string[] | null }) => {
+      if (cancelled) return;
+      setFirestoreRole(cached.role);
+      setServerPanels(cached.panels);
+      setFsCheckDone(true);
+      setAuthLoading(false);
+    };
+
     const check = async () => {
       try {
         const idToken = await firebaseUser.getIdToken();
@@ -437,9 +450,12 @@ export default function App() {
           if (data.data.tokens?.refresh_token) {
             localStorage.setItem('refresh_token', data.data.tokens.refresh_token);
           }
+          const role = data.data.user.role || null;
+          const panels = data.data.user.custom_panels ?? null;
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ role, panels }));
           if (!cancelled) {
-            setFirestoreRole(data.data.user.role || null);
-            setServerPanels(data.data.user.custom_panels ?? null);
+            setFirestoreRole(role);
+            setServerPanels(panels);
             setFsCheckDone(true);
             setAuthLoading(false);
           }
@@ -450,8 +466,16 @@ export default function App() {
           }
         }
       } catch {
+        // Sin red: intentar usar cache de la última sesión válida
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (raw) {
+          try {
+            applyCache(JSON.parse(raw));
+            return;
+          } catch { /* cache corrupto, caer al error */ }
+        }
         if (!cancelled) {
-          setAccessError('Error de conexión. Reintentá.');
+          setAccessError('Sin conexión y sin sesión previa. Conectate al menos una vez para usar la app offline.');
           setAuthLoading(false);
         }
       }
