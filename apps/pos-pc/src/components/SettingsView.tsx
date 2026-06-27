@@ -1,4 +1,4 @@
-import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check, Tag, Percent, RefreshCw, AlertCircle, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check, Tag, Percent, RefreshCw, AlertCircle, ShieldAlert, AlertTriangle, Wrench } from 'lucide-react';
 import * as React from 'react';
 import { useState, useEffect } from 'react';
 
@@ -14,10 +14,11 @@ import { PriceListSettings as PriceListSettingsPanel } from '../settings/PriceLi
 import { PrinterSettings as PrinterSettingsPanel } from '../settings/PrinterSettings';
 import { PromotionsSettings as PromotionsSettingsPanel } from '../settings/PromotionsSettings';
 import { SyncSettings as SyncSettingsPanel } from '../settings/SyncSettings';
+import { MaintenanceSettings as MaintenanceSettingsPanel } from '../settings/MaintenanceSettings';
 
 import { SyncErrorConsole } from './SyncErrorConsole';
 
-type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'pricelists' | 'promotions' | 'printer' | 'sync' | 'sync_console' | 'danger';
+type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'pricelists' | 'promotions' | 'printer' | 'sync' | 'sync_console' | 'danger' | 'maintenance';
 
 interface TabItem {
   id: TabId;
@@ -36,6 +37,7 @@ const TABS: TabItem[] = [
   { id: 'printer', label: 'Impresora', icon: <Printer className="h-4 w-4" /> },
   { id: 'sync', label: 'Sincronización', icon: <RefreshCw className="h-4 w-4" /> },
   { id: 'sync_console', label: 'Errores Sync', icon: <AlertTriangle className="h-4 w-4" /> },
+  { id: 'maintenance', label: 'Mantenimiento', icon: <Wrench className="h-4 w-4" /> },
   { id: 'danger', label: 'Sistema', icon: <ShieldAlert className="h-4 w-4" /> },
 ];
 
@@ -120,6 +122,8 @@ export const SettingsView: React.FC = () => {
         return <SyncSettingsPanel settings={settings} onUpdate={handleUpdateSync} onSaved={showSavedToast} />;
       case 'sync_console':
         return <SyncErrorConsole />;
+      case 'maintenance':
+        return <MaintenanceSettingsPanel />;
       case 'danger':
         return <DangerZoneSettingsPanel />;
     }
