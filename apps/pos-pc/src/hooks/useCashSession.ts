@@ -75,6 +75,27 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
   });
 
   const [hasMoreSessions, setHasMoreSessions] = useState(true);
+  const [isCheckingRemoteSession, setIsCheckingRemoteSession] = useState(false);
+
+  // Al arrancar sin sesión local, verificamos D1 por si hay una abierta en otro dispositivo.
+  useEffect(() => {
+    if (currentCashSession !== null) return;
+    setIsCheckingRemoteSession(true);
+    fetchCashSessionsFromD1(10)
+      .then(sessions => {
+        const remoteOpen = sessions.find(s => s.status === 'open');
+        if (!remoteOpen) return;
+        setCurrentCashSession(remoteOpen);
+        notify(
+          '🏦 Caja abierta en otro dispositivo',
+          `Se restauró la sesión de ${remoteOpen.openedBy} (${formatCurrency(remoteOpen.initialAmount)}). Cerrala desde este dispositivo si corresponde.`,
+          'warning',
+        );
+      })
+      .catch(() => {})
+      .finally(() => setIsCheckingRemoteSession(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const session = currentCashSession;
@@ -305,5 +326,6 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
     closeHistoricalSession,
     loadMoreSessions,
     hasMoreSessions,
+    isCheckingRemoteSession,
   };
 }

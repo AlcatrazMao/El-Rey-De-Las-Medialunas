@@ -44,6 +44,7 @@ export const CashSessionView: React.FC = () => {
     loadMoreSessions,
     hasMoreSessions,
     setActiveTab,
+    isCheckingRemoteSession,
   } = useApp();
 
   const { settings } = useSettings();
@@ -274,9 +275,10 @@ export const CashSessionView: React.FC = () => {
                 <button
                   type="submit"
                   id="btn-confirm-cash-opening"
-                  className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs tracking-wider uppercase rounded-2xl shadow-md shadow-emerald-500/10 transition-all hover:scale-[1.01] cursor-pointer"
+                  disabled={isCheckingRemoteSession}
+                  className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-wait text-white font-extrabold text-xs tracking-wider uppercase rounded-2xl shadow-md shadow-emerald-500/10 transition-all hover:scale-[1.01] cursor-pointer"
                 >
-                  🚀 Abrir Caja de Turno
+                  {isCheckingRemoteSession ? '🔍 Verificando caja remota…' : '🚀 Abrir Caja de Turno'}
                 </button>
               </form>
             </div>

@@ -71,6 +71,7 @@ interface AppContextType {
   closeHistoricalSession: (sessionId: string, realAmount: number, note?: string) => void;
   loadMoreSessions: () => void;
   hasMoreSessions: boolean;
+  isCheckingRemoteSession: boolean;
   // sync-error-console: estado del LED + handlers para consola admin
   syncStatus: SyncStatus;
   retryError: (errorId: number) => Promise<void>;
@@ -579,6 +580,7 @@ export const AppProvider: React.FC<{
     openCashSession: cash.openCashSession, closeCashSession: cash.closeCashSession,
     closeHistoricalSession: cash.closeHistoricalSession,
     loadMoreSessions: cash.loadMoreSessions, hasMoreSessions: cash.hasMoreSessions,
+    isCheckingRemoteSession: cash.isCheckingRemoteSession,
     syncStatus, retryError, retryAllNetwork,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hook return refs (addSale, addBatch, etc) are stable per-render of their owning hooks; tracking state slices is sufficient
   }), [
@@ -589,7 +591,7 @@ export const AppProvider: React.FC<{
     notif.notifications,
     bch.batches, bch.withdrawalRequests,
     sup.supplyRequests,
-    cash.currentCashSession, cash.cashSessionsHistory, cash.hasMoreSessions,
+    cash.currentCashSession, cash.cashSessionsHistory, cash.hasMoreSessions, cash.isCheckingRemoteSession,
     cust.customers,
     syncStatus, retryError, retryAllNetwork,
   ]);
