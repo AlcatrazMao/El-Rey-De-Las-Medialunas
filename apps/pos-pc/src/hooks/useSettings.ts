@@ -177,12 +177,18 @@ function migratePaymentMethods(stored: unknown): PaymentMethodConfig[] {
     const id = pm?.id as string | undefined;
     if (!id) continue;
     if (VALID.includes(id as PaymentMethodId)) {
+      const def = DEFAULT_SETTINGS.paymentMethods.find(p => p.id === id)!;
       const legacySurcharge = typeof pm.surchargePercent === 'number' ? (pm.surchargePercent as number) : 0;
-      const adjustmentType = (pm.adjustmentType as PaymentAdjustmentType | undefined)
+      const storedAdjustmentType = (pm.adjustmentType as PaymentAdjustmentType | undefined)
         ?? (legacySurcharge > 0 ? 'recargo' : 'none');
-      const adjustmentPercent = typeof pm.adjustmentPercent === 'number'
+      const storedAdjustmentPercent = typeof pm.adjustmentPercent === 'number'
         ? (pm.adjustmentPercent as number)
         : legacySurcharge;
+      // Si el stored coincide con el default viejo (none/0), usar el default actual
+      // para que upgrades de configuración lleguen a instalaciones existentes.
+      const wasOldDefault = storedAdjustmentType === 'none' && storedAdjustmentPercent === 0;
+      const adjustmentType = wasOldDefault ? def.adjustmentType : storedAdjustmentType;
+      const adjustmentPercent = wasOldDefault ? def.adjustmentPercent : storedAdjustmentPercent;
       upgraded.push({
         id,
         label: typeof pm.label === 'string' ? (pm.label as string) : id,
