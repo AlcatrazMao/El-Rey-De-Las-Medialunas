@@ -43,6 +43,7 @@ export const CashSessionView: React.FC = () => {
     activeUser,
     loadMoreSessions,
     hasMoreSessions,
+    setActiveTab,
   } = useApp();
 
   const { settings } = useSettings();
@@ -106,6 +107,7 @@ export const CashSessionView: React.FC = () => {
     setOpeningNote(settings.cash.defaultOpeningNote);
     setOpeningMode(settings.cash.defaultOpeningMode ?? 'billetes');
     resetBills();
+    setActiveTab('pos');
   };
 
   const handleClose = (e: React.FormEvent) => {

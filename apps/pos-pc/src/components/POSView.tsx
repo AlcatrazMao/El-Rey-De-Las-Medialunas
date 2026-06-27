@@ -1145,7 +1145,7 @@ export const POSView: React.FC = () => {
                   <span>Subtotal</span>
                   <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
                 </div>
-                {discountAmount > 0 && (
+                {effectiveDiscount > 0 && (
                   <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
                     <span>Descuento ({effectiveDiscount}%)</span>
                     <span>- {formatCurrency(discountAmount)}</span>
@@ -1157,13 +1157,13 @@ export const POSView: React.FC = () => {
                     <span className="shrink-0">{priceListDiscountPercent > 0 ? `- ${formatCurrency(priceListAdjustmentAmount)}` : `+ ${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
                   </div>
                 )}
-                {adjustmentType === 'recargo' && paymentAdjustmentAmount > 0 && (
+                {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
                   <div className="flex justify-between text-amber-600 dark:text-amber-400 font-bold">
                     <span>Recargo ({adjustmentPercent}%)</span>
                     <span>+ {formatCurrency(paymentAdjustmentAmount)}</span>
                   </div>
                 )}
-                {adjustmentType === 'descuento' && paymentAdjustmentAmount < 0 && (
+                {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
                   <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
                     <span>Desc. pago ({adjustmentPercent}%)</span>
                     <span>- {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
