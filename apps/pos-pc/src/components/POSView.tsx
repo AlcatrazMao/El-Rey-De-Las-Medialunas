@@ -57,7 +57,8 @@ export const POSView: React.FC = () => {
     setActiveTab,
     selectedSellerId,
     customers,
-    addCustomer
+    addCustomer,
+    sales,
   } = useApp();
 
   const posSettings = getSettings();
@@ -159,7 +160,8 @@ export const POSView: React.FC = () => {
 
   // New customer mini-modal states
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
-  const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', email: '' });
+  const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', email: '', tax_id: '' });
+  const [showCustomerDetailModal, setShowCustomerDetailModal] = useState(false);
 
   // Barcode scanner (HID keyboard emulator detection)
   const barcodeBufferRef = useRef<string>('');
@@ -824,7 +826,7 @@ export const POSView: React.FC = () => {
       email: newCustomerForm.email.trim(),
       phone: newCustomerForm.phone.trim(),
       address: '',
-      tax_id: '',
+      tax_id: newCustomerForm.tax_id.trim(),
       type: 'consumidor_final',
       condicion_fiscal: 'consumidor_final',
       price_list_number: 1,
@@ -833,8 +835,9 @@ export const POSView: React.FC = () => {
       notes: '',
     });
     setCustomerName(newCustomerForm.name.trim());
+    setCustomerDoc(newCustomerForm.tax_id.trim());
     setSelectedCustomerId(newId);
-    setNewCustomerForm({ name: '', phone: '', email: '' });
+    setNewCustomerForm({ name: '', phone: '', email: '', tax_id: '' });
     setShowNewCustomerModal(false);
   };
 
@@ -1138,7 +1141,16 @@ export const POSView: React.FC = () => {
                   {customerName ? (
                     <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5">
                       <span className="text-xs font-bold text-gray-800 dark:text-zinc-100 truncate flex-1">{customerName}</span>
-                      {customerDoc && <span className="text-[10px] text-gray-400 shrink-0">({customerDoc})</span>}
+                      {customerDoc && <span className="text-[10px] text-gray-400 shrink-0">{customerDoc}</span>}
+                      {selectedCustomerId && (
+                        <button
+                          onClick={() => setShowCustomerDetailModal(true)}
+                          className="text-gray-400 hover:text-amber-500 shrink-0 cursor-pointer"
+                          title="Ver ficha del cliente"
+                        >
+                          <Search className="h-3 w-3" />
+                        </button>
+                      )}
                       <button
                         onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }}
                         className="text-gray-400 hover:text-red-500 shrink-0 cursor-pointer"
@@ -1664,6 +1676,99 @@ export const POSView: React.FC = () => {
       </button>
 
       {/* MODAL: Nuevo Cliente */}
+      {/* MODAL: Ficha del Cliente */}
+      {showCustomerDetailModal && selectedCustomerId && (() => {
+        const c = customers.find(cu => cu.id === selectedCustomerId);
+        if (!c) return null;
+        const cSales = sales.filter(s =>
+          s.customerId === c.id || (!s.customerId && s.customerName === c.name)
+        );
+        return (
+          <div
+            className="fixed inset-0 z-55 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={() => setShowCustomerDetailModal(false)}
+          >
+            <div
+              className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-zinc-800 shrink-0">
+                <div>
+                  <h3 className="font-extrabold text-sm text-gray-800 dark:text-zinc-100">{c.name}</h3>
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    {c.tax_id ? `DNI/CUIT: ${c.tax_id}` : 'Sin documento'}
+                    {c.phone ? ` · ${c.phone}` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowCustomerDetailModal(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-zinc-200 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-gray-50 dark:bg-zinc-950 rounded-lg p-2.5">
+                    <span className="text-gray-400 block mb-0.5">Total compras</span>
+                    <span className="font-bold text-amber-600">{formatCurrency(c.total_purchases)}</span>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-zinc-950 rounded-lg p-2.5">
+                    <span className="text-gray-400 block mb-0.5">Última compra</span>
+                    <span className="font-semibold">{c.last_purchase_date ? new Date(c.last_purchase_date).toLocaleDateString('es-AR') : '—'}</span>
+                  </div>
+                  {c.email && (
+                    <div className="bg-gray-50 dark:bg-zinc-950 rounded-lg p-2.5">
+                      <span className="text-gray-400 block mb-0.5">Email</span>
+                      <span className="font-semibold truncate block">{c.email}</span>
+                    </div>
+                  )}
+                  {c.credit_limit > 0 && (
+                    <div className={`rounded-lg p-2.5 col-span-${c.email ? '1' : '2'} ${c.current_debt >= c.credit_limit ? 'bg-red-50 dark:bg-red-950/20' : 'bg-amber-50 dark:bg-amber-950/20'}`}>
+                      <span className="text-gray-400 block mb-0.5">Crédito usado</span>
+                      <span className="font-bold">{formatCurrency(c.current_debt)} / {formatCurrency(c.credit_limit)}</span>
+                    </div>
+                  )}
+                </div>
+                {/* Compras recientes */}
+                {cSales.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Compras recientes</p>
+                    <div className="divide-y divide-gray-100 dark:divide-zinc-800">
+                      {cSales.slice(0, 8).map(s => (
+                        <div key={s.id} className="flex justify-between items-center py-1.5 text-xs text-gray-600 dark:text-zinc-400">
+                          <span className="text-gray-400">{s.invoiceNumber}</span>
+                          <span>{new Date(s.date).toLocaleDateString('es-AR')}</span>
+                          <span className="font-bold text-gray-800 dark:text-zinc-100">{formatCurrency(s.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Historial */}
+                {c.timeline.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Historial</p>
+                    <div className="space-y-1.5">
+                      {c.timeline.slice(0, 8).map(entry => (
+                        <div key={entry.id} className="flex items-start gap-2 text-xs border-l-2 border-amber-300 dark:border-amber-700 pl-2 py-0.5">
+                          <span className="text-gray-400 whitespace-nowrap shrink-0">{new Date(entry.date).toLocaleDateString('es-AR')}</span>
+                          <span className="text-gray-700 dark:text-zinc-300">{entry.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL: Nuevo Cliente */}
       {showNewCustomerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
@@ -1686,15 +1791,27 @@ export const POSView: React.FC = () => {
                   className="w-full mt-1 text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
                 />
               </div>
-              <div>
-                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Teléfono</label>
-                <input
-                  type="tel"
-                  value={newCustomerForm.phone}
-                  onChange={e => setNewCustomerForm(f => ({ ...f, phone: e.target.value }))}
-                  placeholder="Ej: 1100000000"
-                  className="w-full mt-1 text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Teléfono</label>
+                  <input
+                    type="tel"
+                    value={newCustomerForm.phone}
+                    onChange={e => setNewCustomerForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="Ej: 1100000000"
+                    className="w-full mt-1 text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">DNI / CUIT</label>
+                  <input
+                    type="text"
+                    value={newCustomerForm.tax_id}
+                    onChange={e => setNewCustomerForm(f => ({ ...f, tax_id: e.target.value }))}
+                    placeholder="20-12345678-9"
+                    className="w-full mt-1 text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                  />
+                </div>
               </div>
               <div>
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Email</label>
