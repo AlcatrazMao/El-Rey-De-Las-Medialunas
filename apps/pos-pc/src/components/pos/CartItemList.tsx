@@ -62,9 +62,9 @@ export const CartItemList: React.FC<CartItemListProps> = ({
           const lineKey = `${item.product.id}::${item.presentation ?? ''}::${lineIdx}`;
           const lineSubtotal = item.unitPrice * item.quantity;
           return (
-          <div key={lineKey} className="pt-2 flex items-center justify-between gap-3 text-xs min-w-0">
+          <div key={lineKey} className="pt-2 flex items-center justify-between gap-3 min-w-0">
             <div className="min-w-0 flex-1 overflow-hidden">
-              <p className="font-bold text-gray-800 dark:text-zinc-100 truncate">
+              <p className="font-bold text-gray-800 dark:text-zinc-100 truncate text-sm md:text-xs">
                 {item.product.name}
                 {item.presentation && (
                   <span className="ml-1.5 inline-block bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider">
@@ -72,8 +72,8 @@ export const CartItemList: React.FC<CartItemListProps> = ({
                   </span>
                 )}
               </p>
-              <p className="text-[10px] text-amber-600 dark:text-amber-500 font-semibold truncate">
-                {formatCurrency(item.unitPrice)} c/u · Subtotal: {formatCurrency(lineSubtotal)}
+              <p className="text-xs md:text-[10px] text-amber-600 dark:text-amber-500 font-semibold truncate">
+                {formatCurrency(item.unitPrice)} c/u · Sub: {formatCurrency(lineSubtotal)}
               </p>
             </div>
 

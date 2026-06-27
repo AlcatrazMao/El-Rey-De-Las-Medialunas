@@ -386,7 +386,7 @@ function ERPLayout() {
 
         <section className={`transition-all duration-350 ${
           isPOSMode
-            ? 'flex-1 min-h-0 p-0 bg-transparent border-0'
+            ? 'flex-1 min-h-0 flex flex-col p-0 bg-transparent border-0'
             : 'min-h-[520px] bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 rounded-3xl p-3 md:p-6 shadow-sm'
         }`}>
           {renderActiveView()}

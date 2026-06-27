@@ -162,6 +162,7 @@ export const POSView: React.FC = () => {
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', email: '', tax_id: '' });
   const [showCustomerDetailModal, setShowCustomerDetailModal] = useState(false);
+  const [closingTabId, setClosingTabId] = useState<string | null>(null);
 
   // Barcode scanner (HID keyboard emulator detection)
   const barcodeBufferRef = useRef<string>('');
@@ -962,8 +963,16 @@ export const POSView: React.FC = () => {
               )}
               {tabs.length > 1 && (
                 <button
-                  onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity cursor-pointer"
+                  onClick={e => {
+                    e.stopPropagation();
+                    const itemCount = tab.cart.reduce((s, i) => s + i.quantity, 0);
+                    if (itemCount > 0) {
+                      setClosingTabId(tab.id);
+                    } else {
+                      closeTab(tab.id);
+                    }
+                  }}
+                  className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-amber-900/60 dark:text-amber-700 hover:text-red-500 transition-opacity cursor-pointer"
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -1676,6 +1685,43 @@ export const POSView: React.FC = () => {
       </button>
 
       {/* MODAL: Nuevo Cliente */}
+      {/* MODAL: Confirmar cierre de tab con ítems */}
+      {closingTabId && (() => {
+        const target = tabs.find(t => t.id === closingTabId);
+        if (!target) return null;
+        const itemCount = target.cart.reduce((s, i) => s + i.quantity, 0);
+        return (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-2xl shadow-2xl p-5 w-full max-w-xs">
+              <p className="font-extrabold text-sm text-gray-800 dark:text-zinc-100 mb-1">¿Cerrar "{target.label}"?</p>
+              <p className="text-xs text-gray-500 dark:text-zinc-400 mb-4">
+                Tiene {itemCount} {itemCount === 1 ? 'artículo' : 'artículos'} sin cobrar. Se descartará la venta.
+              </p>
+              <div className="flex gap-2 mb-2">
+                <button
+                  onClick={() => { setActiveTabId(closingTabId); setClosingTabId(null); }}
+                  className="flex-1 py-2.5 text-xs font-bold text-amber-700 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl hover:bg-amber-100 cursor-pointer"
+                >
+                  Ir a esta venta
+                </button>
+                <button
+                  onClick={() => { closeTab(closingTabId); setClosingTabId(null); }}
+                  className="flex-1 py-2.5 text-xs font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl cursor-pointer"
+                >
+                  Sí, descartar
+                </button>
+              </div>
+              <button
+                onClick={() => setClosingTabId(null)}
+                className="w-full py-1.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300 cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* MODAL: Ficha del Cliente */}
       {showCustomerDetailModal && selectedCustomerId && (() => {
         const c = customers.find(cu => cu.id === selectedCustomerId);
