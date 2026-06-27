@@ -851,11 +851,11 @@ export const POSView: React.FC = () => {
   });
 
   return (
-    <div className="flex flex-col gap-6 min-h-[calc(100vh-140px)] transition-all duration-300">
+    <div className="flex flex-col transition-all duration-300 h-[calc(100dvh-60px)] md:h-auto md:min-h-[calc(100vh-120px)]">
 
 
       {/* RIGHT COLUMN: POS CHECKOUT CART PANEL (Nueva Venta) */}
-      <div className="w-full max-w-5xl mx-auto min-w-0 min-h-0 bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs overflow-visible pb-[380px]">
+      <div className="flex-1 min-h-0 overflow-y-auto md:overflow-visible w-full max-w-5xl mx-auto bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs md:pb-[380px]">
 
         {/* Scrollable area — header, search, fiscal, cart, subtotals, payment, discount */}
         <div className="p-5">
@@ -994,9 +994,11 @@ export const POSView: React.FC = () => {
 
         </div>{/* end scrollable area */}
 
-        {/* Footer sticky — tipo cliente + pago + resumen + COBRAR */}
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/97 dark:bg-zinc-900/97 backdrop-blur-sm border-t border-gray-100 dark:border-zinc-800 p-4" style={{ maxWidth: '64rem', marginLeft: 'auto', marginRight: 'auto' }}>
-          <div className="grid grid-cols-2 gap-4 mb-3">
+      </div>{/* end panel carrito */}
+
+      {/* Footer sticky — tipo cliente + pago + resumen + COBRAR */}
+      <div className="shrink-0 md:fixed md:bottom-0 md:left-0 md:right-0 md:z-40 bg-white/97 dark:bg-zinc-900/97 backdrop-blur-sm border-t border-gray-100 dark:border-zinc-800 p-3 md:p-4 md:max-w-4xl md:mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
 
             {/* Izquierda: tipo cliente + datos cliente + pago + descuento */}
             <div className="space-y-2">
@@ -1187,7 +1189,7 @@ export const POSView: React.FC = () => {
             className={`w-full py-4 rounded-2xl text-base font-extrabold flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
               cart.length === 0
                 ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
-                : 'bg-amber-900 hover:bg-amber-800 text-white border-b-4 border-amber-950'
+                : 'bg-amber-850 hover:bg-amber-805 text-white border-b-4 border-amber-955'
             }`}
           >
             {isProcessingPayment ? (
@@ -1202,8 +1204,6 @@ export const POSView: React.FC = () => {
               </>
             )}
           </button>
-        </div>
-
       </div>
 
       {/* MODAL / POPUP: TRANSACTION CONFIRMATION / PRINT PREVIEW */}
@@ -1550,7 +1550,7 @@ export const POSView: React.FC = () => {
           setShowSelectionModal(true);
           playBeep(705, 0.05);
         }}
-        className="fixed bottom-28 right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
+        className="hidden md:flex fixed bottom-28 right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
         title="Buscar Panificados (Modo Lista)"
       >
         <Search className="h-6 w-6 group-hover:rotate-12 transition-transform duration-300" />

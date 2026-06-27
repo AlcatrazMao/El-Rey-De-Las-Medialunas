@@ -1,4 +1,4 @@
-import { Wallet } from 'lucide-react';
+import { Banknote, Wallet } from 'lucide-react';
 import * as React from 'react';
 import { useState } from 'react';
 
@@ -27,6 +27,35 @@ export const CashSettings: React.FC<Props> = ({ settings, onUpdate, onSaved }) =
       </div>
 
       <div className="space-y-4">
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider block mb-2">
+            Modo de Apertura por Defecto
+          </label>
+          <div className="flex items-center gap-0.5 bg-gray-100 dark:bg-zinc-800 p-0.5 rounded-lg w-fit">
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, defaultOpeningMode: 'manual' }))}
+              className={`text-xs font-bold py-1.5 px-4 rounded-md transition-all cursor-pointer ${form.defaultOpeningMode === 'manual' ? 'bg-white dark:bg-zinc-700 text-gray-800 dark:text-zinc-100 shadow-sm' : 'text-gray-400 dark:text-zinc-500 hover:text-gray-600'}`}
+            >
+              Manual
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, defaultOpeningMode: 'billetes' }))}
+              className={`text-xs font-bold py-1.5 px-4 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${form.defaultOpeningMode === 'billetes' ? 'bg-white dark:bg-zinc-700 text-gray-800 dark:text-zinc-100 shadow-sm' : 'text-gray-400 dark:text-zinc-500 hover:text-gray-600'}`}
+            >
+              <Banknote className="w-3.5 h-3.5" />
+              Billetes
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-400 dark:text-zinc-500 mt-1">
+            {form.defaultOpeningMode === 'billetes'
+              ? 'El monto de apertura se calcula automáticamente desde el contador de billetes.'
+              : 'El monto de apertura se ingresa manualmente en cada apertura.'}
+          </p>
+        </div>
+
         <div className="space-y-1">
           <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
             Monto de Apertura por Defecto ($)

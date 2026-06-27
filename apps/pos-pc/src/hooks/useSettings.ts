@@ -19,6 +19,7 @@ export interface CashSettings {
   defaultOpeningAmount: number;
   defaultOpeningNote: string;
   defaultClosingNote: string;
+  defaultOpeningMode: 'manual' | 'billetes';
 }
 
 export interface InventorySettings {
@@ -132,6 +133,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     defaultOpeningAmount: 15000,
     defaultOpeningNote: 'Saldo base inicial de cambio en caja chica.',
     defaultClosingNote: 'Cierre de caja de turno regular sin inconvenientes.',
+    defaultOpeningMode: 'billetes' as const,
   },
   inventory: {
     expiryAlertDays: 2,

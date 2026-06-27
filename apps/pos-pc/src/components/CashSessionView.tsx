@@ -48,6 +48,7 @@ export const CashSessionView: React.FC = () => {
   const { settings } = useSettings();
 
   const [openingAmount, setOpeningAmount] = useState<number>(0);
+  const [openingMode, setOpeningMode] = useState<'manual' | 'billetes'>(settings.cash.defaultOpeningMode ?? 'billetes');
   const [openingNote, setOpeningNote] = useState<string>(settings.cash.defaultOpeningNote);
   const [closingAmount, setClosingAmount] = useState<number>(0);
   const [closingNote, setClosingNote] = useState<string>(settings.cash.defaultClosingNote);
@@ -93,15 +94,17 @@ export const CashSessionView: React.FC = () => {
 
   const handleOpen = (e: React.FormEvent) => {
     e.preventDefault();
-    if (openingAmount < 0) return;
+    const effectiveAmount = openingMode === 'billetes' ? billTotal : openingAmount;
+    if (effectiveAmount < 0) return;
     if (openHistoricalSession) {
       setHighlightOpenSession(true);
       setShowHistoryModal(true);
       return;
     }
-    openCashSession(openingAmount, openingNote);
+    openCashSession(effectiveAmount, openingNote);
     setOpeningAmount(settings.cash.defaultOpeningAmount);
     setOpeningNote(settings.cash.defaultOpeningNote);
+    setOpeningMode(settings.cash.defaultOpeningMode ?? 'billetes');
     resetBills();
   };
 
@@ -193,22 +196,55 @@ export const CashSessionView: React.FC = () => {
 
               <form onSubmit={handleOpen} className="space-y-4">
                 <div>
-                  <label htmlFor="openingAmount" className="text-[10px] font-black uppercase text-gray-400 dark:text-zinc-400 tracking-wider block mb-1.5">
-                    Monto Inicial de Caja ($) *
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="openingAmount" className="text-[10px] font-black uppercase text-gray-400 dark:text-zinc-400 tracking-wider">
+                      Monto Inicial de Caja ($) *
+                    </label>
+                    {/* Switch Manual / Billetes */}
+                    <div className="flex items-center gap-0.5 bg-gray-100 dark:bg-zinc-800 p-0.5 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setOpeningMode('manual')}
+                        className={`text-[10px] font-black py-1 px-2.5 rounded-md transition-all cursor-pointer ${openingMode === 'manual' ? 'bg-white dark:bg-zinc-700 text-gray-800 dark:text-zinc-100 shadow-sm' : 'text-gray-400 dark:text-zinc-500 hover:text-gray-600'}`}
+                      >
+                        Manual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOpeningMode('billetes')}
+                        className={`text-[10px] font-black py-1 px-2.5 rounded-md transition-all cursor-pointer flex items-center gap-1 ${openingMode === 'billetes' ? 'bg-white dark:bg-zinc-700 text-gray-800 dark:text-zinc-100 shadow-sm' : 'text-gray-400 dark:text-zinc-500 hover:text-gray-600'}`}
+                      >
+                        <Banknote className="w-3 h-3" />
+                        Billetes
+                      </button>
+                    </div>
+                  </div>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-extrabold text-sm">$</span>
-                    <input
-                      id="openingAmount"
-                      type="number"
-                      required
-                      min="0"
-                      step="any"
-                      value={openingAmount === 0 ? '' : openingAmount}
-                      onChange={e => setOpeningAmount(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-gray-50/50 dark:bg-zinc-950 border border-gray-250 dark:border-zinc-800 rounded-2xl p-4 pl-8 text-base font-extrabold text-gray-805 dark:text-zinc-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
-                      placeholder="O contá los billetes →"
-                    />
+                    <span className={`absolute left-4 top-1/2 -translate-y-1/2 font-extrabold text-sm ${openingMode === 'billetes' ? 'text-emerald-500' : 'text-gray-400'}`}>$</span>
+                    {openingMode === 'manual' ? (
+                      <input
+                        id="openingAmount"
+                        type="number"
+                        required
+                        min="0"
+                        step="any"
+                        value={openingAmount === 0 ? '' : openingAmount}
+                        onChange={e => setOpeningAmount(parseFloat(e.target.value) || 0)}
+                        className="w-full bg-gray-50/50 dark:bg-zinc-950 border border-gray-250 dark:border-zinc-800 rounded-2xl p-4 pl-8 text-base font-extrabold text-gray-805 dark:text-zinc-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
+                        placeholder="Ingresá el monto..."
+                      />
+                    ) : (
+                      <div className="w-full bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-300/50 dark:border-emerald-700/30 rounded-2xl p-4 pl-8 flex items-center justify-between">
+                        <span className={`text-base font-extrabold tabular-nums ${billTotal > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-gray-400 dark:text-zinc-600'}`}>
+                          {billTotal > 0 ? billTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 }) : 'Contá los billetes →'}
+                        </span>
+                        {billTotal > 0 && (
+                          <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-500 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 rounded-lg">
+                            Auto
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 

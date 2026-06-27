@@ -19,6 +19,8 @@ import { IntegrationsView } from './components/IntegrationsView';
 import { InventoryView } from './components/InventoryView';
 import { LoginPage } from './components/LoginPage';
 import { MainHeadLayout } from './components/MainHeadLayout';
+import { NotificationCenter } from './components/NotificationCenter';
+import { SyncLed } from './components/SyncLed';
 import { OffersView } from './components/OffersView';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { POSView } from './components/POSView';
@@ -98,7 +100,8 @@ function UpdateBanner() {
 }
 
 function ERPLayout() {
-  const { activeTab, setActiveTab, activeUser, logout, batches } = useApp();
+  const { activeTab, setActiveTab, activeUser, logout, batches, syncStatus } = useApp();
+  const isAdmin = activeUser?.role === 'admin';
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showSessionMenu, setShowSessionMenu] = useState(false);
   const [_showAddSession, setShowAddSession] = useState(false);
@@ -204,13 +207,57 @@ function ERPLayout() {
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] dark:bg-zinc-950 flex flex-col font-sans transition-colors duration-300">
-      <MainHeadLayout />
-      <main className={`flex-1 w-full max-w-7xl mx-auto flex flex-col gap-2 ${isPOSMode ? 'px-3 py-2' : 'px-3 sm:px-4 lg:px-6 py-3 lg:py-6 gap-4'}`}>
+
+      {/* Navbar mobile — única barra de nav en celular */}
+      <div className="md:hidden bg-white dark:bg-zinc-900 border-b border-orange-100/40 dark:border-zinc-800 px-3 py-3 flex flex-col gap-2.5 select-none shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl" role="img" aria-label="croissant">🥐</span>
+            <div>
+              <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest leading-none block">
+                {navItems.find(item => item.id === activeTab)?.label || 'Menú'}
+              </span>
+              <span className="text-[10px] font-semibold text-gray-500 dark:text-zinc-400 leading-none">El Rey De Las Medialunas</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <SyncLed status={syncStatus} onClick={isAdmin ? () => setActiveTab('sync_console') : undefined} />
+            <NotificationCenter />
+            <span className="text-[10px] font-bold text-gray-500 dark:text-zinc-400">{activeUser.name.split(' ')[0]}</span>
+            <button onClick={logout} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg text-gray-400 hover:text-red-500 cursor-pointer transition-colors">
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 bg-gray-50 hover:bg-gray-100 dark:bg-zinc-950 dark:hover:bg-zinc-800 border rounded-xl text-gray-600 dark:text-zinc-300 cursor-pointer flex items-center transition-all active:scale-95"
+            >
+              <Menu className="w-4 h-4 text-amber-500" />
+            </button>
+          </div>
+        </div>
+        {isMobileMenuOpen && (
+          <div className="border-t border-gray-100 dark:border-zinc-800 pt-2.5 grid grid-cols-2 gap-1 animate-fade-in">
+            {navItems.map(item => {
+              const isActive = activeTab === item.id;
+              return (
+                <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 text-xs font-extrabold rounded-xl text-left transition-all cursor-pointer ${isActive ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-950/50'}`}>
+                  <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>{item.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <main className={`flex-1 w-full max-w-7xl mx-auto flex flex-col gap-2 ${isPOSMode ? 'px-3 py-0 md:py-2' : 'px-3 sm:px-4 lg:px-6 py-3 lg:py-6 gap-4'}`}>
         {/* Nav desktop */}
         {isPOSMode ? (
           /* Slim POS nav */
           <nav className="hidden md:flex items-center justify-between gap-3 py-2 px-3 border border-orange-100/40 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm select-none">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="text-base" role="img" aria-label="croissant">🥐</span>
+              <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700" />
               <ShoppingCart className="h-4 w-4 text-amber-500" />
               <span className="text-sm font-extrabold text-gray-800 dark:text-zinc-100">Vender</span>
             </div>
@@ -245,25 +292,64 @@ function ERPLayout() {
                   </div>
                 )}
               </div>
+              <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700" />
+              <SyncLed status={syncStatus} onClick={isAdmin ? () => setActiveTab('sync_console') : undefined} />
+              <NotificationCenter />
+              <div className="relative">
+                <button onClick={() => setShowSessionMenu(!showSessionMenu)}
+                  className="flex items-center gap-2 text-xs py-1.5 px-3 bg-amber-500/5 dark:bg-amber-950/10 border border-amber-500/10 dark:border-zinc-800 rounded-xl cursor-pointer">
+                  <UserIcon className="w-3.5 h-3.5 text-amber-500" />
+                  <span className="font-bold text-gray-700 dark:text-zinc-300 truncate max-w-[100px]">{activeUser.name.split(' ')[0]}</span>
+                  <span className="text-[8px] bg-amber-500/15 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-md uppercase font-black">{activeUser.role}</span>
+                </button>
+                {showSessionMenu && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-zinc-900 border rounded-xl shadow-lg z-50 p-2" onClick={e => e.stopPropagation()}>
+                    <div className="text-[10px] font-bold text-gray-400 uppercase px-2 py-1">Sesiones</div>
+                    {savedSessions.map(s => (
+                      <div key={s.email} className={`flex items-center gap-2 px-2 py-2 rounded-lg text-xs ${s.email === activeUser.email ? 'bg-amber-500/10' : 'hover:bg-gray-50 dark:hover:bg-zinc-800'}`}>
+                        <button onClick={() => handleLogout(s)} className="flex-1 flex items-center gap-2 text-left cursor-pointer">
+                          <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center text-[10px] font-bold text-amber-700">{s.name[0]}</div>
+                          <div>
+                            <div className="font-bold text-gray-700 dark:text-zinc-200">{s.name}</div>
+                            <div className="text-[10px] text-gray-400">{s.role} · {s.email}</div>
+                          </div>
+                        </button>
+                        {s.email === activeUser.email && <Check className="w-3.5 h-3.5 text-amber-500" />}
+                        <button onClick={() => removeSession(s.email)} className="text-gray-400 hover:text-red-500 ml-1 cursor-pointer"><X className="w-3 h-3" /></button>
+                      </div>
+                    ))}
+                    <button onClick={() => { setShowSessionMenu(false); logout(); setShowAddSession(true); }}
+                      className="w-full flex items-center gap-2 px-2 py-2 mt-1 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-lg border-t border-gray-100 dark:border-zinc-800 cursor-pointer">
+                      <PlusCircle className="w-3.5 h-3.5" /> Agregar sesión
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </nav>
         ) : (
           /* Nav completo */
           <nav className="hidden md:flex items-center justify-between gap-3 py-2 px-3 border border-orange-100/40 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm select-none">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {navItems.map(item => {
-                const isActive = activeTab === item.id;
-                return (
-                  <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
-                    className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-200 cursor-pointer ${
-                      isActive ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'}`}>
-                    <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>
-                    <span className="hidden lg:inline">{item.label}</span>
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-base shrink-0" role="img" aria-label="croissant">🥐</span>
+              <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700 shrink-0" />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {navItems.map(item => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
+                      className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-200 cursor-pointer ${
+                        isActive ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 hover:bg-gray-100/60 dark:hover:bg-zinc-800/40'}`}>
+                      <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>
+                      <span className="hidden lg:inline">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
+              <SyncLed status={syncStatus} onClick={isAdmin ? () => setActiveTab('sync_console') : undefined} />
+              <NotificationCenter />
               <div className="relative">
                 <button onClick={() => setShowSessionMenu(!showSessionMenu)}
                   className="flex items-center gap-2 text-xs py-1.5 px-3 bg-amber-500/5 dark:bg-amber-950/10 border border-amber-500/10 dark:border-zinc-800 rounded-xl cursor-pointer">
@@ -297,39 +383,6 @@ function ERPLayout() {
             </div>
           </nav>
         )}
-
-        {/* Mobile nav */}
-        <div className="md:hidden bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-800 p-3 rounded-2xl shadow-sm flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="p-2 bg-amber-500/10 text-amber-500 rounded-xl">{navItems.find(item => item.id === activeTab)?.icon || <LayoutDashboard className="w-4 h-4" />}</span>
-              <div>
-                <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest block">Módulo</span>
-                <span className="text-xs font-black text-gray-800 dark:text-zinc-50">{navItems.find(item => item.id === activeTab)?.label || 'Menú'}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold text-gray-500 dark:text-zinc-400">{activeUser.name.split(' ')[0]}</span>
-              <button onClick={logout} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg text-gray-400 hover:text-red-500"><LogOut className="w-3.5 h-3.5" /></button>
-              <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 bg-gray-50 hover:bg-gray-100 dark:bg-zinc-950 dark:hover:bg-zinc-800 border rounded-xl text-gray-600 dark:text-zinc-300 cursor-pointer flex items-center gap-1 transition-all active:scale-95">
-                <Menu className="w-4 h-4 text-amber-500" />
-              </button>
-            </div>
-          </div>
-          {isMobileMenuOpen && (
-            <div className="border-t border-gray-100 dark:border-zinc-800 pt-2.5 grid grid-cols-2 gap-1 animate-fade-in select-none">
-              {navItems.map(item => {
-                const isActive = activeTab === item.id;
-                return (
-                  <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
-                    className={`flex items-center gap-2.5 px-3 py-2.5 text-xs font-extrabold rounded-xl text-left transition-all cursor-pointer ${isActive ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-950/50'}`}>
-                    <span className={isActive ? 'text-white' : 'text-amber-500'}>{item.icon}</span>{item.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
 
         <section className={`min-h-[520px] transition-all duration-350 ${
           isPOSMode
