@@ -60,6 +60,7 @@ export const CashSessionView: React.FC = () => {
   const [historicalClosingNote, setHistoricalClosingNote] = useState<string>('');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [highlightOpenSession, setHighlightOpenSession] = useState(false);
+  const [dateFilter, setDateFilter] = useState<'day' | 'month' | 'year' | 'all'>('all');
   const openSessionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -596,7 +597,36 @@ export const CashSessionView: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-3.5">
-                    {cashSessionsHistory.map(sess => {
+                    <div className="flex gap-1.5 px-0 pb-1">
+                      {(['all', 'day', 'month', 'year'] as const).map(f => (
+                        <button
+                          key={f}
+                          onClick={() => setDateFilter(f)}
+                          className={`text-xs font-semibold px-3 py-1 rounded-lg border transition-colors ${
+                            dateFilter === f
+                              ? 'bg-amber-500 text-white border-amber-600'
+                              : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-700 hover:border-amber-400'
+                          }`}
+                        >
+                          {f === 'all' ? 'Todo' : f === 'day' ? 'Hoy' : f === 'month' ? 'Mes' : 'Año'}
+                        </button>
+                      ))}
+                    </div>
+                    {[...cashSessionsHistory].sort((a, b) => {
+                      const aOpen = !a.closedAt || a.status === 'open';
+                      const bOpen = !b.closedAt || b.status === 'open';
+                      if (aOpen && !bOpen) return -1;
+                      if (!aOpen && bOpen) return 1;
+                      return new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime();
+                    }).filter(s => {
+                      if (dateFilter === 'all') return true;
+                      const now = new Date();
+                      const d = new Date(s.openedAt);
+                      if (dateFilter === 'day') return d.toDateString() === now.toDateString();
+                      if (dateFilter === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+                      if (dateFilter === 'year') return d.getFullYear() === now.getFullYear();
+                      return true;
+                    }).map(sess => {
                       const isOpen = sess.status === 'open';
                       const hasDiscrepancy = sess.discrepancy && Math.abs(sess.discrepancy) > 0.01;
                       const isExact = !hasDiscrepancy;

@@ -1053,39 +1053,39 @@ export const POSView: React.FC = () => {
         <div className="shrink-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 rounded-b-2xl flex items-stretch">
 
           {/* ── IZQUIERDA: resumen de importes ── */}
-          <div className="px-3 py-2 flex flex-col justify-center gap-0.5 text-[11px] border-r border-gray-100 dark:border-zinc-800 shrink-0 min-w-[110px]">
+          <div className="px-3 py-2 flex flex-col justify-center gap-0.5 text-[11px] border-r border-gray-100 dark:border-zinc-800 shrink-0 min-w-[170px]">
             <div className="flex items-center gap-2 text-gray-400">
-              <span className="w-14 shrink-0">Subtotal</span>
+              <span className="w-16 shrink-0">Subtotal</span>
               <span className="font-semibold text-gray-600 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
             </div>
             <div className={`flex items-center gap-2 font-bold ${effectiveDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-zinc-700'}`}>
-              <span className="w-14 shrink-0">Desc.{effectiveDiscount > 0 ? ` ${effectiveDiscount}%` : ''}</span>
+              <span className="w-16 shrink-0">Desc.{effectiveDiscount > 0 ? ` ${effectiveDiscount}%` : ''}</span>
               <span>-{formatCurrency(discountAmount)}</span>
             </div>
             {activePriceList && priceListAdjustmentAmount !== 0 && (
               <div className={`flex items-center gap-2 font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                <span className="w-14 shrink-0 truncate">{activePriceList.name}</span>
+                <span className="w-16 shrink-0 truncate">{activePriceList.name}</span>
                 <span>{priceListDiscountPercent > 0 ? `-${formatCurrency(priceListAdjustmentAmount)}` : `+${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
               </div>
             )}
             {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
               <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold">
-                <span className="w-14 shrink-0">Recargo {adjustmentPercent}%</span>
+                <span className="w-16 shrink-0">Recargo {adjustmentPercent}%</span>
                 <span>+{formatCurrency(paymentAdjustmentAmount)}</span>
               </div>
             )}
             {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
               <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
-                <span className="w-14 shrink-0">Desc.pago {adjustmentPercent}%</span>
+                <span className="w-16 shrink-0">Desc.pago {adjustmentPercent}%</span>
                 <span>-{formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
               </div>
             )}
             <div className="flex items-center gap-2 text-gray-300 dark:text-zinc-600">
-              <span className="w-14 shrink-0">IVA {(cartIvaRate * 100).toFixed(0)}%</span>
+              <span className="w-16 shrink-0">IVA {(cartIvaRate * 100).toFixed(0)}%</span>
               <span>{formatCurrency(cartTax)}</span>
             </div>
             <div className="flex items-center gap-2 font-black text-gray-900 dark:text-white text-[13px] mt-0.5 pt-0.5 border-t border-gray-200 dark:border-zinc-700">
-              <span className="w-14 shrink-0 text-[9px] uppercase tracking-wider text-gray-400">Total</span>
+              <span className="w-16 shrink-0 text-[9px] uppercase tracking-wider text-gray-400">Total</span>
               <span>{formatCurrency(cartTotal)}</span>
             </div>
           </div>
@@ -1264,7 +1264,7 @@ export const POSView: React.FC = () => {
               className={`w-full py-2 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
                 cart.length === 0
                   ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
-                  : 'bg-[#49312A] hover:bg-[#4F3931] text-white border-b-4 border-[#3A231C]'
+                  : 'bg-[#D97706] hover:bg-[#B45309] text-white border-b-4 border-[#92400E]'
               }`}
             >
               {isProcessingPayment ? (
