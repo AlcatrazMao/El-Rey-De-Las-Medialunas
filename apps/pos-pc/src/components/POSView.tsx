@@ -1044,47 +1044,31 @@ export const POSView: React.FC = () => {
           />
         </div>
 
-        {/* Resumen del carrito — footer interno del panel */}
-        <div className="shrink-0 px-3 py-2 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60">
-          <div className="flex items-end justify-between gap-3">
-            {/* Izquierda: desglose */}
-            <div className="space-y-0.5 text-xs min-w-0">
-              <div className="flex items-center gap-2 text-gray-500">
-                <span className="w-16 shrink-0">Subtotal</span>
-                <span className="font-semibold text-gray-700 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
-              </div>
-              <div className={`flex items-center gap-2 font-bold ${effectiveDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-zinc-700'}`}>
-                <span className="w-16 shrink-0">Descuento{effectiveDiscount > 0 ? ` (${effectiveDiscount}%)` : ''}</span>
-                <span>- {formatCurrency(discountAmount)}</span>
-              </div>
-              {activePriceList && priceListAdjustmentAmount !== 0 && (
-                <div className={`flex items-center gap-2 font-bold text-[10px] ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                  <span className="w-16 shrink-0 truncate">{activePriceList.name}</span>
-                  <span>{priceListDiscountPercent > 0 ? `- ${formatCurrency(priceListAdjustmentAmount)}` : `+ ${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
-                </div>
-              )}
-              {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
-                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold">
-                  <span className="w-16 shrink-0">Recargo ({adjustmentPercent}%)</span>
-                  <span>+ {formatCurrency(paymentAdjustmentAmount)}</span>
-                </div>
-              )}
-              {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
-                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
-                  <span className="w-16 shrink-0">Desc. pago ({adjustmentPercent}%)</span>
-                  <span>- {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-2 text-gray-400 text-[10px]">
-                <span className="w-16 shrink-0">IVA ({(cartIvaRate * 100).toFixed(0)}%)</span>
-                <span>{formatCurrency(cartTax)}</span>
-              </div>
-            </div>
-            {/* Derecha: total */}
-            <div className="text-right shrink-0">
-              <p className="text-[8px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider leading-none">Total</p>
-              <p className="text-xl font-black text-gray-900 dark:text-white leading-tight">{formatCurrency(cartTotal)}</p>
-            </div>
+        {/* Resumen del carrito — footer en una sola fila */}
+        <div className="shrink-0 px-3 py-1.5 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 flex items-center gap-3">
+          {/* Izquierda: desglose comprimido horizontal */}
+          <div className="flex items-center gap-2.5 flex-1 min-w-0 flex-wrap text-[10px]">
+            <span className="text-gray-400">Sub <span className="font-semibold text-gray-600 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span></span>
+            {effectiveDiscount > 0 && (
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold">Desc. -{formatCurrency(discountAmount)}</span>
+            )}
+            {activePriceList && priceListAdjustmentAmount !== 0 && (
+              <span className={`font-bold truncate max-w-[80px] ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                {activePriceList.name} {priceListDiscountPercent > 0 ? `-${formatCurrency(priceListAdjustmentAmount)}` : `+${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}
+              </span>
+            )}
+            {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
+              <span className="text-amber-600 dark:text-amber-400 font-bold">+{adjustmentPercent}% {formatCurrency(paymentAdjustmentAmount)}</span>
+            )}
+            {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold">-{adjustmentPercent}% {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
+            )}
+            <span className="text-gray-300 dark:text-zinc-600">IVA {formatCurrency(cartTax)}</span>
+          </div>
+          {/* Derecha: total */}
+          <div className="text-right shrink-0">
+            <p className="text-[8px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider leading-none">Total</p>
+            <p className="text-lg font-black text-gray-900 dark:text-white leading-tight">{formatCurrency(cartTotal)}</p>
           </div>
         </div>
 
