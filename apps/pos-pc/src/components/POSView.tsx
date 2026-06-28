@@ -1044,210 +1044,190 @@ export const POSView: React.FC = () => {
           />
         </div>
 
-        {/* Resumen del carrito — footer en una sola fila */}
-        <div className="shrink-0 px-3 py-1.5 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 flex items-center gap-3">
-          {/* Izquierda: desglose comprimido horizontal */}
-          <div className="flex items-center gap-2.5 flex-1 min-w-0 flex-wrap text-[10px]">
-            <span className="text-gray-400">Sub <span className="font-semibold text-gray-600 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span></span>
-            {effectiveDiscount > 0 && (
-              <span className="text-emerald-600 dark:text-emerald-400 font-bold">Desc. -{formatCurrency(discountAmount)}</span>
-            )}
+        {/* Footer 2 columnas: totales izq | campos + COBRAR der */}
+        <div className="shrink-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 rounded-b-2xl flex items-stretch">
+
+          {/* ── IZQUIERDA: resumen de importes ── */}
+          <div className="px-3 py-2 flex flex-col justify-center gap-0.5 text-[10px] border-r border-gray-100 dark:border-zinc-800 shrink-0">
+            <div className="flex items-center gap-2 text-gray-400">
+              <span className="w-14 shrink-0">Subtotal</span>
+              <span className="font-semibold text-gray-600 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
+            </div>
+            <div className={`flex items-center gap-2 font-bold ${effectiveDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-zinc-700'}`}>
+              <span className="w-14 shrink-0">Desc.{effectiveDiscount > 0 ? ` ${effectiveDiscount}%` : ''}</span>
+              <span>-{formatCurrency(discountAmount)}</span>
+            </div>
             {activePriceList && priceListAdjustmentAmount !== 0 && (
-              <span className={`font-bold truncate max-w-[80px] ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                {activePriceList.name} {priceListDiscountPercent > 0 ? `-${formatCurrency(priceListAdjustmentAmount)}` : `+${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}
-              </span>
+              <div className={`flex items-center gap-2 font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                <span className="w-14 shrink-0 truncate">{activePriceList.name}</span>
+                <span>{priceListDiscountPercent > 0 ? `-${formatCurrency(priceListAdjustmentAmount)}` : `+${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
+              </div>
             )}
             {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
-              <span className="text-amber-600 dark:text-amber-400 font-bold">+{adjustmentPercent}% {formatCurrency(paymentAdjustmentAmount)}</span>
+              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold">
+                <span className="w-14 shrink-0">Recargo {adjustmentPercent}%</span>
+                <span>+{formatCurrency(paymentAdjustmentAmount)}</span>
+              </div>
             )}
             {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
-              <span className="text-emerald-600 dark:text-emerald-400 font-bold">-{adjustmentPercent}% {formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
+                <span className="w-14 shrink-0">Desc.pago {adjustmentPercent}%</span>
+                <span>-{formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
+              </div>
             )}
-            <span className="text-gray-300 dark:text-zinc-600">IVA {formatCurrency(cartTax)}</span>
+            <div className="flex items-center gap-2 text-gray-300 dark:text-zinc-600">
+              <span className="w-14 shrink-0">IVA {(cartIvaRate * 100).toFixed(0)}%</span>
+              <span>{formatCurrency(cartTax)}</span>
+            </div>
+            <div className="flex items-center gap-2 font-black text-gray-900 dark:text-white text-xs mt-0.5 pt-0.5 border-t border-gray-200 dark:border-zinc-700">
+              <span className="w-14 shrink-0 text-[9px] uppercase tracking-wider text-gray-400">Total</span>
+              <span>{formatCurrency(cartTotal)}</span>
+            </div>
           </div>
-          {/* Derecha: total */}
-          <div className="text-right shrink-0">
-            <p className="text-[8px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider leading-none">Total</p>
-            <p className="text-lg font-black text-gray-900 dark:text-white leading-tight">{formatCurrency(cartTotal)}</p>
+
+          {/* ── DERECHA: campos + COBRAR ── */}
+          <div className="flex-1 min-w-0 px-2 py-2 flex flex-col gap-1.5 justify-center relative">
+
+            {/* Fila 1: Tipo | Pago */}
+            <div className="flex items-center gap-1.5">
+              <select
+                value={fiscalType}
+                onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
+                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[10px] font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+              >
+                <option value="consumidor_final">Cons. Final</option>
+                <option value="exento">IVA Exento</option>
+                <option value="responsable_inscripto">Resp. Inscripto</option>
+                <option value="monotributista">Monotributista</option>
+              </select>
+              <select
+                value={paymentMethod}
+                onChange={e => setPaymentMethod(e.target.value)}
+                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[10px] font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+              >
+                {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
+                  <option key={pm.id} value={pm.id}>{pm.label}</option>
+                ))}
+              </select>
+              {adjustmentType !== 'none' && adjustmentPercent > 0 && (
+                <span className={`text-[9px] font-bold shrink-0 ${adjustmentType === 'recargo' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                  {adjustmentType === 'recargo' ? '▲' : '▼'}{adjustmentPercent}%
+                </span>
+              )}
+            </div>
+
+            {/* Fila 2: Cliente | Descuento | COBRAR */}
+            <div className="flex items-center gap-1.5">
+
+              {/* Cliente */}
+              <div className="flex-1 min-w-0 relative">
+                {customerName ? (
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 min-w-0">
+                    <span className="text-[10px] font-bold text-gray-800 dark:text-zinc-100 flex-1 min-w-0 overflow-hidden whitespace-nowrap text-ellipsis">{customerName}</span>
+                    {selectedCustomerId && (
+                      <button onClick={() => setShowCustomerDetailModal(true)} className="text-gray-400 hover:text-amber-500 shrink-0 cursor-pointer">
+                        <Search className="h-3 w-3" />
+                      </button>
+                    )}
+                    <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }} className="text-gray-400 hover:text-red-500 shrink-0 cursor-pointer">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Cliente..."
+                      value={customerSearch}
+                      onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
+                      onFocus={() => setShowCustomerDropdown(true)}
+                      className="w-full text-[10px] bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+                    />
+                    {showCustomerDropdown && (
+                      <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                        <button onClick={() => { setCustomerName('Anónimo'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                          className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800">
+                          👤 Anónimo
+                        </button>
+                        {customers.filter(c => {
+                          const q = customerSearch.toLowerCase();
+                          return (
+                            (c.name ?? '').toLowerCase().includes(q) ||
+                            (c.tax_id ?? '').toLowerCase().includes(q) ||
+                            (c.email ?? '').toLowerCase().includes(q) ||
+                            (c.phone ?? '').toLowerCase().includes(q)
+                          );
+                        }).slice(0, 5).map(c => (
+                          <button key={c.id}
+                            onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                            className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800">
+                            <div className="font-bold">{c.name}</div>
+                            {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
+                          </button>
+                        ))}
+                        <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
+                          className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800">
+                          + Crear nuevo cliente
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Descuento */}
+              {posSettings.discountConfig?.availablePercents?.length > 0 && (
+                <select
+                  value={selectedDiscount}
+                  onChange={e => setSelectedDiscount(Number(e.target.value))}
+                  className="shrink-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[10px] font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value={0}>Sin desc.</option>
+                  {posSettings.discountConfig.availablePercents.map(pct => (
+                    <option key={pct} value={pct}>-{pct}%</option>
+                  ))}
+                </select>
+              )}
+
+              {/* COBRAR */}
+              <button
+                id="btn-pos-checkout"
+                onClick={handlePayment}
+                disabled={cart.length === 0 || isProcessingPayment}
+                className={`shrink-0 px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
+                  cart.length === 0
+                    ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
+                    : 'bg-amber-850 hover:bg-amber-805 text-white border-b-4 border-amber-955'
+                }`}
+              >
+                {isProcessingPayment ? (
+                  <><Cpu className="h-3.5 w-3.5 animate-spin" /><span className="hidden md:inline">{processingStatusText}</span><span className="md:hidden">...</span></>
+                ) : (
+                  <><CreditCard className="h-3.5 w-3.5" /><span className="hidden sm:inline">COBRAR </span>{formatCurrency(cartTotal)}</>
+                )}
+              </button>
+            </div>
+
+            {/* Avisos inline */}
+            {selectedCustomerId && (() => {
+              const sc = customers.find(c => c.id === selectedCustomerId);
+              if (!sc || sc.credit_limit <= 0) return null;
+              const overLimit = sc.current_debt >= sc.credit_limit;
+              const nearLimit = !overLimit && sc.current_debt / sc.credit_limit >= 0.8;
+              if (!overLimit && !nearLimit) return null;
+              return (
+                <div className={`text-[9px] font-bold px-2 py-0.5 rounded-lg ${overLimit ? 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400'}`}>
+                  {overLimit ? `⛔ Límite excedido: ${formatCurrency(sc.current_debt)} / ${formatCurrency(sc.credit_limit)}` : `⚠ Cerca del límite: ${formatCurrency(sc.current_debt)} / ${formatCurrency(sc.credit_limit)}`}
+                </div>
+              );
+            })()}
+            {selectedDiscount > 0 && !acumulaDescuentos && (
+              <p className="text-[9px] text-gray-400 italic">Desc. no acumula con este método</p>
+            )}
           </div>
         </div>
 
       </div>{/* end panel carrito */}
-
-      {/* Footer — formulario 2 filas + COBRAR */}
-      <div className="shrink-0 bg-white/97 dark:bg-zinc-900/97 backdrop-blur-sm border-t border-gray-100 dark:border-zinc-800 px-2 py-2 md:px-3">
-
-        {/* Fila 1: Tipo | Pago */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 mb-1.5">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[36px] shrink-0">Tipo</span>
-            <select
-              value={fiscalType}
-              onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
-              className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
-            >
-              <option value="consumidor_final">Consumidor Final</option>
-              <option value="exento">IVA Exento</option>
-              <option value="responsable_inscripto">Resp. Inscripto</option>
-              <option value="monotributista">Monotributista</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider min-w-[36px] shrink-0">Pago</span>
-            <select
-              value={paymentMethod}
-              onChange={e => setPaymentMethod(e.target.value)}
-              className="flex-1 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 transition-colors cursor-pointer"
-            >
-              {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
-                <option key={pm.id} value={pm.id}>{pm.label}</option>
-              ))}
-            </select>
-            {adjustmentType !== 'none' && adjustmentPercent > 0 && (
-              <span className={`text-[9px] font-bold shrink-0 ${adjustmentType === 'recargo' ? 'text-amber-600' : 'text-emerald-600'}`}>
-                {adjustmentType === 'recargo' ? '▲' : '▼'}{adjustmentPercent}%
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Fila 2: Cliente | Descuento | COBRAR */}
-        <div className="flex items-center gap-1.5">
-
-          {/* Cliente */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider shrink-0 hidden sm:block">CLI.</span>
-            <div className="flex-1 min-w-0 relative">
-              {customerName ? (
-                <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 min-w-0">
-                  <span className="text-xs font-bold text-gray-800 dark:text-zinc-100 flex-1 min-w-0 overflow-hidden whitespace-nowrap text-ellipsis">{customerName}</span>
-                  {customerDoc && <span className="text-[10px] text-gray-400 shrink-0 hidden md:inline">{customerDoc}</span>}
-                  {selectedCustomerId && (
-                    <button
-                      onClick={() => setShowCustomerDetailModal(true)}
-                      className="text-gray-400 hover:text-amber-500 shrink-0 cursor-pointer"
-                      title="Ver ficha del cliente"
-                    >
-                      <Search className="h-3 w-3" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }}
-                    className="text-gray-400 hover:text-red-500 shrink-0 cursor-pointer"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Buscar cliente..."
-                    value={customerSearch}
-                    onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
-                    onFocus={() => setShowCustomerDropdown(true)}
-                    className="w-full text-xs bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
-                  />
-                  {showCustomerDropdown && (
-                    <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
-                      <button
-                        onClick={() => { setCustomerName('Anónimo'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
-                        className="w-full text-left px-3 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800"
-                      >
-                        👤 Anónimo
-                      </button>
-                      {customers.filter(c => {
-                        const q = customerSearch.toLowerCase();
-                        return (
-                          (c.name ?? '').toLowerCase().includes(q) ||
-                          (c.tax_id ?? '').toLowerCase().includes(q) ||
-                          (c.email ?? '').toLowerCase().includes(q) ||
-                          (c.phone ?? '').toLowerCase().includes(q)
-                        );
-                      }).slice(0, 5).map(c => (
-                        <button
-                          key={c.id}
-                          onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
-                          className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800"
-                        >
-                          <div className="font-bold">{c.name}</div>
-                          {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
-                        </button>
-                      ))}
-                      <button
-                        onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
-                        className="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800"
-                      >
-                        + Crear nuevo cliente
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Descuento */}
-          {posSettings.discountConfig?.availablePercents?.length > 0 && (
-            <div className="shrink-0 flex items-center gap-1">
-              <span className="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-wider hidden md:block">Desc.</span>
-              <select
-                value={selectedDiscount}
-                onChange={e => setSelectedDiscount(Number(e.target.value))}
-                className="bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
-              >
-                <option value={0}>Sin desc.</option>
-                {posSettings.discountConfig.availablePercents.map(pct => (
-                  <option key={pct} value={pct}>- {pct}%</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* COBRAR */}
-          <button
-            id="btn-pos-checkout"
-            onClick={handlePayment}
-            disabled={cart.length === 0 || isProcessingPayment}
-            className={`shrink-0 px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
-              cart.length === 0
-                ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
-                : 'bg-amber-850 hover:bg-amber-805 text-white border-b-4 border-amber-955'
-            }`}
-          >
-            {isProcessingPayment ? (
-              <>
-                <Cpu className="h-4 w-4 animate-spin" />
-                <span className="hidden md:inline">{processingStatusText}</span>
-                <span className="md:hidden">...</span>
-              </>
-            ) : (
-              <>
-                <CreditCard className="h-4 w-4" />
-                <span className="hidden sm:inline">COBRAR </span>{formatCurrency(cartTotal)}
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Avisos: crédito + no acumula */}
-        {selectedCustomerId && (() => {
-          const sc = customers.find(c => c.id === selectedCustomerId);
-          if (!sc || sc.credit_limit <= 0) return null;
-          const overLimit = sc.current_debt >= sc.credit_limit;
-          const nearLimit = !overLimit && sc.current_debt / sc.credit_limit >= 0.8;
-          if (!overLimit && !nearLimit) return null;
-          return (
-            <div className={`mt-1 text-[9px] font-bold px-2 py-1 rounded-lg ${overLimit ? 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400'}`}>
-              {overLimit ? `⛔ Límite excedido: ${formatCurrency(sc.current_debt)} / ${formatCurrency(sc.credit_limit)}` : `⚠ Cerca del límite: ${formatCurrency(sc.current_debt)} / ${formatCurrency(sc.credit_limit)}`}
-            </div>
-          );
-        })()}
-        {selectedDiscount > 0 && !acumulaDescuentos && (
-          <p className="mt-0.5 text-[9px] text-gray-400 italic">Desc. no acumula con este método de pago</p>
-        )}
-      </div>
 
       {/* MODAL / POPUP: TRANSACTION CONFIRMATION / PRINT PREVIEW */}
       {showInvoiceModal && latestInvoice && (
