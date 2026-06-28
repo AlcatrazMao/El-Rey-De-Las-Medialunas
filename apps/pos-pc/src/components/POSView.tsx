@@ -22,6 +22,7 @@ import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
 import { getSettings } from '../hooks/useSettings';
+import { API_URL, fetchWithAuth } from '../services/api';
 import type { CategoryType, Product, ProductGroup, Sale } from '../types';
 import { printTicketOrInvoice } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
@@ -189,6 +190,10 @@ export const POSView: React.FC = () => {
   productsRef.current = products;
   addSystemNotificationRef.current = addSystemNotification;
 
+  // Customer history states
+  const [customerHistory, setCustomerHistory] = useState<Array<{ sale_number: string; total: number; created_at: string }> | null>(null);
+  const [customerHistoryLoading, setCustomerHistoryLoading] = useState(false);
+
   // Simulation states
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [latestInvoice, setLatestInvoice] = useState<Sale | null>(null);
@@ -298,6 +303,22 @@ export const POSView: React.FC = () => {
     window.addEventListener('blur', clearBuffer);
     return () => window.removeEventListener('blur', clearBuffer);
   }, []);
+
+  // Fetch customer purchase history when a customer is selected
+  useEffect(() => {
+    if (!selectedCustomerId) {
+      setCustomerHistory(null);
+      return;
+    }
+    setCustomerHistoryLoading(true);
+    fetchWithAuth(`${API_URL}/api/v1/customers/${selectedCustomerId}/history?limit=5`)
+      .then(r => r.json())
+      .then((d: { data: Array<{ sale_number: string; total: number; created_at: string }> }) => {
+        setCustomerHistory(d.data ?? []);
+      })
+      .catch(() => setCustomerHistory([]))
+      .finally(() => setCustomerHistoryLoading(false));
+  }, [selectedCustomerId]);
 
   // Audio Beep generator
   const playBeep = (freq = 880, duration = 0.08) => {
@@ -934,6 +955,7 @@ export const POSView: React.FC = () => {
           setObservaciones('');
           setParaLlevar(false);
           setShowConfigPanel(false);
+          setCustomerHistory(null);
         } else {
           // Validaciones de negocio fallidas (carrito vacío, producto inexistente, etc).
           // NUNCA bloqueamos por stock — esos son warnings.
@@ -1304,6 +1326,25 @@ export const POSView: React.FC = () => {
                     <option key={pct} value={pct}>-{pct}%</option>
                   ))}
                 </select>
+              )}
+            </div>
+
+            {/* Historial del cliente seleccionado — desktop only */}
+            <div className="hidden md:block px-2">
+              {customerName && customerHistory !== null && !customerHistoryLoading && (
+                <div className="text-[10px] text-gray-400 dark:text-zinc-500 px-1 flex items-center gap-1.5">
+                  {customerHistory.length === 0 ? (
+                    <span>Sin compras registradas</span>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-amber-500">{customerHistory.length} compra{customerHistory.length !== 1 ? 's' : ''}</span>
+                      <span>·</span>
+                      <span>última {new Date(customerHistory[0].created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}</span>
+                      <span>·</span>
+                      <span>prom. {formatCurrency(customerHistory.reduce((a, s) => a + s.total, 0) / customerHistory.length)}</span>
+                    </>
+                  )}
+                </div>
               )}
             </div>
 
@@ -2012,6 +2053,15 @@ export const POSView: React.FC = () => {
               )}
             </div>
           </div>
+
+          {/* Historial del cliente — mobile */}
+          {customerName && customerHistory !== null && customerHistory.length > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-zinc-500 mt-1">
+              <span className="font-semibold text-amber-500">{customerHistory.length} compras</span>
+              <span>· última {new Date(customerHistory[0].created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}</span>
+              <span>· prom. {formatCurrency(customerHistory.reduce((a, s) => a + s.total, 0) / customerHistory.length)}</span>
+            </div>
+          )}
 
           {/* CUIL / DNI */}
           {!customerName && (

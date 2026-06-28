@@ -93,6 +93,38 @@ export const CashSettings: React.FC<Props> = ({ settings, onUpdate, onSaved }) =
             className="w-full text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100 resize-none"
           />
         </div>
+
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-zinc-300 mb-3">Denominaciones activas</h3>
+          <p className="text-xs text-gray-400 dark:text-zinc-500 mb-3">
+            Seleccioná los billetes que querés usar en el arqueo de caja.
+          </p>
+          <div className="grid grid-cols-4 gap-2">
+            {[10, 20, 50, 100, 1000, 2000, 10000, 20000].map(bil => {
+              const active = (form.denominaciones ?? [10, 20, 50, 100, 1000, 2000, 10000, 20000]).includes(bil);
+              return (
+                <button
+                  key={bil}
+                  type="button"
+                  onClick={() => {
+                    const current = form.denominaciones ?? [10, 20, 50, 100, 1000, 2000, 10000, 20000];
+                    const next = active
+                      ? current.filter(d => d !== bil)
+                      : [...current, bil].sort((a, b) => a - b);
+                    setForm(f => ({ ...f, denominaciones: next }));
+                  }}
+                  className={`py-2 px-1 rounded-xl border text-xs font-bold transition-colors ${
+                    active
+                      ? 'bg-amber-500 text-white border-amber-600'
+                      : 'bg-white dark:bg-zinc-900 text-gray-500 dark:text-zinc-400 border-gray-200 dark:border-zinc-700'
+                  }`}
+                >
+                  ${bil >= 1000 ? `${bil / 1000}k` : bil}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="pt-2">
