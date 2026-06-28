@@ -19,6 +19,7 @@ import { productionRoutes } from "./routes/production";
 import { productRoutes } from "./routes/products";
 import { purchaseRoutes } from "./routes/purchases";
 import { reportRoutes } from "./routes/reports";
+import { requestsRouter } from "./routes/requests";
 import { salesRoutes } from "./routes/sales";
 import { supplierRoutes } from "./routes/suppliers";
 import { supplyRequestRoutes } from "./routes/supply-requests";
@@ -56,6 +57,7 @@ app.route("/api/v1/expenses", expenseRoutes);
 app.route("/api/v1/upload", uploadRoutes);
 app.route("/api/v2/batches", batchRoutes);
 app.route("/api/v2/offers", offerRoutes);
+app.route("/api/v2/requests", requestsRouter);
 app.route("/api/v1/admin", adminRoutes);
 
 app.get("/api/v1/health", (c) => {
