@@ -64,12 +64,16 @@ export const POSView: React.FC = () => {
 
   const posSettings = getSettings();
 
+  const defaultPriceListInit = posSettings.priceLists?.find(pl => pl.isDefault) ?? posSettings.priceLists?.[0];
+  const [selectedPriceListId, setSelectedPriceListId] = useState<string>(defaultPriceListInit?.id ?? '');
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedCategory, _setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [groupSelectorProduct, setGroupSelectorProduct] = useState<Product | null>(null);
   const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [cuilSearch, setCuilSearch] = useState('');
 
   // --- TAB STATE ---
   const defaultPm = (posSettings.pos?.defaultPaymentMethod as Sale['paymentMethod']) ?? 'efectivo';
@@ -769,9 +773,9 @@ export const POSView: React.FC = () => {
   const discountAmount = effectiveDiscount > 0 ? parseFloat((eligibleSubtotal * effectiveDiscount / 100).toFixed(2)) : 0;
   const afterDiscount = parseFloat((cartSubtotal - discountAmount).toFixed(2));
 
-  // Lista de precios: igual que el descuento manual, queda anulada si el método no acumula.
-  const activePriceList = pmConfig?.linkedPriceListId
-    ? (posSettings.priceLists.find(pl => pl.id === pmConfig.linkedPriceListId) ?? null)
+  // Lista de precios: usa el selector manual. Queda anulada si el método no acumula.
+  const activePriceList = selectedPriceListId
+    ? (posSettings.priceLists?.find(pl => pl.id === selectedPriceListId) ?? null)
     : null;
   const priceListDiscountPercent = acumulaDescuentos ? (activePriceList?.discountPercent ?? 0) : 0;
   const priceListAdjustmentAmount = priceListDiscountPercent !== 0
@@ -891,6 +895,7 @@ export const POSView: React.FC = () => {
             selectedDiscount: 0,
           });
           setCustomerSearch('');
+          setCuilSearch('');
         } else {
           // Validaciones de negocio fallidas (carrito vacío, producto inexistente, etc).
           // NUNCA bloqueamos por stock — esos son warnings.
@@ -1048,7 +1053,7 @@ export const POSView: React.FC = () => {
         <div className="shrink-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 rounded-b-2xl flex items-stretch">
 
           {/* ── IZQUIERDA: resumen de importes ── */}
-          <div className="px-3 py-2 flex flex-col justify-center gap-0.5 text-[10px] border-r border-gray-100 dark:border-zinc-800 shrink-0">
+          <div className="px-3 py-2 flex flex-col justify-center gap-0.5 text-[11px] border-r border-gray-100 dark:border-zinc-800 shrink-0 min-w-[110px]">
             <div className="flex items-center gap-2 text-gray-400">
               <span className="w-14 shrink-0">Subtotal</span>
               <span className="font-semibold text-gray-600 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
@@ -1079,7 +1084,7 @@ export const POSView: React.FC = () => {
               <span className="w-14 shrink-0">IVA {(cartIvaRate * 100).toFixed(0)}%</span>
               <span>{formatCurrency(cartTax)}</span>
             </div>
-            <div className="flex items-center gap-2 font-black text-gray-900 dark:text-white text-xs mt-0.5 pt-0.5 border-t border-gray-200 dark:border-zinc-700">
+            <div className="flex items-center gap-2 font-black text-gray-900 dark:text-white text-[13px] mt-0.5 pt-0.5 border-t border-gray-200 dark:border-zinc-700">
               <span className="w-14 shrink-0 text-[9px] uppercase tracking-wider text-gray-400">Total</span>
               <span>{formatCurrency(cartTotal)}</span>
             </div>
@@ -1088,12 +1093,12 @@ export const POSView: React.FC = () => {
           {/* ── DERECHA: campos + COBRAR ── */}
           <div className="flex-1 min-w-0 px-2 py-2 flex flex-col gap-1.5 justify-center relative">
 
-            {/* Fila 1: Tipo | Pago */}
+            {/* Fila 1: Tipo | Pago | Lista de precios */}
             <div className="flex items-center gap-1.5">
               <select
                 value={fiscalType}
                 onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
-                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[10px] font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[11px] font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
               >
                 <option value="consumidor_final">Cons. Final</option>
                 <option value="exento">IVA Exento</option>
@@ -1103,7 +1108,7 @@ export const POSView: React.FC = () => {
               <select
                 value={paymentMethod}
                 onChange={e => setPaymentMethod(e.target.value)}
-                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[10px] font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[11px] font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
               >
                 {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
                   <option key={pm.id} value={pm.id}>{pm.label}</option>
@@ -1114,34 +1119,70 @@ export const POSView: React.FC = () => {
                   {adjustmentType === 'recargo' ? '▲' : '▼'}{adjustmentPercent}%
                 </span>
               )}
+              {/* Lista de precios — desktop: select; mobile: botones L1, L2... */}
+              {(posSettings.priceLists?.length ?? 0) > 1 && (
+                <>
+                  <select
+                    value={selectedPriceListId}
+                    onChange={e => setSelectedPriceListId(e.target.value)}
+                    className="shrink-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[11px] font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer hidden md:block"
+                  >
+                    {posSettings.priceLists.map(pl => (
+                      <option key={pl.id} value={pl.id}>{pl.name}</option>
+                    ))}
+                  </select>
+                  <div className="flex gap-0.5 md:hidden">
+                    {posSettings.priceLists.map((pl, idx) => (
+                      <button
+                        key={pl.id}
+                        onClick={() => setSelectedPriceListId(pl.id)}
+                        className={`text-[10px] font-bold px-1.5 py-1 rounded-md border transition-colors ${
+                          selectedPriceListId === pl.id
+                            ? 'bg-amber-500 text-white border-amber-600'
+                            : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-700'
+                        }`}
+                      >
+                        L{idx + 1}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* Fila 2: Cliente | Descuento */}
+            {/* Fila 2: Cliente | CUIL (desktop) | Descuento */}
             <div className="flex items-center gap-1.5">
 
-              {/* Cliente */}
-              <div className="flex-1 min-w-0 relative">
-                {customerName ? (
-                  <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 min-w-0">
-                    <span className="text-[10px] font-bold text-gray-800 dark:text-zinc-100 flex-1 min-w-0 overflow-hidden whitespace-nowrap text-ellipsis">{customerName}</span>
+              {/* Cliente — ocupa flex-1 cuando no hay cliente seleccionado */}
+              {customerName ? (
+                /* Cliente seleccionado: ocupa el espacio de nombre+CUIL juntos */
+                <div className="flex-1 min-w-0 relative">
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 min-w-0 flex-1">
+                    <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+                      <span className="text-[11px] font-bold text-gray-800 dark:text-zinc-100 truncate">{customerName}</span>
+                      {customerDoc && <span className="text-[10px] text-gray-400 truncate">CUIL: {customerDoc}</span>}
+                    </div>
                     {selectedCustomerId && (
                       <button onClick={() => setShowCustomerDetailModal(true)} className="text-gray-400 hover:text-amber-500 shrink-0 cursor-pointer">
                         <Search className="h-3 w-3" />
                       </button>
                     )}
-                    <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setSelectedCustomerId(null); }} className="text-gray-400 hover:text-red-500 shrink-0 cursor-pointer">
+                    <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setCuilSearch(''); setSelectedCustomerId(null); }} className="text-gray-400 hover:text-red-500 shrink-0 cursor-pointer">
                       <X className="h-3 w-3" />
                     </button>
                   </div>
-                ) : (
-                  <div>
+                </div>
+              ) : (
+                <>
+                  {/* Campo nombre de cliente */}
+                  <div className="flex-1 min-w-0 relative">
                     <input
                       type="text"
                       placeholder="Cliente..."
                       value={customerSearch}
                       onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
                       onFocus={() => setShowCustomerDropdown(true)}
-                      className="w-full text-[10px] bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+                      className="w-full text-[11px] bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
                     />
                     {showCustomerDropdown && (
                       <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
@@ -1159,10 +1200,9 @@ export const POSView: React.FC = () => {
                           );
                         }).slice(0, 5).map(c => (
                           <button key={c.id}
-                            onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                            onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id ?? ''); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
                             className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800">
-                            <div className="font-bold">{c.name}</div>
-                            {c.tax_id && <div className="text-gray-400">CUIT: {c.tax_id}</div>}
+                            <div className="font-bold text-[11px]">{c.name}{c.tax_id ? <span className="text-gray-400 font-normal ml-1">— {c.tax_id}</span> : null}</div>
                           </button>
                         ))}
                         <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
@@ -1172,15 +1212,41 @@ export const POSView: React.FC = () => {
                       </div>
                     )}
                   </div>
-                )}
-              </div>
+
+                  {/* CUIL field — desktop only */}
+                  <div className="hidden md:block w-28 shrink-0 relative">
+                    <input
+                      type="text"
+                      placeholder="CUIL / DNI"
+                      value={cuilSearch}
+                      onChange={(e) => {
+                        setCuilSearch(e.target.value);
+                        const raw = e.target.value.replace(/\D/g, '');
+                        if (raw.length >= 7) {
+                          const match = customers.find(c => {
+                            const taxRaw = (c.tax_id ?? '').replace(/\D/g, '');
+                            return taxRaw.includes(raw) || raw.includes(taxRaw);
+                          });
+                          if (match) {
+                            setCustomerName(match.name);
+                            setCustomerDoc(match.tax_id ?? '');
+                            setSelectedCustomerId(match.id);
+                            setCuilSearch('');
+                          }
+                        }
+                      }}
+                      className="w-full text-[11px] bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Descuento */}
               {posSettings.discountConfig?.availablePercents?.length > 0 && (
                 <select
                   value={selectedDiscount}
                   onChange={e => setSelectedDiscount(Number(e.target.value))}
-                  className="shrink-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[10px] font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+                  className="shrink-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[11px] font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
                 >
                   <option value={0}>Sin desc.</option>
                   {posSettings.discountConfig.availablePercents.map(pct => (
@@ -1198,7 +1264,7 @@ export const POSView: React.FC = () => {
               className={`w-full py-2 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
                 cart.length === 0
                   ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
-                  : 'bg-amber-850 hover:bg-amber-805 text-white border-b-4 border-amber-955'
+                  : 'bg-[#49312A] hover:bg-[#4F3931] text-white border-b-4 border-[#3A231C]'
               }`}
             >
               {isProcessingPayment ? (
