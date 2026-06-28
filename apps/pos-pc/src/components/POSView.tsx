@@ -1027,7 +1027,7 @@ export const POSView: React.FC = () => {
         </div>
 
         {/* Cart Item rows list */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-3 pb-3">
           <CartItemList
             cart={cart}
             setCart={setCart}
