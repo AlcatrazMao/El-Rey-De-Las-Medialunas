@@ -56,7 +56,7 @@ export const CashSessionView: React.FC = () => {
   const [closingNote, setClosingNote] = useState<string>(settings.cash.defaultClosingNote);
   const [showConfirmClose, setShowConfirmClose] = useState(false);
   const [closeStep, setCloseStep] = useState<1 | 2 | 3>(1);
-  const [closeBillCounts, setCloseBillCounts] = useState<Record<number, number>>({});
+  const [closeBillCounts, setCloseBillCounts] = useState<Record<string, number>>({});
   const [closingHistoricalId, setClosingHistoricalId] = useState<string | null>(null);
   const [historicalClosingAmount, setHistoricalClosingAmount] = useState<number>(0);
   const [historicalClosingNote, setHistoricalClosingNote] = useState<string>('');
@@ -413,13 +413,13 @@ export const CashSessionView: React.FC = () => {
 
                     <div className="flex flex-col gap-2">
                       {activeDenominaciones.map(den => {
-                        const qty = closeBillCounts[den] ?? 0;
+                        const qty = closeBillCounts[String(den)] ?? 0;
                         const subtotal = qty * den;
                         return (
                           <div key={den} className="flex items-center gap-3 bg-gray-50 dark:bg-zinc-900 rounded-xl px-3 py-2.5">
                             {/* Botón principal del billete — toca para sumar */}
                             <button
-                              onClick={() => setCloseBillCounts(prev => ({ ...prev, [den]: (prev[den] ?? 0) + 1 }))}
+                              onClick={() => setCloseBillCounts(prev => ({ ...prev, [String(den)]: (prev[String(den)] ?? 0) + 1 }))}
                               className="flex-1 text-left"
                             >
                               <span className="font-bold text-sm text-gray-900 dark:text-white">
@@ -434,12 +434,12 @@ export const CashSessionView: React.FC = () => {
                             {/* Controles − cantidad + */}
                             <div className="flex items-center gap-1.5">
                               <button
-                                onClick={() => setCloseBillCounts(prev => ({ ...prev, [den]: Math.max(0, (prev[den] ?? 0) - 1) }))}
+                                onClick={() => setCloseBillCounts(prev => ({ ...prev, [String(den)]: Math.max(0, (prev[String(den)] ?? 0) - 1) }))}
                                 className="w-7 h-7 rounded-lg bg-gray-200 dark:bg-zinc-700 text-gray-600 dark:text-zinc-300 font-bold text-sm flex items-center justify-center"
                               >−</button>
                               <span className="w-7 text-center font-bold text-sm text-gray-900 dark:text-white">{qty}</span>
                               <button
-                                onClick={() => setCloseBillCounts(prev => ({ ...prev, [den]: (prev[den] ?? 0) + 1 }))}
+                                onClick={() => setCloseBillCounts(prev => ({ ...prev, [String(den)]: (prev[String(den)] ?? 0) + 1 }))}
                                 className="w-7 h-7 rounded-lg bg-amber-500 text-white font-bold text-sm flex items-center justify-center"
                               >+</button>
                             </div>
@@ -526,7 +526,15 @@ export const CashSessionView: React.FC = () => {
                       >← Atrás</button>
                       <button
                         id="btn-close-and-submit-confirmed"
-                        onClick={e => { e.preventDefault(); if (closingAmount >= 0) { closeCashSession(closingAmount, closingNote); setCloseStep(1); setCloseBillCounts({}); setClosingNote(settings.cash.defaultClosingNote ?? ''); } }}
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          if (closingAmount < 0) return;
+                          await closeCashSession(closingAmount, closingNote);
+                          setCloseStep(1);
+                          setCloseBillCounts({});
+                          setClosingAmount(0);
+                          setClosingNote(settings.cash.defaultClosingNote ?? '');
+                        }}
                         disabled={closingAmount < 0}
                         className="flex-[2] py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
@@ -711,9 +719,11 @@ export const CashSessionView: React.FC = () => {
                       if (!aOpen && bOpen) return 1;
                       return new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime();
                     }).filter(s => {
+                      const isOpen = !s.closedAt || s.status === 'open';
+                      if (isOpen) return true; // siempre visible
                       if (dateFilter === 'all') return true;
-                      const now = new Date();
                       const d = new Date(s.openedAt);
+                      const now = new Date();
                       if (dateFilter === 'day') return d.toDateString() === now.toDateString();
                       if (dateFilter === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
                       if (dateFilter === 'year') return d.getFullYear() === now.getFullYear();

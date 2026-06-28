@@ -180,7 +180,8 @@ export const POSView: React.FC = () => {
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [observaciones, setObservaciones] = useState('');
   const [paraLlevar, setParaLlevar] = useState(false);
-  const touchStartXRef = useRef<number>(0);
+  const mainTouchStartXRef = useRef<number>(0);
+  const panelTouchStartXRef = useRef<number>(0);
 
   // Barcode scanner (HID keyboard emulator detection)
   const barcodeBufferRef = useRef<string>('');
@@ -314,37 +315,57 @@ export const POSView: React.FC = () => {
   }, []);
 
   // Fetch customer purchase history when a customer is selected
+  // AbortController evita race conditions cuando el cliente cambia rápidamente
   useEffect(() => {
     if (!selectedCustomerId) {
       setCustomerHistory(null);
       return;
     }
+    const ac = new AbortController();
     setCustomerHistoryLoading(true);
-    fetchWithAuth(`${API_URL}/api/v1/customers/${selectedCustomerId}/history?limit=5`)
+    fetchWithAuth(`${API_URL}/api/v1/customers/${selectedCustomerId}/history?limit=5`, { signal: ac.signal })
       .then(r => r.json())
       .then((d: { data: Array<{ sale_number: string; total: number; created_at: string }> }) => {
         setCustomerHistory(d.data ?? []);
       })
-      .catch(() => setCustomerHistory([]))
+      .catch(e => { if ((e as Error).name !== 'AbortError') setCustomerHistory([]); })
       .finally(() => setCustomerHistoryLoading(false));
+    return () => ac.abort();
   }, [selectedCustomerId]);
 
+  // Re-sincronizar selectedPriceListId si la lista de precios cambia y el id ya no existe
+  useEffect(() => {
+    if (!posSettings.priceLists?.length) return;
+    const exists = posSettings.priceLists.some(pl => pl.id === selectedPriceListId);
+    if (!exists) {
+      const def = posSettings.priceLists.find(pl => pl.isDefault) ?? posSettings.priceLists[0];
+      setSelectedPriceListId(def?.id ?? '');
+    }
+  }, [posSettings.priceLists?.length]);
+
   // Cargar ofertas activas — solo si el sistema activo es 'offers'
+  // Se refresca cada 60s para evitar stale state y aplica guard de productIds (bug #17)
   useEffect(() => {
     if (!offersEnabled) {
       setActiveOffers([]);
       return;
     }
-    offerStore.getAll().then(all => {
-      const now = new Date();
-      setActiveOffers(
-        all.filter(o =>
-          o.status === 'active' &&
-          new Date(o.startsAt) <= now &&
-          (!o.endsAt || new Date(o.endsAt) > now)
-        )
-      );
-    });
+    const load = () => {
+      offerStore.getAll().then(all => {
+        const now = new Date();
+        setActiveOffers(
+          all.filter(o =>
+            Array.isArray(o.productIds) && o.productIds.length > 0 &&
+            o.status === 'active' &&
+            new Date(o.startsAt) <= now &&
+            (!o.endsAt || new Date(o.endsAt) > now)
+          )
+        );
+      });
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
   }, [offersEnabled]);
 
   // Audio Beep generator
@@ -869,8 +890,10 @@ export const POSView: React.FC = () => {
   const promoDiscountAmount = promoDiscountPercent > 0
     ? parseFloat((promoBase * promoDiscountPercent / 100).toFixed(2))
     : 0;
+  // Si el método de pago no acumula descuentos, la promo tampoco aplica
+  const promoDiscountAmountFinal = acumulaDescuentos ? promoDiscountAmount : 0;
 
-  const cartTotal = parseFloat((afterPriceList + paymentAdjustmentAmount - promoDiscountAmount).toFixed(2));
+  const cartTotal = Math.max(0, parseFloat((afterPriceList + paymentAdjustmentAmount - promoDiscountAmountFinal).toFixed(2)));
   const cartTax = parseFloat((cartTotal - cartTotal / (1 + cartIvaRate)).toFixed(2));
 
   // Non-default config indicator (mobile panel pulse)
@@ -879,24 +902,26 @@ export const POSView: React.FC = () => {
     fiscalType !== 'consumidor_final' ||
     selectedDiscount > 0 ||
     !!customerName ||
+    !!customerDoc ||
     !!observaciones ||
-    paraLlevar;
+    paraLlevar ||
+    (!!selectedPriceListId && selectedPriceListId !== (defaultPriceListInit?.id ?? ''));
 
-  // Swipe handlers
+  // Swipe handlers — refs separados para evitar colisión entre ambos handlers
   const handlePanelTouchStart = (e: React.TouchEvent) => {
-    touchStartXRef.current = e.touches[0].clientX;
+    panelTouchStartXRef.current = e.touches[0].clientX;
   };
   const handlePanelTouchEnd = (e: React.TouchEvent) => {
-    const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+    const deltaX = e.changedTouches[0].clientX - panelTouchStartXRef.current;
     if (deltaX > 80) setShowConfigPanel(false);
   };
   const handleMainTouchStart = (e: React.TouchEvent) => {
     if (showConfigPanel) return;
-    touchStartXRef.current = e.touches[0].clientX;
+    mainTouchStartXRef.current = e.touches[0].clientX;
   };
   const handleMainTouchEnd = (e: React.TouchEvent) => {
     if (showConfigPanel) return;
-    const startX = touchStartXRef.current;
+    const startX = mainTouchStartXRef.current;
     const deltaX = e.changedTouches[0].clientX - startX;
     if (startX > window.innerWidth * 0.75 && deltaX < -60) setShowConfigPanel(true);
   };
@@ -1204,10 +1229,10 @@ export const POSView: React.FC = () => {
                 <span>-{formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
               </div>
             )}
-            {applicablePromo && promoDiscountAmount > 0 && (
+            {applicablePromo && promoDiscountAmountFinal > 0 && (
               <div className="flex items-center gap-2 font-bold text-emerald-600 dark:text-emerald-400">
                 <span className="w-16 shrink-0 truncate text-[10px]">{applicablePromo.name}</span>
-                <span>-{formatCurrency(promoDiscountAmount)}</span>
+                <span>-{formatCurrency(promoDiscountAmountFinal)}</span>
               </div>
             )}
             <div className="flex items-center gap-2 text-gray-300 dark:text-zinc-600">
@@ -1355,7 +1380,8 @@ export const POSView: React.FC = () => {
                         if (raw.length >= 7) {
                           const match = customers.find(c => {
                             const taxRaw = (c.tax_id ?? '').replace(/\D/g, '');
-                            return taxRaw.includes(raw) || raw.includes(taxRaw);
+                            if (taxRaw.length < 7) return false;
+                            return taxRaw === raw || taxRaw.startsWith(raw);
                           });
                           if (match) {
                             setCustomerName(match.name);
@@ -2134,7 +2160,8 @@ export const POSView: React.FC = () => {
                   if (raw.length >= 7) {
                     const match = customers.find(c => {
                       const taxRaw = (c.tax_id ?? '').replace(/\D/g, '');
-                      return taxRaw.includes(raw) || raw.includes(taxRaw);
+                      if (taxRaw.length < 7) return false;
+                      return taxRaw === raw || taxRaw.startsWith(raw);
                     });
                     if (match) {
                       setCustomerName(match.name);
@@ -2213,10 +2240,10 @@ export const POSView: React.FC = () => {
                 <span className="font-semibold">{priceListDiscountPercent > 0 ? '-' : '+'}{formatCurrency(Math.abs(priceListAdjustmentAmount))}</span>
               </div>
             )}
-            {applicablePromo && promoDiscountAmount > 0 && (
+            {applicablePromo && promoDiscountAmountFinal > 0 && (
               <div className="flex justify-between text-sm text-emerald-600 dark:text-emerald-400">
                 <span>{applicablePromo.name}</span>
-                <span className="font-semibold">-{formatCurrency(promoDiscountAmount)}</span>
+                <span className="font-semibold">-{formatCurrency(promoDiscountAmountFinal)}</span>
               </div>
             )}
             <div className="flex justify-between text-base font-black text-gray-900 dark:text-white pt-1 border-t border-gray-200 dark:border-zinc-700">

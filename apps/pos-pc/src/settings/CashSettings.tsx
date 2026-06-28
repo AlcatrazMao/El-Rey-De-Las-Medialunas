@@ -11,7 +11,10 @@ interface Props {
 }
 
 export const CashSettings: React.FC<Props> = ({ settings, onUpdate, onSaved }) => {
-  const [form, setForm] = useState<CashSettingsType>({ ...settings.cash });
+  const [form, setForm] = useState<CashSettingsType>({
+    ...settings.cash,
+    denominaciones: settings.cash.denominaciones ?? [10, 20, 50, 100, 1000, 2000, 10000, 20000],
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,16 +104,15 @@ export const CashSettings: React.FC<Props> = ({ settings, onUpdate, onSaved }) =
           </p>
           <div className="grid grid-cols-4 gap-2">
             {[10, 20, 50, 100, 1000, 2000, 10000, 20000].map(bil => {
-              const active = (form.denominaciones ?? [10, 20, 50, 100, 1000, 2000, 10000, 20000]).includes(bil);
+              const active = form.denominaciones.includes(bil);
               return (
                 <button
                   key={bil}
                   type="button"
                   onClick={() => {
-                    const current = form.denominaciones ?? [10, 20, 50, 100, 1000, 2000, 10000, 20000];
                     const next = active
-                      ? current.filter(d => d !== bil)
-                      : [...current, bil].sort((a, b) => a - b);
+                      ? form.denominaciones.filter(d => d !== bil)
+                      : [...form.denominaciones, bil].sort((a, b) => a - b);
                     setForm(f => ({ ...f, denominaciones: next }));
                   }}
                   className={`py-2 px-1 rounded-xl border text-xs font-bold transition-colors ${

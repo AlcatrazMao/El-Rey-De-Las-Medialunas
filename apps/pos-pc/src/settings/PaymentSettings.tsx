@@ -78,7 +78,7 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
   const handleSavePaymentConfig = () => {
     setPaymentMethods(paymentMethods);
     setDiscountConfig({ availablePercents: discountPercents, allowManualDiscount: allowManual, allowDiscountsOnOffers, activeDiscountSystem });
-    onSaved();
+    // onSaved() se llama solo desde el botón unificado, no aquí
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -87,7 +87,7 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
       .filter(([, key]) => key.trim() !== '')
       .map(([gatewayId, publicKey]) => ({ gatewayId, publicKey: publicKey.trim() }));
     onUpdate(updated);
-    onSaved();
+    // onSaved() se llama solo desde el botón unificado, no aquí
   };
 
   const updatePm = (idx: number, patch: Partial<PaymentMethodConfig>) => {
@@ -470,7 +470,12 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
       <div className="pt-2">
         <button
           type="button"
-          onClick={(e) => { handleSubmit(e as unknown as React.FormEvent); handleSavePaymentConfig(); }}
+          onClick={(e) => {
+            e.preventDefault();
+            handleSubmit(e as unknown as React.FormEvent);
+            handleSavePaymentConfig();
+            onSaved(); // llamado UNA sola vez
+          }}
           className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
         >
           Guardar cambios

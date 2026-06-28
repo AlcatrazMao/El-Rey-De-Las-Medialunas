@@ -242,9 +242,21 @@ export function getSettings(): AppSettings {
       promotions: parsed.promotions ?? [...DEFAULT_SETTINGS.promotions],
       sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
       paymentMethods: migratePaymentMethods(parsed.paymentMethods),
-      discountConfig: parsed.discountConfig
-        ? { ...DEFAULT_SETTINGS.discountConfig, ...parsed.discountConfig, availablePercents: parsed.discountConfig.availablePercents ?? [...DEFAULT_SETTINGS.discountConfig.availablePercents] }
-        : { ...DEFAULT_SETTINGS.discountConfig, availablePercents: [...DEFAULT_SETTINGS.discountConfig.availablePercents] },
+      discountConfig: (() => {
+        if (!parsed.discountConfig) {
+          return { ...DEFAULT_SETTINGS.discountConfig, availablePercents: [...DEFAULT_SETTINGS.discountConfig.availablePercents] };
+        }
+        const validSystems = ['none', 'offers', 'promotions'] as const;
+        const rawAds = parsed.discountConfig.activeDiscountSystem;
+        const safeAds: 'none' | 'offers' | 'promotions' =
+          validSystems.includes(rawAds as (typeof validSystems)[number]) ? (rawAds as (typeof validSystems)[number]) : 'none';
+        return {
+          ...DEFAULT_SETTINGS.discountConfig,
+          ...parsed.discountConfig,
+          availablePercents: parsed.discountConfig.availablePercents ?? [...DEFAULT_SETTINGS.discountConfig.availablePercents],
+          activeDiscountSystem: safeAds,
+        };
+      })(),
       pos: { ...DEFAULT_SETTINGS.pos, ...(parsed.pos ?? {}) },
     };
   } catch {
