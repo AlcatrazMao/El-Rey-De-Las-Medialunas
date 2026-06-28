@@ -1116,7 +1116,7 @@ export const POSView: React.FC = () => {
               )}
             </div>
 
-            {/* Fila 2: Cliente | Descuento | COBRAR */}
+            {/* Fila 2: Cliente | Descuento */}
             <div className="flex items-center gap-1.5">
 
               {/* Cliente */}
@@ -1188,25 +1188,25 @@ export const POSView: React.FC = () => {
                   ))}
                 </select>
               )}
-
-              {/* COBRAR */}
-              <button
-                id="btn-pos-checkout"
-                onClick={handlePayment}
-                disabled={cart.length === 0 || isProcessingPayment}
-                className={`shrink-0 px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
-                  cart.length === 0
-                    ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
-                    : 'bg-amber-850 hover:bg-amber-805 text-white border-b-4 border-amber-955'
-                }`}
-              >
-                {isProcessingPayment ? (
-                  <><Cpu className="h-3.5 w-3.5 animate-spin" /><span className="hidden md:inline">{processingStatusText}</span><span className="md:hidden">...</span></>
-                ) : (
-                  <><CreditCard className="h-3.5 w-3.5" /><span className="hidden sm:inline">COBRAR </span>{formatCurrency(cartTotal)}</>
-                )}
-              </button>
             </div>
+
+            {/* Fila 3: COBRAR */}
+            <button
+              id="btn-pos-checkout"
+              onClick={handlePayment}
+              disabled={cart.length === 0 || isProcessingPayment}
+              className={`w-full py-2 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
+                cart.length === 0
+                  ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
+                  : 'bg-amber-850 hover:bg-amber-805 text-white border-b-4 border-amber-955'
+              }`}
+            >
+              {isProcessingPayment ? (
+                <><Cpu className="h-4 w-4 animate-spin" /><span>{processingStatusText}</span></>
+              ) : (
+                <><CreditCard className="h-4 w-4" />COBRAR {formatCurrency(cartTotal)}</>
+              )}
+            </button>
 
             {/* Avisos inline */}
             {selectedCustomerId && (() => {
