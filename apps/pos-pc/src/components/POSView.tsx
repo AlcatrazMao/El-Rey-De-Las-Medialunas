@@ -68,6 +68,10 @@ export const POSView: React.FC = () => {
 
   const posSettings = getSettings();
 
+  const activeDiscountSystem = posSettings.discountConfig?.activeDiscountSystem ?? 'none';
+  const offersEnabled = activeDiscountSystem === 'offers';
+  const promotionsEnabled = activeDiscountSystem === 'promotions';
+
   const defaultPriceListInit = posSettings.priceLists?.find(pl => pl.isDefault) ?? posSettings.priceLists?.[0];
   const [selectedPriceListId, setSelectedPriceListId] = useState<string>(defaultPriceListInit?.id ?? '');
 
@@ -325,8 +329,12 @@ export const POSView: React.FC = () => {
       .finally(() => setCustomerHistoryLoading(false));
   }, [selectedCustomerId]);
 
-  // Cargar ofertas activas al montar
+  // Cargar ofertas activas — solo si el sistema activo es 'offers'
   useEffect(() => {
+    if (!offersEnabled) {
+      setActiveOffers([]);
+      return;
+    }
     offerStore.getAll().then(all => {
       const now = new Date();
       setActiveOffers(
@@ -337,7 +345,7 @@ export const POSView: React.FC = () => {
         )
       );
     });
-  }, []);
+  }, [offersEnabled]);
 
   // Audio Beep generator
   const playBeep = (freq = 880, duration = 0.08) => {
@@ -839,16 +847,18 @@ export const POSView: React.FC = () => {
   } else if (adjustmentType === 'descuento' && adjustmentPercent > 0) {
     paymentAdjustmentAmount = -parseFloat((afterPriceList * adjustmentPercent / 100).toFixed(2));
   }
-  // Promociones por cantidad
-  const applicablePromo = (posSettings.promotions ?? []).find(p => {
-    if (!p.active || p.type !== 'quantity_discount') return false;
-    const relevantItems = cart.filter(item =>
-      p.applicableCategories.length === 0 ||
-      p.applicableCategories.includes(item.product.category ?? '')
-    );
-    const totalQty = relevantItems.reduce((sum, item) => sum + item.quantity, 0);
-    return totalQty >= p.minQuantity;
-  });
+  // Promociones por cantidad — solo si el sistema activo es 'promotions'
+  const applicablePromo = promotionsEnabled
+    ? (posSettings.promotions ?? []).find(p => {
+        if (!p.active || p.type !== 'quantity_discount') return false;
+        const relevantItems = cart.filter(item =>
+          p.applicableCategories.length === 0 ||
+          p.applicableCategories.includes(item.product.category ?? '')
+        );
+        const totalQty = relevantItems.reduce((sum, item) => sum + item.quantity, 0);
+        return totalQty >= p.minQuantity;
+      })
+    : undefined;
   const promoDiscountPercent = applicablePromo ? applicablePromo.discountPercent : 0;
   const promoBase = applicablePromo
     ? cart.filter(item =>

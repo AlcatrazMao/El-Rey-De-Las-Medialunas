@@ -41,6 +41,7 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
   const [discountPercents, setDiscountPercents] = useState<number[]>(() => settings.discountConfig?.availablePercents ?? [5, 10, 15, 20, 25, 30]);
   const [allowManual, setAllowManual] = useState(() => settings.discountConfig?.allowManualDiscount ?? false);
   const [allowDiscountsOnOffers, setAllowDiscountsOnOffers] = useState(() => settings.discountConfig?.allowDiscountsOnOffers ?? false);
+  const [activeDiscountSystem, setActiveDiscountSystem] = useState<'none' | 'offers' | 'promotions'>(() => settings.discountConfig?.activeDiscountSystem ?? 'none');
   const [newPercent, setNewPercent] = useState('');
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -76,7 +77,7 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
 
   const handleSavePaymentConfig = () => {
     setPaymentMethods(paymentMethods);
-    setDiscountConfig({ availablePercents: discountPercents, allowManualDiscount: allowManual, allowDiscountsOnOffers });
+    setDiscountConfig({ availablePercents: discountPercents, allowManualDiscount: allowManual, allowDiscountsOnOffers, activeDiscountSystem });
     onSaved();
   };
 
@@ -364,6 +365,40 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
       </div>
 
       <div className="border-t border-gray-100 dark:border-zinc-800 pt-5 space-y-4">
+        {/* Sistema de descuentos automáticos */}
+        <div>
+          <label className="text-sm font-semibold text-gray-700 dark:text-zinc-300">
+            Sistema de descuentos automáticos
+          </label>
+          <p className="text-xs text-gray-400 dark:text-zinc-500 mt-0.5 mb-3">
+            Solo uno puede estar activo. <strong>OFF</strong> es el valor predeterminado.
+          </p>
+          <div className="flex flex-col gap-2">
+            {([
+              { value: 'none', label: 'Ninguno (OFF)', desc: 'Sin descuentos automáticos aplicados al carrito.' },
+              { value: 'offers', label: 'Ofertas por artículo', desc: 'Muestra badge y aplica el % de oferta configurado por lote/producto en Inventario.' },
+              { value: 'promotions', label: 'Promociones por cantidad', desc: 'Aplica descuento automático cuando se alcanza la cantidad mínima configurada en Promociones.' },
+            ] as const).map(opt => {
+              const active = activeDiscountSystem === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setActiveDiscountSystem(opt.value)}
+                  className={`text-left px-4 py-3 rounded-xl border transition-colors ${
+                    active
+                      ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-500 text-amber-700 dark:text-amber-400'
+                      : 'bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 hover:border-amber-300'
+                  }`}
+                >
+                  <div className="font-semibold text-sm">{opt.label}</div>
+                  <div className="text-xs text-gray-500 dark:text-zinc-500 mt-0.5">{opt.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="flex items-center gap-2">
           <h4 className="text-xs font-extrabold text-gray-700 dark:text-zinc-200 uppercase tracking-wider">Porcentajes de Descuento Disponibles</h4>
         </div>

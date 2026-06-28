@@ -93,6 +93,8 @@ export interface DiscountConfig {
   allowManualDiscount: boolean;
   /** Cuando es true, los descuentos manuales/lista aplican también sobre ítems con precio de grupo. */
   allowDiscountsOnOffers: boolean;
+  /** Sistema de descuentos automáticos activo. Solo uno puede estar activo a la vez. */
+  activeDiscountSystem: 'none' | 'offers' | 'promotions';
 }
 
 export interface PosSettings {
@@ -164,6 +166,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     availablePercents: [5, 10, 15, 20, 25, 30],
     allowManualDiscount: false,
     allowDiscountsOnOffers: false,
+    activeDiscountSystem: 'none',
   },
   pos: {
     defaultPaymentMethod: 'efectivo',
