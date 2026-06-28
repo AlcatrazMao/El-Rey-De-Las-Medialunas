@@ -22,6 +22,8 @@ import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
 import { getSettings } from '../hooks/useSettings';
+import type { IDBOffer } from '../lib/idb';
+import { offerStore } from '../lib/idb';
 import { API_URL, fetchWithAuth } from '../services/api';
 import type { CategoryType, Product, ProductGroup, Sale } from '../types';
 import { printTicketOrInvoice } from '../utils/exportUtils';
@@ -190,6 +192,9 @@ export const POSView: React.FC = () => {
   productsRef.current = products;
   addSystemNotificationRef.current = addSystemNotification;
 
+  // Ofertas activas (para badge en CartItemList)
+  const [activeOffers, setActiveOffers] = useState<IDBOffer[]>([]);
+
   // Customer history states
   const [customerHistory, setCustomerHistory] = useState<Array<{ sale_number: string; total: number; created_at: string }> | null>(null);
   const [customerHistoryLoading, setCustomerHistoryLoading] = useState(false);
@@ -319,6 +324,20 @@ export const POSView: React.FC = () => {
       .catch(() => setCustomerHistory([]))
       .finally(() => setCustomerHistoryLoading(false));
   }, [selectedCustomerId]);
+
+  // Cargar ofertas activas al montar
+  useEffect(() => {
+    offerStore.getAll().then(all => {
+      const now = new Date();
+      setActiveOffers(
+        all.filter(o =>
+          o.status === 'active' &&
+          new Date(o.startsAt) <= now &&
+          (!o.endsAt || new Date(o.endsAt) > now)
+        )
+      );
+    });
+  }, []);
 
   // Audio Beep generator
   const playBeep = (freq = 880, duration = 0.08) => {
@@ -820,7 +839,28 @@ export const POSView: React.FC = () => {
   } else if (adjustmentType === 'descuento' && adjustmentPercent > 0) {
     paymentAdjustmentAmount = -parseFloat((afterPriceList * adjustmentPercent / 100).toFixed(2));
   }
-  const cartTotal = parseFloat((afterPriceList + paymentAdjustmentAmount).toFixed(2));
+  // Promociones por cantidad
+  const applicablePromo = (posSettings.promotions ?? []).find(p => {
+    if (!p.active || p.type !== 'quantity_discount') return false;
+    const relevantItems = cart.filter(item =>
+      p.applicableCategories.length === 0 ||
+      p.applicableCategories.includes(item.product.category ?? '')
+    );
+    const totalQty = relevantItems.reduce((sum, item) => sum + item.quantity, 0);
+    return totalQty >= p.minQuantity;
+  });
+  const promoDiscountPercent = applicablePromo ? applicablePromo.discountPercent : 0;
+  const promoBase = applicablePromo
+    ? cart.filter(item =>
+        applicablePromo.applicableCategories.length === 0 ||
+        applicablePromo.applicableCategories.includes(item.product.category ?? '')
+      ).reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
+    : 0;
+  const promoDiscountAmount = promoDiscountPercent > 0
+    ? parseFloat((promoBase * promoDiscountPercent / 100).toFixed(2))
+    : 0;
+
+  const cartTotal = parseFloat((afterPriceList + paymentAdjustmentAmount - promoDiscountAmount).toFixed(2));
   const cartTax = parseFloat((cartTotal - cartTotal / (1 + cartIvaRate)).toFixed(2));
 
   // Non-default config indicator (mobile panel pulse)
@@ -1103,6 +1143,7 @@ export const POSView: React.FC = () => {
             decreaseQuantity={decreaseQuantity}
             addUnitToCart={addUnitToCart}
             playBeep={playBeep}
+            activeOffers={activeOffers}
             onEmptyClick={() => {
               setModalMode('visual');
               setModalSelectedCategory('todos');
@@ -1151,6 +1192,12 @@ export const POSView: React.FC = () => {
               <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
                 <span className="w-16 shrink-0">Desc.pago {adjustmentPercent}%</span>
                 <span>-{formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
+              </div>
+            )}
+            {applicablePromo && promoDiscountAmount > 0 && (
+              <div className="flex items-center gap-2 font-bold text-emerald-600 dark:text-emerald-400">
+                <span className="w-16 shrink-0 truncate text-[10px]">{applicablePromo.name}</span>
+                <span>-{formatCurrency(promoDiscountAmount)}</span>
               </div>
             )}
             <div className="flex items-center gap-2 text-gray-300 dark:text-zinc-600">
@@ -2154,6 +2201,12 @@ export const POSView: React.FC = () => {
               <div className="flex justify-between text-sm text-emerald-600 dark:text-emerald-400">
                 <span>{activePriceList.name}</span>
                 <span className="font-semibold">{priceListDiscountPercent > 0 ? '-' : '+'}{formatCurrency(Math.abs(priceListAdjustmentAmount))}</span>
+              </div>
+            )}
+            {applicablePromo && promoDiscountAmount > 0 && (
+              <div className="flex justify-between text-sm text-emerald-600 dark:text-emerald-400">
+                <span>{applicablePromo.name}</span>
+                <span className="font-semibold">-{formatCurrency(promoDiscountAmount)}</span>
               </div>
             )}
             <div className="flex justify-between text-base font-black text-gray-900 dark:text-white pt-1 border-t border-gray-200 dark:border-zinc-700">

@@ -1,6 +1,7 @@
 import { Plus, Minus, Trash2 } from 'lucide-react';
 import * as React from 'react';
 
+import type { IDBOffer } from '../../lib/idb';
 import type { Product } from '../../types';
 import { formatCurrency } from '../../utils/format';
 
@@ -25,6 +26,8 @@ interface CartItemListProps {
   playBeep: (freq?: number, duration?: number) => void;
   /** Handler para el placeholder vacío (abre el modal de selección). */
   onEmptyClick: () => void;
+  /** Ofertas activas del día — usadas para mostrar badge por línea. */
+  activeOffers?: IDBOffer[];
 }
 
 /**
@@ -41,6 +44,7 @@ export const CartItemList: React.FC<CartItemListProps> = ({
   addUnitToCart,
   playBeep,
   onEmptyClick,
+  activeOffers,
 }) => {
   return (
     <div className="flex-1 flex flex-col pr-1 min-w-0">
@@ -62,6 +66,7 @@ export const CartItemList: React.FC<CartItemListProps> = ({
           {cart.map((item, lineIdx) => {
             const lineKey = `${item.product.id}::${item.presentation ?? ''}::${lineIdx}`;
             const lineSubtotal = item.unitPrice * item.quantity;
+            const offerForLine = activeOffers?.find(o => o.productIds.includes(item.product.id));
             return (
               <div key={lineKey} className="pt-2 flex items-center justify-between gap-3 min-w-0">
                 <div className="min-w-0 flex-1 overflow-hidden">
@@ -70,6 +75,11 @@ export const CartItemList: React.FC<CartItemListProps> = ({
                     {item.presentation && (
                       <span className="ml-1.5 inline-block bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider">
                         {item.presentation}
+                      </span>
+                    )}
+                    {offerForLine && (
+                      <span className="ml-1.5 inline-flex items-center gap-0.5 text-[9px] font-bold bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                        🏷️ -{offerForLine.discountPercent}%
                       </span>
                     )}
                   </p>
