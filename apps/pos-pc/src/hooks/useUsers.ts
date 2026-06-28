@@ -26,7 +26,9 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
         ? ['widget_facturacion', 'widget_inventario', 'widget_contabilidad', 'widget_alertas', 'widget_historico']
         : firestoreRole === 'cajero'
           ? ['widget_facturacion', 'widget_alertas']
-          : ['widget_inventario', 'widget_alertas'],
+          : firestoreRole === 'cocinero'
+            ? ['widget_alertas']
+            : ['widget_inventario', 'widget_alertas'],
     [firestoreRole],
   );
 
@@ -74,7 +76,9 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
   );
   const [activeTab, setActiveTab] = useState<string>(() => {
     const role = (firestoreRole || 'panadero') as UserRole;
-    return role === 'cajero' ? 'pos' : 'dashboard';
+    if (role === 'cajero') return 'pos';
+    if (role === 'cocinero') return 'kitchen';
+    return 'dashboard';
   });
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
 
@@ -104,6 +108,7 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
     if (found) {
       setActiveUserId(found.id);
       if (role === 'cajero') setActiveTab('pos');
+      else if (role === 'cocinero') setActiveTab('kitchen');
       else setActiveTab('dashboard');
     }
   };

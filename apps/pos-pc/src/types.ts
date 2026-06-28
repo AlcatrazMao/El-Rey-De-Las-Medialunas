@@ -88,6 +88,8 @@ export interface Sale {
   paymentAdjustmentType?: 'none' | 'recargo' | 'descuento';
   paymentAdjustmentPercent?: number;
   paymentAdjustmentAmount?: number;
+  notes?: string;                    // observaciones del operador
+  delivery_type?: 'aqui' | 'llevar'; // para llevar o retiran en local
 }
 
 export interface Customer {
@@ -130,7 +132,7 @@ export interface Expense {
   invoiceUrl?: string;
 }
 
-export type UserRole = 'admin' | 'cajero' | 'panadero';
+export type UserRole = 'admin' | 'cajero' | 'panadero' | 'cocinero';
 
 export interface User {
   id: string;

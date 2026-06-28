@@ -3,13 +3,14 @@ import { onAuthStateChanged } from 'firebase/auth';
 import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
-  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag, MoreHorizontal
+  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag, MoreHorizontal, ChefHat
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect } from 'react';
 
 import { AppProvider, useApp } from './AppContext';
 import { AccountingView } from './components/AccountingView';
+import { KitchenView } from './components/KitchenView';
 import { AdminUsersView } from './components/AdminUsersView';
 import { CajeroMermaView } from './components/CajeroMermaView';
 import { CashSessionView } from './components/CashSessionView';
@@ -161,9 +162,11 @@ function ERPLayout() {
       case 'notes': return <StickyNotesView />;
       case 'settings': return <SettingsView />;
       case 'sync_console': return <SyncErrorConsole />;
+      case 'kitchen': return <KitchenView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <Dashboard />;
+        if (activeUser.role === 'cocinero') return <KitchenView />;
         return <Dashboard />;
     }
   };
@@ -184,6 +187,10 @@ function ERPLayout() {
           { id: 'supply_requests', label: 'Producción', icon: <TrendingUp className="h-4 w-4 text-emerald-500" /> },
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> }
+        ];
+      case 'cocinero':
+        return [
+          { id: 'kitchen', label: 'Cocina', icon: <ChefHat className="h-4 w-4" /> },
         ];
       default:
         return [

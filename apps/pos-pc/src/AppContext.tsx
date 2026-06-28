@@ -46,7 +46,7 @@ interface AppContextType {
   setActiveUserRole: (role: UserRole) => void;
   setActiveTab: (tab: string) => void;
   setBatches: React.Dispatch<React.SetStateAction<ProductBatch[]>>;
-  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent?: number, priceListDiscountPercent?: number, idempotencyKey?: string) => { success: boolean; invoice?: Sale; error?: { code: string; message: string } };
+  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent?: number, priceListDiscountPercent?: number, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar') => { success: boolean; invoice?: Sale; error?: { code: string; message: string } };
   addExpense: (expense: Omit<Expense, 'id' | 'date'>) => void;
   addIngredient: (ingredient: Omit<Ingredient, 'id'>) => void;
   updateIngredientStock: (id: string, newStock: number) => void;
@@ -125,7 +125,7 @@ export const AppProvider: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only effect; hook refs are stable
   }, []);
 
-  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string) => {
+  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar') => {
     // Fix 2: prevent double-click / rapid-scanner from creating duplicate invoices.
     // The lock is synchronous: set before any async work, cleared in a finally-equivalent
     // position after all side-effects complete (or on early-exit).
@@ -295,6 +295,8 @@ export const AppProvider: React.FC<{
       paymentAdjustmentType: adjustmentType !== 'none' && adjustmentPercent > 0 ? adjustmentType : undefined,
       paymentAdjustmentPercent: adjustmentType !== 'none' && adjustmentPercent > 0 ? adjustmentPercent : undefined,
       paymentAdjustmentAmount: paymentAdjustmentAmount !== 0 ? paymentAdjustmentAmount : undefined,
+      notes: notes || undefined,
+      delivery_type: deliveryType || undefined,
     };
 
     bch.setBatches(prevBatches => {

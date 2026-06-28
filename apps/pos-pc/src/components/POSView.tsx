@@ -1008,6 +1008,8 @@ export const POSView: React.FC = () => {
           selectedDiscount,
           priceListDiscountPercent,
           idempotencyKey,
+          observaciones || undefined,
+          paraLlevar ? 'llevar' : 'aqui',
         );
 
         setIsProcessingPayment(false);
