@@ -55,6 +55,8 @@ export const CashSessionView: React.FC = () => {
   const [closingAmount, setClosingAmount] = useState<number>(0);
   const [closingNote, setClosingNote] = useState<string>(settings.cash.defaultClosingNote);
   const [showConfirmClose, setShowConfirmClose] = useState(false);
+  const [closeStep, setCloseStep] = useState<1 | 2 | 3>(1);
+  const [closeBillCounts, setCloseBillCounts] = useState<Record<number, number>>({});
   const [closingHistoricalId, setClosingHistoricalId] = useState<string | null>(null);
   const [historicalClosingAmount, setHistoricalClosingAmount] = useState<number>(0);
   const [historicalClosingNote, setHistoricalClosingNote] = useState<string>('');
@@ -92,6 +94,12 @@ export const CashSessionView: React.FC = () => {
     if (currentCashSession) setClosingAmount(billTotal);
     else setOpeningAmount(billTotal);
   };
+
+  const billCloseTotal = Object.entries(closeBillCounts).reduce(
+    (sum, [den, qty]) => sum + Number(den) * qty,
+    0
+  );
+  const activeDenominaciones = settings.cash.denominaciones ?? [10, 20, 50, 100, 1000, 2000, 10000, 20000];
 
   const openHistoricalSession = cashSessionsHistory.find(s => s.status === 'open');
 
@@ -341,109 +349,193 @@ export const CashSessionView: React.FC = () => {
                 </div>
               </div>
 
-              <form onSubmit={e => { e.preventDefault(); setShowConfirmClose(true); }} className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label htmlFor="closingAmount" className="text-[10px] font-black uppercase text-gray-450 dark:text-zinc-300 tracking-wider block">
-                      Efectivo real en caja ($) *
-                    </label>
-                    {/* TODO: requiere arqueo manual — esta acción setea realAmount = expectedAmount sin contar billetes reales, generando discrepancy=0 falsa. Mantener solo como atajo opt-in del cajero (jamás auto-disparar). */}
+              {/* ── STEPPER DE CIERRE ── */}
+              <div className="flex flex-col gap-4">
+
+                {/* Indicador de pasos */}
+                <div className="flex items-center justify-center gap-2 text-xs font-semibold">
+                  {([1, 2, 3] as const).map((s, i) => (
+                    <React.Fragment key={s}>
+                      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ${
+                        closeStep === s
+                          ? 'bg-amber-500 text-white'
+                          : closeStep > s
+                          ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500'
+                      }`}>
+                        {closeStep > s ? '✓' : s}
+                        <span className="hidden sm:inline">
+                          {s === 1 ? 'Resumen' : s === 2 ? 'Conteo' : 'Confirmar'}
+                        </span>
+                      </div>
+                      {i < 2 && <div className={`h-px w-6 ${closeStep > s ? 'bg-emerald-400' : 'bg-gray-200 dark:bg-zinc-700'}`} />}
+                    </React.Fragment>
+                  ))}
+                </div>
+
+                {/* ── PASO 1: Resumen del turno ── */}
+                {closeStep === 1 && (
+                  <div className="flex flex-col gap-3">
+                    <div className="bg-gray-50 dark:bg-zinc-900/60 rounded-2xl p-4 flex flex-col gap-2 text-sm">
+                      <div className="flex justify-between text-gray-500 dark:text-zinc-400">
+                        <span>Fondo inicial</span>
+                        <span className="font-semibold">{formatCurrency(currentCashSession.initialAmount)}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-500 dark:text-zinc-400">
+                        <span>Ventas en efectivo</span>
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                          +{formatCurrency(currentCashSession.expectedAmount - currentCashSession.initialAmount)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between font-black text-gray-900 dark:text-white border-t border-gray-200 dark:border-zinc-700 pt-2 mt-1">
+                        <span>Total esperado en caja</span>
+                        <span>{formatCurrency(currentCashSession.expectedAmount)}</span>
+                      </div>
+                    </div>
+                    {currentCashSession.note && (
+                      <p className="text-xs text-gray-400 italic px-1">Nota: {currentCashSession.note}</p>
+                    )}
                     <button
-                      type="button"
-                      onClick={() => setClosingAmount(currentCashSession.expectedAmount)}
-                      className="text-[10px] text-amber-600 hover:text-amber-700 font-extrabold cursor-pointer hover:underline"
+                      onClick={() => setCloseStep(2)}
+                      className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors"
                     >
-                      Copiar esperado
+                      Continuar con el conteo →
                     </button>
                   </div>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-extrabold text-sm">$</span>
-                    <input
-                      id="closingAmount"
-                      type="number"
-                      required
-                      min="0"
-                      step="any"
-                      value={closingAmount === 0 ? '' : closingAmount}
-                      onChange={e => setClosingAmount(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-gray-50/50 dark:bg-zinc-950 border border-gray-250 dark:border-zinc-800 rounded-2xl p-4 pl-8 text-base font-extrabold text-amber-650 dark:text-amber-450 focus:ring-2 focus:ring-amber-500/10 focus:border-amber-500 outline-none transition-all"
-                      placeholder="Usá el contador de billetes →"
-                    />
-                  </div>
-                </div>
-
-                {closingAmount > 0 && (
-                  <div className={`p-4 rounded-2xl border space-y-1 ${
-                    closingAmount === currentCashSession.expectedAmount
-                      ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-800 dark:text-emerald-400'
-                      : closingAmount > currentCashSession.expectedAmount
-                      ? 'bg-amber-500/5 border-amber-500/20 text-amber-700 dark:text-amber-400'
-                      : 'bg-red-500/5 border-red-500/20 text-red-700 dark:text-red-400'
-                  }`}>
-                    <p className="text-[10px] font-black uppercase tracking-wider">Cálculo de consistencia</p>
-                    <div className="flex justify-between items-center text-xs">
-                      <span>Diferencia:</span>
-                      <strong className="font-extrabold text-sm">
-                        {closingAmount === currentCashSession.expectedAmount
-                          ? `✓ Caja Cuadrada (${formatCurrency(0)})`
-                          : closingAmount > currentCashSession.expectedAmount
-                          ? `📈 Sobrante: +${formatCurrency(closingAmount - currentCashSession.expectedAmount)}`
-                          : `📉 Faltante: -${formatCurrency(currentCashSession.expectedAmount - closingAmount)}`}
-                      </strong>
-                    </div>
-                  </div>
                 )}
 
-                <div>
-                  <label htmlFor="closingNote" className="text-[10px] font-black uppercase text-gray-400 dark:text-zinc-400 tracking-wider block mb-1.5">
-                    Comentario de arqueo
-                  </label>
-                  <textarea
-                    id="closingNote"
-                    rows={2}
-                    value={closingNote}
-                    onChange={e => setClosingNote(e.target.value)}
-                    className="w-full bg-gray-50/50 dark:bg-zinc-950 border border-gray-250 dark:border-zinc-800 rounded-2xl p-3 text-xs text-gray-805 dark:text-zinc-200 focus:border-amber-500 outline-none"
-                    placeholder="Causa de sobrante o faltante"
-                  />
-                </div>
+                {/* ── PASO 2: Conteo de billetes ── */}
+                {closeStep === 2 && (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-xs text-gray-400 dark:text-zinc-500 text-center">
+                      Tocá el billete o usá + para sumarlo al conteo
+                    </p>
 
-                {showConfirmClose ? (
-                  <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl space-y-3">
-                    <p className="text-xs font-bold text-red-700 dark:text-red-400 flex items-center gap-1.5">
-                      <ShieldAlert className="w-4 h-4 shrink-0" /> ¿Confirmás el arqueo final?
-                    </p>
-                    <p className="text-[10.5px] text-gray-500 dark:text-zinc-400 leading-normal">
-                      Se bloquearán ventas en efectivo hasta una nueva habilitación.
-                    </p>
+                    <div className="flex flex-col gap-2">
+                      {activeDenominaciones.map(den => {
+                        const qty = closeBillCounts[den] ?? 0;
+                        const subtotal = qty * den;
+                        return (
+                          <div key={den} className="flex items-center gap-3 bg-gray-50 dark:bg-zinc-900 rounded-xl px-3 py-2.5">
+                            {/* Botón principal del billete — toca para sumar */}
+                            <button
+                              onClick={() => setCloseBillCounts(prev => ({ ...prev, [den]: (prev[den] ?? 0) + 1 }))}
+                              className="flex-1 text-left"
+                            >
+                              <span className="font-bold text-sm text-gray-900 dark:text-white">
+                                ${den >= 1000 ? `${(den / 1000).toLocaleString('es-AR')}.000` : den}
+                              </span>
+                              {qty > 0 && (
+                                <span className="text-xs text-amber-600 dark:text-amber-400 ml-2">
+                                  × {qty} = {formatCurrency(subtotal)}
+                                </span>
+                              )}
+                            </button>
+                            {/* Controles − cantidad + */}
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => setCloseBillCounts(prev => ({ ...prev, [den]: Math.max(0, (prev[den] ?? 0) - 1) }))}
+                                className="w-7 h-7 rounded-lg bg-gray-200 dark:bg-zinc-700 text-gray-600 dark:text-zinc-300 font-bold text-sm flex items-center justify-center"
+                              >−</button>
+                              <span className="w-7 text-center font-bold text-sm text-gray-900 dark:text-white">{qty}</span>
+                              <button
+                                onClick={() => setCloseBillCounts(prev => ({ ...prev, [den]: (prev[den] ?? 0) + 1 }))}
+                                className="w-7 h-7 rounded-lg bg-amber-500 text-white font-bold text-sm flex items-center justify-center"
+                              >+</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Total contado */}
+                    <div className={`flex justify-between items-center px-3 py-2.5 rounded-xl font-black text-base border-2 ${
+                      billCloseTotal === 0
+                        ? 'border-gray-200 dark:border-zinc-700 text-gray-400'
+                        : 'border-amber-400 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400'
+                    }`}>
+                      <span>Total contado</span>
+                      <span>{formatCurrency(billCloseTotal)}</span>
+                    </div>
+
                     <div className="flex gap-2">
                       <button
-                        type="button"
-                        id="btn-close-and-submit-confirmed"
-                        onClick={handleClose}
-                        className="flex-1 py-2.5 bg-red-650 hover:bg-red-700 text-white rounded-xl text-xs font-black cursor-pointer uppercase tracking-wider"
-                      >
-                        Sí, cerrar caja 🔒
-                      </button>
+                        onClick={() => setCloseStep(1)}
+                        className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 text-sm font-semibold text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
+                      >← Atrás</button>
                       <button
-                        type="button"
-                        onClick={() => setShowConfirmClose(false)}
-                        className="py-2.5 px-4 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 text-gray-500 dark:text-zinc-300 rounded-xl text-xs font-extrabold cursor-pointer"
+                        onClick={() => {
+                          setClosingAmount(billCloseTotal);
+                          setCloseStep(3);
+                        }}
+                        className="flex-[2] py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors"
                       >
-                        Cancelar
+                        Confirmar conteo →
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <button
-                    type="submit"
-                    id="btn-close-cash-drawer"
-                    className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs tracking-wider uppercase rounded-2xl shadow-md shadow-amber-500/10 transition-all hover:scale-[1.01] cursor-pointer"
-                  >
-                    🔒 Guardar Arqueo y Rendir Caja
-                  </button>
                 )}
-              </form>
+
+                {/* ── PASO 3: Confirmación y cierre ── */}
+                {closeStep === 3 && (
+                  <div className="flex flex-col gap-3">
+                    {/* Resumen discrepancia */}
+                    <div className="bg-gray-50 dark:bg-zinc-900/60 rounded-2xl p-4 flex flex-col gap-2 text-sm">
+                      <div className="flex justify-between text-gray-500 dark:text-zinc-400">
+                        <span>Esperado</span>
+                        <span className="font-semibold">{formatCurrency(currentCashSession.expectedAmount)}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-500 dark:text-zinc-400">
+                        <span>Contado</span>
+                        <span className="font-semibold">{formatCurrency(closingAmount)}</span>
+                      </div>
+                      {(() => {
+                        const diff = closingAmount - currentCashSession.expectedAmount;
+                        if (diff === 0) return (
+                          <div className="flex justify-between font-black text-emerald-600 dark:text-emerald-400 border-t border-gray-200 dark:border-zinc-700 pt-2 mt-1">
+                            <span>✓ Caja cuadrada</span><span>$0</span>
+                          </div>
+                        );
+                        return (
+                          <div className={`flex justify-between font-black border-t border-gray-200 dark:border-zinc-700 pt-2 mt-1 ${diff > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+                            <span>{diff > 0 ? '📈 Sobrante' : '📉 Faltante'}</span>
+                            <span>{diff > 0 ? '+' : ''}{formatCurrency(diff)}</span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Nota de cierre */}
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">
+                        Observación (opcional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={closingNote}
+                        onChange={e => setClosingNote(e.target.value)}
+                        placeholder={settings.cash.defaultClosingNote || 'Notas del arqueo...'}
+                        className="mt-1.5 w-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setCloseStep(2)}
+                        className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 text-sm font-semibold text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
+                      >← Atrás</button>
+                      <button
+                        id="btn-close-and-submit-confirmed"
+                        onClick={e => { e.preventDefault(); if (closingAmount >= 0) { closeCashSession(closingAmount, closingNote); setCloseStep(1); setCloseBillCounts({}); setClosingNote(settings.cash.defaultClosingNote ?? ''); } }}
+                        disabled={closingAmount < 0}
+                        className="flex-[2] py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        🔒 Cerrar caja
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
