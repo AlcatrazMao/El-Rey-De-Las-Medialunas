@@ -15,6 +15,7 @@ import {
   List,
   ChevronLeft,
   ChevronRight,
+  Settings,
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
@@ -167,6 +168,12 @@ export const POSView: React.FC = () => {
   const [closingTabId, setClosingTabId] = useState<string | null>(null);
   const [modalSearchVisible, setModalSearchVisible] = useState(false);
   const [modalFiltersOpen, setModalFiltersOpen] = useState(false);
+
+  // Mobile config panel
+  const [showConfigPanel, setShowConfigPanel] = useState(false);
+  const [observaciones, setObservaciones] = useState('');
+  const [paraLlevar, setParaLlevar] = useState(false);
+  const touchStartXRef = useRef<number>(0);
 
   // Barcode scanner (HID keyboard emulator detection)
   const barcodeBufferRef = useRef<string>('');
@@ -795,6 +802,34 @@ export const POSView: React.FC = () => {
   const cartTotal = parseFloat((afterPriceList + paymentAdjustmentAmount).toFixed(2));
   const cartTax = parseFloat((cartTotal - cartTotal / (1 + cartIvaRate)).toFixed(2));
 
+  // Non-default config indicator (mobile panel pulse)
+  const hasNonDefaults =
+    paymentMethod !== 'efectivo' ||
+    fiscalType !== 'consumidor_final' ||
+    selectedDiscount > 0 ||
+    !!customerName ||
+    !!observaciones ||
+    paraLlevar;
+
+  // Swipe handlers
+  const handlePanelTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+  const handlePanelTouchEnd = (e: React.TouchEvent) => {
+    const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+    if (deltaX > 80) setShowConfigPanel(false);
+  };
+  const handleMainTouchStart = (e: React.TouchEvent) => {
+    if (showConfigPanel) return;
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+  const handleMainTouchEnd = (e: React.TouchEvent) => {
+    if (showConfigPanel) return;
+    const startX = touchStartXRef.current;
+    const deltaX = e.changedTouches[0].clientX - startX;
+    if (startX > window.innerWidth * 0.75 && deltaX < -60) setShowConfigPanel(true);
+  };
+
   // Create new customer from mini-modal
   const handleCreateCustomer = () => {
     if (!newCustomerForm.name.trim()) return;
@@ -896,6 +931,9 @@ export const POSView: React.FC = () => {
           });
           setCustomerSearch('');
           setCuilSearch('');
+          setObservaciones('');
+          setParaLlevar(false);
+          setShowConfigPanel(false);
         } else {
           // Validaciones de negocio fallidas (carrito vacío, producto inexistente, etc).
           // NUNCA bloqueamos por stock — esos son warnings.
@@ -1032,7 +1070,11 @@ export const POSView: React.FC = () => {
         </div>
 
         {/* Cart Item rows list */}
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-3 pb-3">
+        <div
+          className="flex-1 min-h-0 overflow-y-auto flex flex-col px-3 pb-3"
+          onTouchStart={handleMainTouchStart}
+          onTouchEnd={handleMainTouchEnd}
+        >
           <CartItemList
             cart={cart}
             setCart={setCart}
@@ -1049,11 +1091,20 @@ export const POSView: React.FC = () => {
           />
         </div>
 
+        {/* Tab gear — mobile only, panel cerrado */}
+        <button
+          onClick={() => setShowConfigPanel(true)}
+          className={`md:hidden fixed right-0 top-1/2 -translate-y-1/2 z-40 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-sm rounded-l-2xl px-1.5 py-4 shadow-lg border border-r-0 border-gray-200 dark:border-zinc-700 flex flex-col items-center gap-1.5 transition-opacity ${showConfigPanel ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+        >
+          <Settings className={`h-4 w-4 ${hasNonDefaults ? 'text-amber-500 animate-pulse' : 'text-gray-400'}`} />
+          {hasNonDefaults && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
+        </button>
+
         {/* Footer 2 columnas: totales izq | campos + COBRAR der */}
         <div className="shrink-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 rounded-b-2xl flex items-stretch">
 
           {/* ── IZQUIERDA: resumen de importes ── */}
-          <div className="px-3 py-2 flex flex-col justify-center gap-0.5 text-[11px] border-r border-gray-100 dark:border-zinc-800 shrink-0 min-w-[170px]">
+          <div className="hidden md:flex px-3 py-2 flex-col justify-center gap-0.5 text-[11px] border-r border-gray-100 dark:border-zinc-800 shrink-0 min-w-[170px]">
             <div className="flex items-center gap-2 text-gray-400">
               <span className="w-16 shrink-0">Subtotal</span>
               <span className="font-semibold text-gray-600 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
@@ -1094,7 +1145,7 @@ export const POSView: React.FC = () => {
           <div className="flex-1 min-w-0 px-2 py-2 flex flex-col gap-1.5 justify-center relative">
 
             {/* Fila 1: Tipo | Pago | Lista de precios */}
-            <div className="flex items-center gap-1.5">
+            <div className="hidden md:flex items-center gap-1.5">
               <select
                 value={fiscalType}
                 onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
@@ -1151,7 +1202,7 @@ export const POSView: React.FC = () => {
             </div>
 
             {/* Fila 2: Cliente | CUIL (desktop) | Descuento */}
-            <div className="flex items-center gap-1.5">
+            <div className="hidden md:flex items-center gap-1.5">
 
               {/* Cliente — ocupa flex-1 cuando no hay cliente seleccionado */}
               {customerName ? (
@@ -1829,6 +1880,254 @@ export const POSView: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* ── CONFIG PANEL MOBILE ── */}
+      <div
+        className={`md:hidden fixed inset-0 z-50 bg-white dark:bg-zinc-950 flex flex-col transition-transform duration-300 ease-in-out ${showConfigPanel ? 'translate-x-0' : 'translate-x-full'}`}
+        onTouchStart={handlePanelTouchStart}
+        onTouchEnd={handlePanelTouchEnd}
+      >
+        {/* Tab carrito — borde izquierdo */}
+        <button
+          onClick={() => setShowConfigPanel(false)}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-sm rounded-r-2xl px-1.5 py-4 shadow-lg border border-l-0 border-gray-200 dark:border-zinc-700 flex flex-col items-center gap-1"
+        >
+          <ShoppingCart className="h-4 w-4 text-amber-500" />
+        </button>
+
+        {/* Header */}
+        <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between shrink-0">
+          <span className="text-sm font-bold text-gray-900 dark:text-white">Configuración</span>
+          <button onClick={() => setShowConfigPanel(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Scroll content */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+
+          {/* Tipo de cliente */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Tipo de cliente</label>
+            <select
+              value={fiscalType}
+              onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
+              className="mt-1.5 w-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+            >
+              <option value="consumidor_final">Consumidor Final</option>
+              <option value="exento">IVA Exento</option>
+              <option value="responsable_inscripto">Resp. Inscripto</option>
+              <option value="monotributista">Monotributista</option>
+            </select>
+          </div>
+
+          {/* Método de pago */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Método de pago</label>
+            <select
+              value={paymentMethod}
+              onChange={e => setPaymentMethod(e.target.value)}
+              className="mt-1.5 w-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+            >
+              {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
+                <option key={pm.id} value={pm.id}>{pm.label}</option>
+              ))}
+            </select>
+            {adjustmentType !== 'none' && adjustmentPercent > 0 && (
+              <p className={`mt-1 text-xs font-bold ${adjustmentType === 'recargo' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {adjustmentType === 'recargo' ? '▲' : '▼'} {adjustmentPercent}% sobre el total
+              </p>
+            )}
+          </div>
+
+          {/* Lista de precios (si hay más de 1) */}
+          {(posSettings.priceLists?.length ?? 0) > 1 && (
+            <div>
+              <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Lista de precios</label>
+              <select
+                value={selectedPriceListId}
+                onChange={e => setSelectedPriceListId(e.target.value)}
+                className="mt-1.5 w-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+              >
+                {posSettings.priceLists.map(pl => (
+                  <option key={pl.id} value={pl.id}>{pl.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Cliente */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Cliente</label>
+            <div className="mt-1.5 relative">
+              {customerName ? (
+                <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5">
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <span className="text-sm font-bold text-gray-800 dark:text-zinc-100 truncate">{customerName}</span>
+                    {customerDoc && <span className="text-xs text-gray-400 truncate">CUIL: {customerDoc}</span>}
+                  </div>
+                  {selectedCustomerId && (
+                    <button onClick={() => setShowCustomerDetailModal(true)} className="text-gray-400 hover:text-amber-500 shrink-0">
+                      <Search className="h-4 w-4" />
+                    </button>
+                  )}
+                  <button onClick={() => { setCustomerName(''); setCustomerDoc(''); setCustomerSearch(''); setCuilSearch(''); setSelectedCustomerId(null); }} className="text-gray-400 hover:text-red-500 shrink-0">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente..."
+                    value={customerSearch}
+                    onChange={e => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
+                    onFocus={() => setShowCustomerDropdown(true)}
+                    className="w-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+                  />
+                  {showCustomerDropdown && customerSearch && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                      <button onClick={() => { setCustomerName('Anónimo'); setCustomerDoc(''); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                        className="w-full text-left px-3 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800">
+                        👤 Anónimo
+                      </button>
+                      {customers.filter(c => {
+                        const q = customerSearch.toLowerCase();
+                        return (c.name ?? '').toLowerCase().includes(q) || (c.tax_id ?? '').toLowerCase().includes(q) || (c.email ?? '').toLowerCase().includes(q);
+                      }).slice(0, 5).map(c => (
+                        <button key={c.id}
+                          onClick={() => { setCustomerName(c.name); setCustomerDoc(c.tax_id ?? ''); setSelectedCustomerId(c.id); setShowCustomerDropdown(false); setCustomerSearch(''); }}
+                          className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-zinc-800 border-t border-gray-100 dark:border-zinc-800">
+                          <span className="font-bold">{c.name}</span>
+                          {c.tax_id && <span className="text-gray-400 ml-2">— {c.tax_id}</span>}
+                        </button>
+                      ))}
+                      <button onClick={() => { setShowCustomerDropdown(false); setCustomerSearch(''); setShowNewCustomerModal(true); }}
+                        className="w-full text-left px-3 py-2.5 text-sm font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-t border-gray-100 dark:border-zinc-800">
+                        + Crear nuevo cliente
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* CUIL / DNI */}
+          {!customerName && (
+            <div>
+              <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">CUIL / DNI</label>
+              <input
+                type="text"
+                placeholder="20-12345678-9"
+                value={cuilSearch}
+                onChange={e => {
+                  setCuilSearch(e.target.value);
+                  const raw = e.target.value.replace(/\D/g, '');
+                  if (raw.length >= 7) {
+                    const match = customers.find(c => {
+                      const taxRaw = (c.tax_id ?? '').replace(/\D/g, '');
+                      return taxRaw.includes(raw) || raw.includes(taxRaw);
+                    });
+                    if (match) {
+                      setCustomerName(match.name);
+                      setCustomerDoc(match.tax_id ?? '');
+                      setSelectedCustomerId(match.id);
+                      setCuilSearch('');
+                    }
+                  }
+                }}
+                className="mt-1.5 w-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+          )}
+
+          {/* Descuento */}
+          {(posSettings.discountConfig?.availablePercents?.length ?? 0) > 0 && (
+            <div>
+              <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Descuento</label>
+              <select
+                value={selectedDiscount}
+                onChange={e => setSelectedDiscount(Number(e.target.value))}
+                className="mt-1.5 w-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500"
+              >
+                <option value={0}>Sin descuento</option>
+                {posSettings.discountConfig.availablePercents.map(pct => (
+                  <option key={pct} value={pct}>-{pct}%</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Observaciones */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Observaciones</label>
+            <textarea
+              rows={2}
+              placeholder="Sin azúcar, bien cocido..."
+              value={observaciones}
+              onChange={e => setObservaciones(e.target.value)}
+              className="mt-1.5 w-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 resize-none"
+            />
+          </div>
+
+          {/* Para llevar / Retiran */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Entrega</label>
+            <div className="mt-1.5 flex gap-2">
+              <button
+                onClick={() => setParaLlevar(false)}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${!paraLlevar ? 'bg-amber-500 text-white border-amber-600' : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-700'}`}
+              >
+                Retiran
+              </button>
+              <button
+                onClick={() => setParaLlevar(true)}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${paraLlevar ? 'bg-amber-500 text-white border-amber-600' : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-700'}`}
+              >
+                Para llevar
+              </button>
+            </div>
+          </div>
+
+          {/* Resumen de totales */}
+          <div className="border-t border-gray-100 dark:border-zinc-800 pt-4 space-y-1.5">
+            <div className="flex justify-between text-sm text-gray-500 dark:text-zinc-400">
+              <span>Subtotal</span><span className="font-semibold">{formatCurrency(cartSubtotal)}</span>
+            </div>
+            {effectiveDiscount > 0 && (
+              <div className="flex justify-between text-sm text-emerald-600 dark:text-emerald-400">
+                <span>Desc. {effectiveDiscount}%</span><span className="font-semibold">-{formatCurrency(discountAmount)}</span>
+              </div>
+            )}
+            {activePriceList && priceListAdjustmentAmount !== 0 && (
+              <div className="flex justify-between text-sm text-emerald-600 dark:text-emerald-400">
+                <span>{activePriceList.name}</span>
+                <span className="font-semibold">{priceListDiscountPercent > 0 ? '-' : '+'}{formatCurrency(Math.abs(priceListAdjustmentAmount))}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-base font-black text-gray-900 dark:text-white pt-1 border-t border-gray-200 dark:border-zinc-700">
+              <span>Total</span><span>{formatCurrency(cartTotal)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer con COBRAR */}
+        <div className="px-4 py-3 border-t border-gray-100 dark:border-zinc-800 shrink-0">
+          <button
+            onClick={() => { setShowConfigPanel(false); handlePayment(); }}
+            disabled={cart.length === 0 || isProcessingPayment}
+            className={`w-full py-3 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all ${
+              cart.length === 0
+                ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 cursor-not-allowed'
+                : 'bg-[#D97706] hover:bg-[#B45309] text-white border-b-4 border-[#92400E]'
+            }`}
+          >
+            <CreditCard className="h-4 w-4" />
+            COBRAR {formatCurrency(cartTotal)}
+          </button>
+        </div>
+      </div>
 
       {/* MODAL: Nuevo Cliente */}
       {showNewCustomerModal && (
