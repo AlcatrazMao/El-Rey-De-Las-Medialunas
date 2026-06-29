@@ -262,24 +262,20 @@ requestsRouter.get("/", async (c) => {
 
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
 
-  // Total (para paginación cliente)
-  const totalRow = await db
-    .prepare(`SELECT COUNT(*) AS total FROM requests ${whereClause}`)
-    .bind(...bindings)
-    .first<{ total: number }>();
+  // COUNT + SELECT en un batch para ver el mismo snapshot de datos
+  const countStmt = db.prepare(`SELECT COUNT(*) AS total FROM requests ${whereClause}`).bind(...bindings);
+  const listStmt = db
+    .prepare(`SELECT ${REQUEST_FIELDS} FROM requests ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .bind(...bindings, limit, offset);
 
-  const listQuery = `SELECT ${REQUEST_FIELDS} FROM requests ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-  const listBindings = [...bindings, limit, offset];
-
-  const results = await db
-    .prepare(listQuery)
-    .bind(...listBindings)
-    .all<RequestRow>();
+  const [countResult, listResult] = await db.batch([countStmt, listStmt]);
+  const total = (countResult.results[0] as { total: number } | undefined)?.total ?? 0;
+  const rows = (listResult.results ?? []) as RequestRow[];
 
   return c.json({
     success: true,
-    data: results.results ?? [],
-    total: totalRow?.total ?? 0,
+    data: rows,
+    total,
   });
 });
 
@@ -393,16 +389,15 @@ requestsRouter.post("/", async (c) => {
     );
   }
   // Validar priority (opcional, default medium)
-  const priority: Priority =
-    body.priority && VALID_PRIORITIES.includes(body.priority as Priority)
-      ? (body.priority as Priority)
-      : "medium";
-  if (body.priority && !VALID_PRIORITIES.includes(body.priority as Priority)) {
+  if (body.priority !== undefined && body.priority !== null && !VALID_PRIORITIES.includes(body.priority as Priority)) {
     return c.json(
       errBody("VALIDATION_ERROR", `priority debe ser uno de: ${VALID_PRIORITIES.join(", ")}`),
       400,
     );
   }
+  const priority: Priority = VALID_PRIORITIES.includes(body.priority as Priority)
+    ? (body.priority as Priority)
+    : "medium";
 
   // Recurrencia
   const isPermanent = body.is_permanent === true || body.is_permanent === 1 ? 1 : 0;
@@ -429,15 +424,8 @@ requestsRouter.post("/", async (c) => {
       }
     }
     recurrenceDaysJson = JSON.stringify(body.recurrence_days);
-  } else if (body.recurrence_days !== undefined && body.recurrence_days !== null) {
-    if (!Array.isArray(body.recurrence_days)) {
-      return c.json(
-        errBody("VALIDATION_ERROR", "recurrence_days debe ser un array si está presente"),
-        400,
-      );
-    }
-    recurrenceDaysJson = JSON.stringify(body.recurrence_days);
   }
+  // Si no es permanente, recurrence_days y recurrence_time se ignoran.
 
   let recurrenceTime: string | null = null;
   if (body.recurrence_time !== undefined && body.recurrence_time !== null) {
@@ -784,10 +772,10 @@ requestsRouter.patch("/:id/start", async (c) => {
 
   const updateStmt = db
     .prepare(
-      `UPDATE requests SET status = 'in_progress', updated_at = ?
+      `UPDATE requests SET status = 'in_progress', time_started = ?, updated_at = ?
          WHERE id = ? AND status = 'accepted'`,
     )
-    .bind(now, id);
+    .bind(now, now, id);
 
   const activityStmt = buildActivityInsert(db, {
     requestId: id,
@@ -875,6 +863,8 @@ requestsRouter.patch("/:id/complete", async (c) => {
       409,
     );
   }
+  // Completar desde 'accepted' sin pasar por /start es intencional para tareas simples.
+  // duration_minutes usa time_started seteado en /accept o reseteado en /start.
 
   // Solo quien aceptó (user_id) o alguien del mismo rol aceptante puede completar.
   // Admins también.
