@@ -231,23 +231,23 @@ requestsRouter.get("/", async (c) => {
   const bindings: (string | number)[] = [];
 
   if (statusFilter) {
-    whereParts.push("status = ?");
+    whereParts.push("r.status = ?");
     bindings.push(statusFilter);
   }
   if (assignedRoleFilter) {
-    whereParts.push("assigned_role = ?");
+    whereParts.push("r.assigned_role = ?");
     bindings.push(assignedRoleFilter);
   }
   if (typeFilter) {
-    whereParts.push("type = ?");
+    whereParts.push("r.type = ?");
     bindings.push(typeFilter);
   }
   if (branchIdFilter) {
-    whereParts.push("branch_id = ?");
+    whereParts.push("r.branch_id = ?");
     bindings.push(branchIdFilter);
   }
   if (isPermanentFilter === "0" || isPermanentFilter === "1") {
-    whereParts.push("is_permanent = ?");
+    whereParts.push("r.is_permanent = ?");
     bindings.push(Number(isPermanentFilter));
   }
 
@@ -260,17 +260,17 @@ requestsRouter.get("/", async (c) => {
   if (!isAdmin) {
     whereParts.push(
       `(
-         assigned_role = ?
-         OR assigned_role = 'all'
-         OR (status = 'approved' AND (assigned_role = ? OR assigned_role = 'all' OR is_optional_acceptance = 1))
-         OR accepted_by_user_id = ?
-         OR created_by_user_id = ?
+         r.assigned_role = ?
+         OR r.assigned_role = 'all'
+         OR (r.status = 'approved' AND (r.assigned_role = ? OR r.assigned_role = 'all' OR r.is_optional_acceptance = 1))
+         OR r.accepted_by_user_id = ?
+         OR r.created_by_user_id = ?
        )`,
     );
     bindings.push(userRole ?? "", userRole ?? "", user.id, user.id);
 
     whereParts.push(
-      `(status NOT IN ('cancelled', 'rejected') OR created_by_user_id = ?)`,
+      `(r.status NOT IN ('cancelled', 'rejected') OR r.created_by_user_id = ?)`,
     );
     bindings.push(user.id);
   }
@@ -278,9 +278,11 @@ requestsRouter.get("/", async (c) => {
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
 
   // COUNT + SELECT en un batch para ver el mismo snapshot de datos
-  const countStmt = db.prepare(`SELECT COUNT(*) AS total FROM requests ${whereClause}`).bind(...bindings);
+  const countStmt = db
+    .prepare(`SELECT COUNT(*) AS total FROM requests r LEFT JOIN branches b ON b.id = r.branch_id ${whereClause}`)
+    .bind(...bindings);
   const listStmt = db
-    .prepare(`SELECT ${REQUEST_FIELDS} FROM requests ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT ${REQUEST_FIELDS_JOIN} FROM requests r LEFT JOIN branches b ON b.id = r.branch_id ${whereClause} ORDER BY r.created_at DESC LIMIT ? OFFSET ?`)
     .bind(...bindings, limit, offset);
 
   const [countResult, listResult] = await db.batch([countStmt, listStmt]);
@@ -306,7 +308,7 @@ requestsRouter.get("/:id", async (c) => {
   const userRole = c.get("userRole") as string | undefined;
 
   const request = await db
-    .prepare(`SELECT ${REQUEST_FIELDS} FROM requests WHERE id = ? LIMIT 1`)
+    .prepare(`SELECT ${REQUEST_FIELDS_JOIN} FROM requests r LEFT JOIN branches b ON b.id = r.branch_id WHERE r.id = ? LIMIT 1`)
     .bind(id)
     .first<RequestRow>();
 
@@ -438,7 +440,7 @@ requestsRouter.post("/", async (c) => {
         );
       }
     }
-    recurrenceDaysJson = JSON.stringify(body.recurrence_days);
+    recurrenceDaysJson = JSON.stringify([...new Set(body.recurrence_days as number[])].sort((a, b) => a - b));
   }
   // Si no es permanente, recurrence_days y recurrence_time se ignoran.
 
