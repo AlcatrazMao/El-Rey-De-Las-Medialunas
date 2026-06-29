@@ -43,39 +43,7 @@ const DEFAULT_LIMIT = 50;
 const MIN_REJECT_REASON_LEN = 3;
 const MIN_REASSIGNMENT_NOTE_LEN = 5;
 
-// Lista explícita de campos de requests (NUNCA SELECT *).
-const REQUEST_FIELDS = [
-  "id",
-  "type",
-  "title",
-  "description",
-  "priority",
-  "created_by_user_id",
-  "created_by_role",
-  "assigned_role",
-  "assigned_user_id",
-  "branch_id",
-  "is_permanent",
-  "recurrence_days",
-  "recurrence_time",
-  "status",
-  "accepted_by_user_id",
-  "accepted_by_role",
-  "is_optional_acceptance",
-  "original_assigned_role",
-  "admin_note",
-  "rejection_reason",
-  "reassignment_note",
-  "cost_spent",
-  "time_started",
-  "time_completed",
-  "duration_minutes",
-  "incidents",
-  "created_at",
-  "updated_at",
-].join(", ");
-
-// Variante con alias de tabla para queries con JOIN (incluye branch_name).
+// Campos de requests con alias de tabla para queries con JOIN (incluye branch_name).
 const REQUEST_FIELDS_JOIN = `
   r.id, r.type, r.title, r.description, r.priority,
   r.created_by_user_id, r.created_by_role,
