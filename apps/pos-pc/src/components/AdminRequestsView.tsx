@@ -112,7 +112,7 @@ const CreateRequestModal: React.FC<{
       is_permanent: form.is_permanent ? 1 : 0,
     };
     if (form.is_permanent) {
-      payload.recurrence_days = JSON.stringify(form.recurrence_days);
+      payload.recurrence_days = form.recurrence_days;
       payload.recurrence_time = form.recurrence_time;
     }
     try {
@@ -355,7 +355,7 @@ const AdminCard: React.FC<{ request: ERPRequest; onAction?: (action: string, id:
 
       {request.status === 'reassignment_requested' && onAction && (
         <button
-          onClick={() => void onAction('release', request.id)}
+          onClick={() => void onAction('reassign-approve', request.id)}
           disabled={busy}
           className="px-3 py-1.5 text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-lg disabled:opacity-50"
         >
@@ -480,7 +480,7 @@ export const AdminRequestsView: React.FC = () => {
     setBusyId(id);
     try {
       const res = await fetchWithAuth(`${API_URL}/api/v2/requests/${id}/${action}`, {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) {
@@ -505,7 +505,7 @@ export const AdminRequestsView: React.FC = () => {
     setBusyId(rejectTarget.id);
     try {
       const res = await fetchWithAuth(`${API_URL}/api/v2/requests/${rejectTarget.id}/reject`, {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rejection_reason: reason }),
       });

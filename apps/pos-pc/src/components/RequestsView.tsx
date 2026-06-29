@@ -57,7 +57,7 @@ type ApiBody = Record<string, unknown>;
 async function postRequestAction(id: string, action: string, body?: ApiBody): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetchWithAuth(`${API_URL}/api/v2/requests/${id}/${action}`, {
-      method: 'POST',
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -166,7 +166,7 @@ const CompleteModal: React.FC<{
 const ReasonModal: React.FC<{
   title: string;
   ctaLabel: string;
-  action: 'reject' | 'request_reassignment';
+  action: 'reject' | 'reassign-request';
   request: ERPRequest;
   onClose: () => void;
   onDone: () => void;
@@ -356,7 +356,7 @@ const RequestCard: React.FC<{
     if (request.status === 'reassignment_requested' && isAdmin) {
       return (
         <button
-          onClick={() => onSimpleAction('release', request)}
+          onClick={() => onSimpleAction('reassign-approve', request)}
           disabled={busy}
           className="w-full px-3 py-2 text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-lg disabled:opacity-50 flex items-center justify-center gap-1"
         >
@@ -663,7 +663,7 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
         <ReasonModal
           title="Solicitar arrepentido"
           ctaLabel="Enviar"
-          action="request_reassignment"
+          action="reassign-request"
           request={modal.request}
           onClose={handleCloseModal}
           onDone={handleModalDone}

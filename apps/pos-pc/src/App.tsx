@@ -27,6 +27,7 @@ import { NotificationCenter } from './components/NotificationCenter';
 import { OffersView } from './components/OffersView';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { POSView } from './components/POSView';
+import { ProductionView } from './components/ProductionView';
 import { RequestsView } from './components/RequestsView';
 import { SalesHistoryView } from './components/SalesHistoryView';
 import { SettingsView } from './components/SettingsView';
@@ -167,6 +168,7 @@ function ERPLayout() {
       case 'settings': return <SettingsView />;
       case 'sync_console': return <SyncErrorConsole />;
       case 'kitchen': return <KitchenView />;
+      case 'production': return <ProductionView />;
       case 'requests': {
         // 'owner' no está en el tipo UserRole pero el backend lo emite — cast
         // explícito para que la comparación no rompa el typecheck.
@@ -198,8 +200,9 @@ function ERPLayout() {
         ];
       case 'panadero':
         return [
+          { id: 'production', label: 'Producción', icon: <ChefHat className="h-4 w-4 text-purple-500" /> },
           { id: 'dashboard', label: 'Tablero', icon: <LayoutDashboard className="h-4 w-4" /> },
-          { id: 'supply_requests', label: 'Producción', icon: <TrendingUp className="h-4 w-4 text-emerald-500" /> },
+          { id: 'supply_requests', label: 'Suministros', icon: <TrendingUp className="h-4 w-4 text-emerald-500" /> },
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
           { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> }
