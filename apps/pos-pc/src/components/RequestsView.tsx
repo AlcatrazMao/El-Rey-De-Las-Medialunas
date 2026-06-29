@@ -473,7 +473,7 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
   const [modal, setModal] = useState<ActionState>({ type: null, request: null });
 
   const role = (activeUser?.role ?? 'panadero') as string;
-  const isAdmin = role === 'admin' || role === 'owner';
+  const isAdmin = role === 'admin' || role === 'owner' || role === 'supervisor';
 
   // Aplicamos primero typeFilter si vino
   const baseRequests = useMemo(() => {
@@ -489,12 +489,12 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
   }, [baseRequests, role]);
 
   const optional = useMemo(() => {
-    // Solicitudes APROBADAS de OTROS roles que aún no fueron tomadas
-    // (is_optional_acceptance=1) — visibles para todos los roles operativos.
+    // Solicitudes APROBADAS de OTROS roles que aún no fueron tomadas definitivamente.
+    // is_optional_acceptance === 1 marca post-aceptación, NO indica disponibilidad.
     return baseRequests.filter(r =>
       r.status === 'approved'
       && r.assigned_role !== role
-      && r.is_optional_acceptance === 1
+      && r.assigned_role !== 'all'
     );
   }, [baseRequests, role]);
 
@@ -511,13 +511,16 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
 
   const handleSimpleAction = useCallback(async (action: string, r: ERPRequest) => {
     setBusyId(r.id);
-    const result = await postRequestAction(r.id, action);
-    setBusyId(null);
-    if (!result.ok) {
-      addSystemNotification('Error', result.error ?? 'Acción fallida', 'error');
-      return;
+    try {
+      const result = await postRequestAction(r.id, action);
+      if (!result.ok) {
+        addSystemNotification('Error', result.error ?? 'Acción fallida', 'error');
+        return;
+      }
+      await invalidate();
+    } finally {
+      setBusyId(null);
     }
-    await invalidate();
   }, [addSystemNotification, invalidate]);
 
   const handleOpenModal = useCallback((type: ActionState['type'], r: ERPRequest) => {
@@ -678,6 +681,8 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
             const result = await postRequestAction(r.id, 'accept');
             if (!result.ok) {
               addSystemNotification('Error', result.error ?? 'No se pudo tomar', 'error');
+              await invalidate(); // sincronizar para quitar el ítem que ya fue tomado
+              handleCloseModal();
               return;
             }
             await handleModalDone();

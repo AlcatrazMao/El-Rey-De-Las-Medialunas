@@ -173,7 +173,7 @@ function ERPLayout() {
         // 'owner' no está en el tipo UserRole pero el backend lo emite — cast
         // explícito para que la comparación no rompa el typecheck.
         const role = activeUser.role as string;
-        return role === 'admin' || role === 'owner'
+        return role === 'admin' || role === 'owner' || role === 'supervisor'
           ? <AdminRequestsView />
           : <RequestsView />;
       }

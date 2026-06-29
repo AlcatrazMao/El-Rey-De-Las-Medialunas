@@ -8,6 +8,12 @@
 -- El valor ya se garantiza >= 0 en la capa de aplicación (MAX(0, ...)),
 -- este CHECK es una capa defensiva adicional.
 
+-- Deshabilitar FK para que request_activity no sea afectada por CASCADE
+-- durante la recreación de la tabla requests.
+-- DROP previo hace la migración idempotente (re-ejecutable sin falla).
+PRAGMA foreign_keys = OFF;
+DROP TABLE IF EXISTS requests_v2;
+
 -- 1. Crear tabla nueva con el CHECK en duration_minutes
 CREATE TABLE requests_v2 (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -109,3 +115,6 @@ BEGIN
      SET version = version + 1, updated_at = datetime('now')
    WHERE key = 'requests';
 END;
+
+-- Rehabilitar FK ahora que la tabla fue recreada correctamente.
+PRAGMA foreign_keys = ON;

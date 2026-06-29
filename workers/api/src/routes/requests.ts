@@ -75,6 +75,20 @@ const REQUEST_FIELDS = [
   "updated_at",
 ].join(", ");
 
+// Variante con alias de tabla para queries con JOIN (incluye branch_name).
+const REQUEST_FIELDS_JOIN = `
+  r.id, r.type, r.title, r.description, r.priority,
+  r.created_by_user_id, r.created_by_role,
+  r.assigned_role, r.assigned_user_id, r.branch_id,
+  r.is_permanent, r.recurrence_days, r.recurrence_time,
+  r.status,
+  r.accepted_by_user_id, r.accepted_by_role, r.is_optional_acceptance, r.original_assigned_role,
+  r.admin_note, r.rejection_reason, r.reassignment_note,
+  r.cost_spent, r.time_started, r.time_completed, r.duration_minutes, r.incidents,
+  r.created_at, r.updated_at,
+  b.name AS branch_name
+`.trim();
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 const errBody = (code: string, message: string) => ({
   success: false as const,
@@ -110,6 +124,7 @@ interface RequestRow {
   incidents: string | null;
   created_at: string;
   updated_at: string;
+  branch_name?: string | null;
 }
 
 interface UserInfo {
@@ -687,11 +702,11 @@ requestsRouter.patch("/:id/accept", async (c) => {
                 is_optional_acceptance = 1,
                 original_assigned_role = ?,
                 assigned_role = ?,
-                time_started = ?,
+                time_started = datetime('now'),
                 updated_at = ?
           WHERE id = ? AND status = 'approved'`,
       )
-      .bind(user.id, userRole, existing.assigned_role, userRole, now, now, id);
+      .bind(user.id, userRole, existing.assigned_role, userRole, now, id);
   } else {
     updateStmt = db
       .prepare(
@@ -700,11 +715,11 @@ requestsRouter.patch("/:id/accept", async (c) => {
                 accepted_by_user_id = ?,
                 accepted_by_role = ?,
                 is_optional_acceptance = 0,
-                time_started = ?,
+                time_started = datetime('now'),
                 updated_at = ?
           WHERE id = ? AND status = 'approved'`,
       )
-      .bind(user.id, userRole, now, now, id);
+      .bind(user.id, userRole, now, id);
   }
 
   const activityStmt = buildActivityInsert(db, {
@@ -772,10 +787,10 @@ requestsRouter.patch("/:id/start", async (c) => {
 
   const updateStmt = db
     .prepare(
-      `UPDATE requests SET status = 'in_progress', time_started = ?, updated_at = ?
+      `UPDATE requests SET status = 'in_progress', time_started = datetime('now'), updated_at = ?
          WHERE id = ? AND status = 'accepted'`,
     )
-    .bind(now, now, id);
+    .bind(now, id);
 
   const activityStmt = buildActivityInsert(db, {
     requestId: id,

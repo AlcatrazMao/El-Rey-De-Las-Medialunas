@@ -43,8 +43,12 @@ export function useRequests() {
   // useRef en lugar de useState porque solo lo consume el callback de sync;
   // no necesitamos disparar re-render cuando cambia.
   const lastVersionRef = useRef<number>(readInitialVersion());
+  // Guard para evitar que checkAndSync e invalidate corran fetchAll en paralelo.
+  const inFlightRef = useRef(false);
 
   const fetchAll = useCallback(async (): Promise<boolean> => {
+    if (inFlightRef.current) return false;
+    inFlightRef.current = true;
     try {
       const res = await fetchWithAuth(`${API_URL}/api/v2/requests?limit=200`);
       if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
@@ -64,6 +68,8 @@ export function useRequests() {
       const cached = await requestsStore.getAll();
       setRequests(cached);
       return false;
+    } finally {
+      inFlightRef.current = false;
     }
   }, []);
 
