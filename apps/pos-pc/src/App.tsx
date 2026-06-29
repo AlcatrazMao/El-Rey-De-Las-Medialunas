@@ -3,32 +3,36 @@ import { onAuthStateChanged } from 'firebase/auth';
 import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
-  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag, MoreHorizontal, ChefHat
+  LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag, MoreHorizontal, ChefHat,
+  ClipboardList, Truck
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect } from 'react';
 
 import { AppProvider, useApp } from './AppContext';
 import { AccountingView } from './components/AccountingView';
-import { KitchenView } from './components/KitchenView';
+import { AdminRequestsView } from './components/AdminRequestsView';
 import { AdminUsersView } from './components/AdminUsersView';
 import { CajeroMermaView } from './components/CajeroMermaView';
 import { CashSessionView } from './components/CashSessionView';
 import { CustomersView } from './components/CustomersView';
 import { Dashboard } from './components/Dashboard';
+import { DeliveryView } from './components/DeliveryView';
 import { IntegrationsView } from './components/IntegrationsView';
 import { InventoryView } from './components/InventoryView';
+import { KitchenView } from './components/KitchenView';
 import { LoginPage } from './components/LoginPage';
 import { MainHeadLayout } from './components/MainHeadLayout';
 import { NotificationCenter } from './components/NotificationCenter';
-import { SyncLed } from './components/SyncLed';
 import { OffersView } from './components/OffersView';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
 import { POSView } from './components/POSView';
+import { RequestsView } from './components/RequestsView';
 import { SalesHistoryView } from './components/SalesHistoryView';
 import { SettingsView } from './components/SettingsView';
 import { StickyNotesView } from './components/StickyNotesView';
 import { SyncErrorConsole } from './components/SyncErrorConsole';
+import { SyncLed } from './components/SyncLed';
 import { auth } from './config/firebase';
 import { useSyncEngine } from './hooks/useSyncEngine';
 import { useVersionCheck } from './hooks/useVersionCheck';
@@ -163,10 +167,20 @@ function ERPLayout() {
       case 'settings': return <SettingsView />;
       case 'sync_console': return <SyncErrorConsole />;
       case 'kitchen': return <KitchenView />;
+      case 'requests': {
+        // 'owner' no está en el tipo UserRole pero el backend lo emite — cast
+        // explícito para que la comparación no rompa el typecheck.
+        const role = activeUser.role as string;
+        return role === 'admin' || role === 'owner'
+          ? <AdminRequestsView />
+          : <RequestsView />;
+      }
+      case 'delivery': return <DeliveryView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <Dashboard />;
         if (activeUser.role === 'cocinero') return <KitchenView />;
+        if (activeUser.role === 'repartidor') return <DeliveryView />;
         return <Dashboard />;
     }
   };
@@ -179,18 +193,26 @@ function ERPLayout() {
           { id: 'pos', label: 'Vender', icon: <ShoppingCart className="h-4 w-4" /> },
           { id: 'caja', label: 'Caja', icon: <Wallet className="h-4 w-4" /> },
           { id: 'history', label: 'Historial', icon: <ReceiptText className="h-4 w-4" /> },
-          { id: 'merma_requests', label: 'Mermas', icon: <X className="h-4 w-4 text-red-500" /> }
+          { id: 'merma_requests', label: 'Mermas', icon: <X className="h-4 w-4 text-red-500" /> },
+          { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> }
         ];
       case 'panadero':
         return [
           { id: 'dashboard', label: 'Tablero', icon: <LayoutDashboard className="h-4 w-4" /> },
           { id: 'supply_requests', label: 'Producción', icon: <TrendingUp className="h-4 w-4 text-emerald-500" /> },
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
+          { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> }
         ];
       case 'cocinero':
         return [
           { id: 'kitchen', label: 'Cocina', icon: <ChefHat className="h-4 w-4" /> },
+          { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
+        ];
+      case 'repartidor':
+        return [
+          { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
+          { id: 'delivery', label: 'Mis entregas', icon: <Truck className="h-4 w-4" /> },
         ];
       default:
         return [
@@ -203,6 +225,7 @@ function ERPLayout() {
           { id: 'accounting', label: 'Egresos', icon: <HandCoins className="h-4 w-4" /> },
           { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },
           { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> },
+          { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> },
           { id: 'admin_users', label: 'Usuarios', icon: <Users className="h-4 w-4" /> },
           { id: 'settings', label: 'Configuración', icon: <Settings className="h-4 w-4" /> }

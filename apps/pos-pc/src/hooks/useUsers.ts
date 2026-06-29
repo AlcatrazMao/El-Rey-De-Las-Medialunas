@@ -78,6 +78,7 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
     const role = (firestoreRole || 'panadero') as UserRole;
     if (role === 'cajero') return 'pos';
     if (role === 'cocinero') return 'kitchen';
+    if (role === 'repartidor') return 'requests';
     return 'dashboard';
   });
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
