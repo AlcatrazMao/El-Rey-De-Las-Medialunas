@@ -2,6 +2,7 @@ import { ChefHat } from 'lucide-react';
 import React, { useMemo } from 'react';
 
 import { useRequests } from '../hooks/useRequests';
+
 import { RequestsView } from './RequestsView';
 
 export const ProductionView: React.FC = () => {

@@ -54,7 +54,6 @@ export const CashSessionView: React.FC = () => {
   const [openingNote, setOpeningNote] = useState<string>(settings.cash.defaultOpeningNote);
   const [closingAmount, setClosingAmount] = useState<number>(0);
   const [closingNote, setClosingNote] = useState<string>(settings.cash.defaultClosingNote);
-  const [showConfirmClose, setShowConfirmClose] = useState(false);
   const [closeStep, setCloseStep] = useState<1 | 2 | 3>(1);
   const [closeBillCounts, setCloseBillCounts] = useState<Record<string, number>>({});
   const [closingHistoricalId, setClosingHistoricalId] = useState<string | null>(null);
@@ -118,16 +117,6 @@ export const CashSessionView: React.FC = () => {
     setOpeningMode(settings.cash.defaultOpeningMode ?? 'billetes');
     resetBills();
     setActiveTab('pos');
-  };
-
-  const handleClose = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (closingAmount < 0) return;
-    closeCashSession(closingAmount, closingNote);
-    setShowConfirmClose(false);
-    setClosingAmount(0);
-    setClosingNote(settings.cash.defaultClosingNote);
-    resetBills();
   };
 
   const handleCloseHistorical = (sessionId: string) => {

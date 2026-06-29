@@ -333,7 +333,9 @@ export const POSView: React.FC = () => {
     return () => ac.abort();
   }, [selectedCustomerId]);
 
-  // Re-sincronizar selectedPriceListId si la lista de precios cambia y el id ya no existe
+  // Re-sincronizar selectedPriceListId si la lista de precios cambia y el id ya no existe.
+  // Dep intencional: solo reaccionar al cambio de count, no a cada selección del usuario.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!posSettings.priceLists?.length) return;
     const exists = posSettings.priceLists.some(pl => pl.id === selectedPriceListId);

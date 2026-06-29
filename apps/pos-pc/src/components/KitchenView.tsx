@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
 import { ChefHat, Clock, CheckCircle2, RefreshCw, ShoppingBag, Home } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
 
 import { useApp } from '../AppContext';
 import type { Sale } from '../types';

@@ -9,12 +9,12 @@ import { CashSettings as CashSettingsPanel } from '../settings/CashSettings';
 import { DangerZoneSettings as DangerZoneSettingsPanel } from '../settings/DangerZoneSettings';
 import { FiscalSettings as FiscalSettingsPanel } from '../settings/FiscalSettings';
 import { InventorySettings as InventorySettingsPanel } from '../settings/InventorySettings';
+import { MaintenanceSettings as MaintenanceSettingsPanel } from '../settings/MaintenanceSettings';
 import { PaymentSettings as PaymentSettingsPanel } from '../settings/PaymentSettings';
 import { PriceListSettings as PriceListSettingsPanel } from '../settings/PriceListSettings';
 import { PrinterSettings as PrinterSettingsPanel } from '../settings/PrinterSettings';
 import { PromotionsSettings as PromotionsSettingsPanel } from '../settings/PromotionsSettings';
 import { SyncSettings as SyncSettingsPanel } from '../settings/SyncSettings';
-import { MaintenanceSettings as MaintenanceSettingsPanel } from '../settings/MaintenanceSettings';
 
 import { SyncErrorConsole } from './SyncErrorConsole';
 

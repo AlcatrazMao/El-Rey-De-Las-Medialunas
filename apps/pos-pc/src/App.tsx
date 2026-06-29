@@ -22,7 +22,6 @@ import { IntegrationsView } from './components/IntegrationsView';
 import { InventoryView } from './components/InventoryView';
 import { KitchenView } from './components/KitchenView';
 import { LoginPage } from './components/LoginPage';
-import { MainHeadLayout } from './components/MainHeadLayout';
 import { NotificationCenter } from './components/NotificationCenter';
 import { OffersView } from './components/OffersView';
 import { PanaderoSupplyView } from './components/PanaderoSupplyView';
