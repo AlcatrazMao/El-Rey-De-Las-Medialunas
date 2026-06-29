@@ -247,12 +247,12 @@ requestsRouter.get("/", async (c) => {
       `(
          assigned_role = ?
          OR assigned_role = 'all'
-         OR status = 'approved'
+         OR (status = 'approved' AND (assigned_role = ? OR assigned_role = 'all' OR is_optional_acceptance = 1))
          OR accepted_by_user_id = ?
          OR created_by_user_id = ?
        )`,
     );
-    bindings.push(userRole ?? "", user.id, user.id);
+    bindings.push(userRole ?? "", userRole ?? "", user.id, user.id);
 
     whereParts.push(
       `(status NOT IN ('cancelled', 'rejected') OR created_by_user_id = ?)`,
@@ -288,6 +288,12 @@ requestsRouter.get("/:id", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
 
+  const userId = c.get("userId") ?? "";
+  const user = await resolveUser(db, userId);
+  if (!user) return c.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'No autenticado' } }, 401);
+
+  const userRole = c.get("userRole") as string | undefined;
+
   const request = await db
     .prepare(`SELECT ${REQUEST_FIELDS} FROM requests WHERE id = ? LIMIT 1`)
     .bind(id)
@@ -295,6 +301,17 @@ requestsRouter.get("/:id", async (c) => {
 
   if (!request) {
     return c.json(errBody("NOT_FOUND", "Solicitud no encontrada"), 404);
+  }
+
+  const isAdmin = ADMIN_ROLES.has(userRole ?? "");
+  if (!isAdmin) {
+    const canSee =
+      request.assigned_role === userRole ||
+      request.assigned_role === 'all' ||
+      request.accepted_by_user_id === user.id ||
+      request.created_by_user_id === user.id ||
+      (request.status === 'approved' && request.is_optional_acceptance === 1);
+    if (!canSee) return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Sin acceso' } }, 403);
   }
 
   const activity = await db
@@ -424,9 +441,16 @@ requestsRouter.post("/", async (c) => {
 
   let recurrenceTime: string | null = null;
   if (body.recurrence_time !== undefined && body.recurrence_time !== null) {
-    if (typeof body.recurrence_time !== "string" || !/^\d{2}:\d{2}$/.test(body.recurrence_time)) {
+    if (typeof body.recurrence_time !== "string") {
       return c.json(
         errBody("VALIDATION_ERROR", "recurrence_time debe tener formato HH:MM"),
+        400,
+      );
+    }
+    const [hh, mm] = body.recurrence_time.split(':').map(Number);
+    if (!/^\d{2}:\d{2}$/.test(body.recurrence_time) || hh > 23 || mm > 59) {
+      return c.json(
+        errBody("VALIDATION_ERROR", "recurrence_time inválido (HH:MM 00:00-23:59)"),
         400,
       );
     }
@@ -503,6 +527,11 @@ requestsRouter.patch("/:id/approve", async (c) => {
     body = {};
   }
 
+  if (body.admin_note && typeof body.admin_note === 'string' && body.admin_note.length > 500) {
+    return c.json(errBody('VALIDATION_ERROR', 'admin_note no puede superar 500 caracteres'), 400);
+  }
+  const adminNote = typeof body.admin_note === 'string' ? body.admin_note.trim() : null;
+
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(db, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
@@ -532,7 +561,7 @@ requestsRouter.patch("/:id/approve", async (c) => {
       `UPDATE requests SET status = 'approved', admin_note = ?, updated_at = ?
        WHERE id = ? AND status = 'pending_approval'`,
     )
-    .bind(body.admin_note ?? null, now, id);
+    .bind(adminNote, now, id);
 
   const activityStmt = buildActivityInsert(db, {
     requestId: id,
@@ -540,7 +569,7 @@ requestsRouter.patch("/:id/approve", async (c) => {
     userRole,
     userName: userInfo?.name ?? null,
     action: "approved",
-    note: body.admin_note ?? null,
+    note: adminNote,
   });
 
   const [updateResult] = await db.batch([updateStmt, activityStmt]);
@@ -872,7 +901,7 @@ requestsRouter.patch("/:id/complete", async (c) => {
               time_completed = datetime('now'),
               duration_minutes = CASE
                 WHEN time_started IS NOT NULL
-                  THEN CAST(ROUND((julianday('now') - julianday(time_started)) * 1440) AS INTEGER)
+                  THEN MAX(0, CAST(ROUND((julianday('now') - julianday(time_started)) * 1440) AS INTEGER))
                 ELSE NULL
               END,
               updated_at = ?
@@ -906,8 +935,8 @@ requestsRouter.patch("/:id/complete", async (c) => {
          FROM requests WHERE id = ? LIMIT 1`,
     )
     .bind(id)
-    .first();
-
+    .first<RequestRow>();
+  if (!updated) return c.json({ success: true, data: { id } });
   return c.json({ success: true, data: { id, ...updated } });
 });
 
@@ -995,7 +1024,7 @@ requestsRouter.patch("/:id/reassign-request", async (c) => {
 });
 
 // ─── PATCH /:id/reassign-approve ───────────────────────────────────────────
-// Admin aprueba el arrepentido → vuelve a pending_approval limpiando aceptante.
+// Admin aprueba el arrepentido → vuelve a approved limpiando aceptante.
 requestsRouter.patch("/:id/reassign-approve", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
@@ -1046,7 +1075,7 @@ requestsRouter.patch("/:id/reassign-approve", async (c) => {
   const updateStmt = db
     .prepare(
       `UPDATE requests
-          SET status = 'pending_approval',
+          SET status = 'approved',
               accepted_by_user_id = NULL,
               accepted_by_role = NULL,
               is_optional_acceptance = 0,
@@ -1074,7 +1103,7 @@ requestsRouter.patch("/:id/reassign-approve", async (c) => {
 
   return c.json({
     success: true,
-    data: { id, status: "pending_approval", assigned_role: restoredRole, updated_at: now },
+    data: { id, status: "approved", assigned_role: restoredRole, updated_at: now },
   });
 });
 
