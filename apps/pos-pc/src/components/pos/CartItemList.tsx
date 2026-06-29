@@ -46,6 +46,18 @@ export const CartItemList: React.FC<CartItemListProps> = ({
   onEmptyClick,
   activeOffers,
 }) => {
+  const offersByProductId = React.useMemo(() => {
+    const map = new Map<string, IDBOffer>();
+    if (activeOffers) {
+      for (const offer of activeOffers) {
+        for (const pid of offer.productIds) {
+          if (!map.has(pid)) map.set(pid, offer);
+        }
+      }
+    }
+    return map;
+  }, [activeOffers]);
+
   return (
     <div className="flex-1 flex flex-col pr-1 min-w-0">
       {cart.length === 0 ? (
@@ -66,7 +78,7 @@ export const CartItemList: React.FC<CartItemListProps> = ({
           {cart.map((item, lineIdx) => {
             const lineKey = `${item.product.id}::${item.presentation ?? ''}::${lineIdx}`;
             const lineSubtotal = item.unitPrice * item.quantity;
-            const offerForLine = activeOffers?.find(o => o.productIds.includes(item.product.id));
+            const offerForLine = offersByProductId.get(item.product.id);
             return (
               <div key={lineKey} className="pt-2 flex items-center justify-between gap-3 min-w-0">
                 <div className="min-w-0 flex-1 overflow-hidden">

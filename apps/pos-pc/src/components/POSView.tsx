@@ -21,7 +21,7 @@ import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
-import { getSettings } from '../hooks/useSettings';
+import { useSettings } from '../hooks/useSettings';
 import type { IDBOffer } from '../lib/idb';
 import { offerStore } from '../lib/idb';
 import { API_URL, fetchWithAuth } from '../services/api';
@@ -66,7 +66,7 @@ export const POSView: React.FC = () => {
     sales,
   } = useApp();
 
-  const posSettings = getSettings();
+  const { settings: posSettings } = useSettings();
 
   const activeDiscountSystem = posSettings.discountConfig?.activeDiscountSystem ?? 'none';
   const offersEnabled = activeDiscountSystem === 'offers';
