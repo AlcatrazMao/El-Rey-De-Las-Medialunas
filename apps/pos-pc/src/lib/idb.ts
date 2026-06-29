@@ -1,4 +1,4 @@
-import type { SyncErrorCategory, SyncErrorStatus } from '../types';
+import type { ERPRequest, SyncErrorCategory, SyncErrorStatus } from '../types';
 
 export interface IDBBatch {
   id: string;
@@ -61,11 +61,13 @@ export interface IDBSyncError {
 
 const DB_NAME = 'el-rey-idb';
 // Bumped from 1 → 2 to add the `sync_errors` object store.
-const DB_VERSION = 2;
+// Bumped from 2 → 3 to add the `requests` store (sistema de solicitudes unificado).
+const DB_VERSION = 3;
 const STORE_BATCHES = 'batches';
 const STORE_SALES_QUEUE = 'sales_queue';
 const STORE_OFFERS = 'offers';
 const STORE_SYNC_ERRORS = 'sync_errors';
+const STORE_REQUESTS = 'requests';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -107,6 +109,12 @@ export function openDB(): Promise<IDBDatabase> {
           s.createIndex('category', 'category', { unique: false });
           s.createIndex('resolved_at', 'resolved_at', { unique: false });
           s.createIndex('next_retry_at', 'next_retry_at', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_REQUESTS)) {
+          const s = db.createObjectStore(STORE_REQUESTS, { keyPath: 'id' });
+          s.createIndex('status', 'status', { unique: false });
+          s.createIndex('assigned_role', 'assigned_role', { unique: false });
+          s.createIndex('type', 'type', { unique: false });
         }
       } catch (e) {
         // Bug 5 fix: reject the promise so callers don't hang forever
@@ -495,5 +503,51 @@ export const syncErrorStore = {
       txn.onerror = () => reject(txn.error);
       txn.onabort = () => reject(new Error('Transaction aborted'));
     });
+  },
+};
+
+// ── requests store ───────────────────────────────────────────────────────
+// Sistema de solicitudes unificado (supply, production, delivery, task,
+// maintenance, custom). Cache local con versionado controlado por el hook
+// useRequests; este store solo persiste la lista para arranque offline.
+export const requestsStore = {
+  async getAll(): Promise<ERPRequest[]> {
+    const db = await openDB();
+    return (await request(tx(db, STORE_REQUESTS, 'readonly').getAll())) as ERPRequest[];
+  },
+
+  async get(id: string): Promise<ERPRequest | undefined> {
+    const db = await openDB();
+    return (await request(tx(db, STORE_REQUESTS, 'readonly').get(id))) as ERPRequest | undefined;
+  },
+
+  async put(req_: ERPRequest): Promise<void> {
+    const db = await openDB();
+    await request(tx(db, STORE_REQUESTS, 'readwrite').put(req_));
+  },
+
+  async putMany(reqs: ERPRequest[]): Promise<void> {
+    if (reqs.length === 0) return;
+    const db = await openDB();
+    // Mismo patrón que batchStore.putMany: esperamos txn.oncomplete (commit real)
+    // y no la resolución individual de cada put(), que no garantiza el commit.
+    await new Promise<void>((res, rej) => {
+      const txn = db.transaction(STORE_REQUESTS, 'readwrite');
+      txn.oncomplete = () => res();
+      txn.onerror = () => rej(txn.error);
+      txn.onabort = () => rej(new Error('Transaction aborted'));
+      const store = txn.objectStore(STORE_REQUESTS);
+      reqs.forEach(r => store.put(r));
+    });
+  },
+
+  async delete(id: string): Promise<void> {
+    const db = await openDB();
+    await request(tx(db, STORE_REQUESTS, 'readwrite').delete(id));
+  },
+
+  async clear(): Promise<void> {
+    const db = await openDB();
+    await request(tx(db, STORE_REQUESTS, 'readwrite').clear());
   },
 };

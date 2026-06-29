@@ -3,7 +3,7 @@ export interface DailyTask {
   id: string;
   title: string;
   description: string;
-  assignedRole: 'admin' | 'cajero' | 'panadero' | 'all';
+  assignedRole: 'admin' | 'cajero' | 'panadero' | 'cocinero' | 'repartidor' | 'all';
   days: number[]; // 0=Domingo...6=Sábado
   time?: string; // HH:MM
   priority: 'low' | 'medium' | 'high';
@@ -15,7 +15,7 @@ export interface SpecialTask {
   date: string; // YYYY-MM-DD
   title: string;
   description: string;
-  assignedRole: 'admin' | 'cajero' | 'panadero' | 'all';
+  assignedRole: 'admin' | 'cajero' | 'panadero' | 'cocinero' | 'repartidor' | 'all';
   priority: 'low' | 'medium' | 'high';
 }
 

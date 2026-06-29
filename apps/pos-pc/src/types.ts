@@ -132,7 +132,7 @@ export interface Expense {
   invoiceUrl?: string;
 }
 
-export type UserRole = 'admin' | 'cajero' | 'panadero' | 'cocinero';
+export type UserRole = 'admin' | 'cajero' | 'panadero' | 'cocinero' | 'repartidor';
 
 export interface User {
   id: string;
@@ -239,6 +239,58 @@ export interface SyncStatus {
   isSyncing: boolean;
   isOnline: boolean;
   lastSync: Date | null;
+}
+
+// ── SISTEMA DE SOLICITUDES UNIFICADO ──────────────────────────────────────
+
+export type RequestType = 'supply' | 'production' | 'delivery' | 'task' | 'maintenance' | 'custom';
+export type RequestStatus =
+  | 'pending_approval' | 'approved' | 'rejected'
+  | 'accepted' | 'in_progress' | 'completed'
+  | 'reassignment_requested' | 'cancelled';
+export type RequestPriority = 'low' | 'medium' | 'high';
+
+export interface ERPRequest {
+  id: string;
+  type: RequestType;
+  title: string;
+  description?: string;
+  priority: RequestPriority;
+  created_by_user_id?: string;
+  created_by_role: string;
+  assigned_role: string;
+  assigned_user_id?: string;
+  branch_id?: string;
+  branch_name?: string; // join con branches
+  is_permanent: 0 | 1;
+  recurrence_days?: string; // JSON string "[1,2,3]"
+  recurrence_time?: string;
+  status: RequestStatus;
+  accepted_by_user_id?: string;
+  accepted_by_role?: string;
+  is_optional_acceptance: 0 | 1;
+  original_assigned_role?: string;
+  admin_note?: string;
+  rejection_reason?: string;
+  reassignment_note?: string;
+  cost_spent?: number;
+  time_started?: string;
+  time_completed?: string;
+  duration_minutes?: number;
+  incidents?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RequestActivity {
+  id: string;
+  request_id: string;
+  user_id?: string;
+  user_role?: string;
+  user_name?: string;
+  action: string;
+  note?: string;
+  created_at: string;
 }
 
 
