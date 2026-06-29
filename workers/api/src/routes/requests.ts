@@ -254,8 +254,8 @@ requestsRouter.get("/", async (c) => {
     .bind(...bindings, limit, offset);
 
   const [countResult, listResult] = await db.batch([countStmt, listStmt]);
-  const total = (countResult.results[0] as { total: number } | undefined)?.total ?? 0;
-  const rows = (listResult.results ?? []) as RequestRow[];
+  const total = (countResult?.results[0] as { total: number } | undefined)?.total ?? 0;
+  const rows = (listResult?.results ?? []) as RequestRow[];
 
   return c.json({
     success: true,
@@ -420,7 +420,9 @@ requestsRouter.post("/", async (c) => {
         400,
       );
     }
-    const [hh, mm] = body.recurrence_time.split(':').map(Number);
+    const timeParts = body.recurrence_time.split(':').map(Number);
+    const hh = timeParts[0] ?? NaN;
+    const mm = timeParts[1] ?? NaN;
     if (!/^\d{2}:\d{2}$/.test(body.recurrence_time) || hh > 23 || mm > 59) {
       return c.json(
         errBody("VALIDATION_ERROR", "recurrence_time inválido (HH:MM 00:00-23:59)"),
@@ -906,13 +908,13 @@ requestsRouter.patch("/:id/complete", async (c) => {
   // Devolvemos los campos calculados leyéndolos.
   const updated = await db
     .prepare(
-      `SELECT status, time_completed, duration_minutes, cost_spent, incidents
+      `SELECT id, status, time_completed, duration_minutes, cost_spent, incidents
          FROM requests WHERE id = ? LIMIT 1`,
     )
     .bind(id)
     .first<RequestRow>();
   if (!updated) return c.json({ success: true, data: { id } });
-  return c.json({ success: true, data: { id, ...updated } });
+  return c.json({ success: true, data: updated });
 });
 
 // ─── PATCH /:id/reassign-request ───────────────────────────────────────────
