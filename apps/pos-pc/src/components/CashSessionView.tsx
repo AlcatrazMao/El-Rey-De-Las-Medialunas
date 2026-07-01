@@ -19,19 +19,24 @@ import { useApp } from '../AppContext';
 import { useSettings } from '../hooks/useSettings';
 import { formatCurrency } from '../utils/format';
 
-// Denominaciones ARS vigentes
-const DENOMINATIONS: { value: number; label: string; bg: string; border: string }[] = [
-  { value: 100,    label: '$ 100',     bg: 'bg-amber-700',   border: 'border-amber-600' },
-  { value: 200,    label: '$ 200',     bg: 'bg-red-700',     border: 'border-red-600' },
-  { value: 500,    label: '$ 500',     bg: 'bg-violet-700',  border: 'border-violet-600' },
-  { value: 1000,   label: '$ 1.000',   bg: 'bg-purple-800',  border: 'border-purple-700' },
-  { value: 2000,   label: '$ 2.000',   bg: 'bg-teal-700',    border: 'border-teal-600' },
-  { value: 5000,   label: '$ 5.000',   bg: 'bg-orange-600',  border: 'border-orange-500' },
-  { value: 10000,  label: '$ 10.000',  bg: 'bg-emerald-700', border: 'border-emerald-600' },
-  { value: 20000,  label: '$ 20.000',  bg: 'bg-blue-700',    border: 'border-blue-600' },
-  { value: 50000,  label: '$ 50.000',  bg: 'bg-rose-700',    border: 'border-rose-600' },
-  { value: 100000, label: '$ 100.000', bg: 'bg-slate-600',   border: 'border-slate-500' },
+const DENOM_STYLE: Record<number, { bg: string; border: string }> = {
+  10:    { bg: 'bg-lime-700',    border: 'border-lime-600' },
+  20:    { bg: 'bg-red-700',     border: 'border-red-600' },
+  50:    { bg: 'bg-orange-700',  border: 'border-orange-600' },
+  100:   { bg: 'bg-amber-700',   border: 'border-amber-600' },
+  200:   { bg: 'bg-teal-700',    border: 'border-teal-600' },
+  500:   { bg: 'bg-violet-700',  border: 'border-violet-600' },
+  1000:  { bg: 'bg-purple-800',  border: 'border-purple-700' },
+  2000:  { bg: 'bg-indigo-700',  border: 'border-indigo-600' },
+  10000: { bg: 'bg-emerald-800', border: 'border-emerald-700' },
+};
+const FALLBACK_STYLES = [
+  { bg: 'bg-slate-600',  border: 'border-slate-500' },
+  { bg: 'bg-cyan-700',   border: 'border-cyan-600' },
+  { bg: 'bg-pink-700',   border: 'border-pink-600' },
 ];
+const getDenomStyle = (value: number, idx: number) =>
+  DENOM_STYLE[value] ?? FALLBACK_STYLES[idx % FALLBACK_STYLES.length];
 
 export const CashSessionView: React.FC = () => {
   const {
@@ -80,9 +85,13 @@ export const CashSessionView: React.FC = () => {
     setBillCounts(prev => ({ ...prev, [String(value)]: Math.max(0, qty) }));
   };
 
+  const denomList = settings.cash.denominaciones.length > 0
+    ? settings.cash.denominaciones
+    : [100, 200, 500, 1000, 2000, 10000];
+
   // Suma siempre recalculada en render — sin useMemo para evitar stale closures
-  const billTotal = DENOMINATIONS.reduce(
-    (sum, d) => sum + (billCounts[String(d.value)] ?? 0) * d.value,
+  const billTotal = denomList.reduce(
+    (sum, v) => sum + (billCounts[String(v)] ?? 0) * v,
     0,
   );
 
@@ -98,7 +107,9 @@ export const CashSessionView: React.FC = () => {
     (sum, [den, qty]) => sum + Number(den) * qty,
     0
   );
-  const activeDenominaciones = settings.cash.denominaciones ?? [10, 20, 50, 100, 1000, 2000, 10000, 20000];
+  const activeDenominaciones = (settings.cash.denominaciones?.length ?? 0) > 0
+    ? settings.cash.denominaciones
+    : [100, 200, 500, 1000, 2000, 10000];
 
   const openHistoricalSession = cashSessionsHistory.find(s => s.status === 'open');
 
@@ -565,19 +576,20 @@ export const CashSessionView: React.FC = () => {
 
             {/* Billetes — 2 columnas */}
             <div className="grid grid-cols-2 gap-2.5 flex-1">
-              {DENOMINATIONS.map(d => {
-                const key = String(d.value);
+              {denomList.map((v, idx) => {
+                const { bg, border } = getDenomStyle(v, idx);
+                const key = String(v);
                 const qty = billCounts[key] ?? 0;
-                const subtotal = qty * d.value;
+                const subtotal = qty * v;
                 return (
                   <div
-                    key={d.value}
-                    className={`rounded-2xl border-2 overflow-hidden transition-all ${d.border} ${qty > 0 ? 'shadow-lg' : 'opacity-70 hover:opacity-100'}`}
+                    key={v}
+                    className={`rounded-2xl border-2 overflow-hidden transition-all ${border} ${qty > 0 ? 'shadow-lg' : 'opacity-70 hover:opacity-100'}`}
                   >
                     {/* Frente del billete */}
-                    <div className={`${d.bg} px-3 pt-2.5 pb-2`}>
+                    <div className={`${bg} px-3 pt-2.5 pb-2`}>
                       <div className="flex items-center justify-between">
-                        <span className="text-white font-black text-sm tracking-tight">{d.label}</span>
+                        <span className="text-white font-black text-sm tracking-tight">$ {v.toLocaleString('es-AR')}</span>
                         {subtotal > 0 && (
                           <span className="text-white/80 text-[9px] font-black">= {formatCurrency(subtotal)}</span>
                         )}
@@ -592,7 +604,7 @@ export const CashSessionView: React.FC = () => {
                     <div className="bg-white dark:bg-zinc-900 flex items-center justify-between px-2.5 py-2 gap-1">
                       <button
                         type="button"
-                        onClick={() => setBill(d.value, qty - 1)}
+                        onClick={() => setBill(v, qty - 1)}
                         disabled={qty === 0}
                         className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-600 dark:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
                       >
@@ -603,13 +615,13 @@ export const CashSessionView: React.FC = () => {
                         inputMode="numeric"
                         min="0"
                         value={qty === 0 ? '' : qty}
-                        onChange={e => setBill(d.value, parseInt(e.target.value, 10) || 0)}
+                        onChange={e => setBill(v, parseInt(e.target.value, 10) || 0)}
                         placeholder="0"
                         className="w-10 text-center text-sm font-black text-gray-800 dark:text-zinc-100 bg-transparent outline-none"
                       />
                       <button
                         type="button"
-                        onClick={() => setBill(d.value, qty + 1)}
+                        onClick={() => setBill(v, qty + 1)}
                         className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-600 dark:text-zinc-300 transition-colors cursor-pointer"
                       >
                         <Plus className="w-3 h-3" />

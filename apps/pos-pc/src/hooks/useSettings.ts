@@ -139,7 +139,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     defaultOpeningNote: 'Saldo base inicial de cambio en caja chica.',
     defaultClosingNote: 'Cierre de caja de turno regular sin inconvenientes.',
     defaultOpeningMode: 'billetes' as const,
-    denominaciones: [10, 20, 50, 100, 1000, 2000, 10000, 20000],
+    denominaciones: [100, 200, 500, 1000, 2000, 10000],
   },
   inventory: {
     expiryAlertDays: 2,
