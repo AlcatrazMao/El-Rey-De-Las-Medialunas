@@ -51,7 +51,7 @@ export const NotificationCenter: React.FC = () => {
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-2 w-72 sm:w-80 md:w-96 max-w-[calc(100vw-1rem)] bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-gray-100 dark:border-zinc-800 p-4 transition-all duration-300">
+        <div className="fixed left-2 right-2 top-16 z-50 md:absolute md:inset-auto md:left-0 md:right-auto md:top-full md:mt-2 md:w-96 md:max-w-[calc(100vw-1rem)] bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-gray-100 dark:border-zinc-800 p-4 transition-all duration-300">
           <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-zinc-800">
             <h3 className="font-semibold text-gray-800 dark:text-zinc-100 flex items-center gap-2">
               <Bell className="h-4 w-4" /> Notificaciones Críticas ({unreadCount} sin leer)
