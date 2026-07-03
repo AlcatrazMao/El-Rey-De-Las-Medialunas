@@ -59,6 +59,34 @@ export async function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
+// Decodes the `exp` claim (seconds since epoch) from a JWT's payload segment
+// without verifying the signature — used only to decide whether it's worth
+// proactively refreshing before a batch of requests. Returns null if the
+// token is missing/malformed, which callers should treat as "can't tell,
+// don't block on it".
+export function getAccessTokenExpiry(token: string | null): number | null {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const base64url = parts[1];
+    const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = atob(padded);
+    const payload = JSON.parse(json) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isAccessTokenExpired(): boolean {
+  const token = sessionStorage.getItem("access_token");
+  const exp = getAccessTokenExpiry(token);
+  if (exp === null) return false;
+  return exp * 1000 < Date.now();
+}
+
 export async function fetchWithAuth(input: string, init: RequestInit = {}): Promise<Response> {
   const buildHeaders = (token: string | null): HeadersInit => {
     const headers = new Headers(init.headers || {});
@@ -85,7 +113,11 @@ export function getApi() {
       getToken: () => sessionStorage.getItem("access_token") || "",
       onUnauthorized: async () => {
         const newToken = await refreshAccessToken();
-        if (!newToken) handleLogout();
+        if (!newToken) {
+          handleLogout();
+          return false;
+        }
+        return true;
       },
     });
   }

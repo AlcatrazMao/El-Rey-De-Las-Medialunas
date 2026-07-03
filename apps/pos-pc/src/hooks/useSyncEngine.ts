@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "../config/firebase";
 import { salesQueueStore, syncErrorStore } from "../lib/idb";
 import type { IDBSyncError } from "../lib/idb";
-import { fetchWithAuth, getApi, API_URL as API_URL_CONST } from "../services/api";
+import { fetchWithAuth, getApi, isAccessTokenExpired, refreshAccessToken, API_URL as API_URL_CONST } from "../services/api";
 import { calcNextRetry, classifyError, persistSyncError } from "../services/d1-sync";
 import type { SalePayload } from "../services/d1-sync";
 import { dbAdapter } from "../services/db-adapter";
@@ -45,6 +45,14 @@ export async function enqueueSale(saleData: Record<string, unknown>): Promise<vo
 }
 
 export async function flushSalesQueue(): Promise<{ flushed: number; failed: number }> {
+  // Proactive refresh: si el access_token ya venció, refrescamos ANTES de
+  // iterar la cola en vez de dejar que cada item individual pague el costo
+  // de un 401 + refresh (fetchWithAuth ya lo maneja reactivamente por-request,
+  // pero para colas largas es más barato refrescar una sola vez de antemano).
+  if (isAccessTokenExpired()) {
+    await refreshAccessToken();
+  }
+
   const pending = await salesQueueStore.getUnsynced();
   let flushed = 0;
   let failed = 0;

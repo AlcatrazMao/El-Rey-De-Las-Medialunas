@@ -72,7 +72,13 @@ import type {
 export interface ApiClientOptions {
   baseUrl: string;
   getToken: () => string | null | Promise<string | null>;
-  onUnauthorized?: () => void | Promise<void>;
+  /**
+   * Called when a request fails with 401 Unauthorized. Should attempt to
+   * refresh the access token and return `true` if a fresh token is now
+   * usable (the original request will be retried once), or `false` if the
+   * refresh failed (the original 401 ApiError will be propagated).
+   */
+  onUnauthorized?: () => boolean | Promise<boolean>;
   retries?: number;
 }
 

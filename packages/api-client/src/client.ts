@@ -8,7 +8,7 @@ type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 export class ApiClient {
   private baseUrl: string;
   private getToken: () => string | null | Promise<string | null>;
-  private onUnauthorized?: () => void | Promise<void>;
+  private onUnauthorized?: () => boolean | Promise<boolean>;
   private retries: number;
 
   constructor(options: ApiClientOptions) {
@@ -61,10 +61,6 @@ export class ApiClient {
       const errorMessage = body?.error?.message ?? response.statusText;
       const errorDetails = body?.error?.details ?? undefined;
 
-      if (response.status === 401 && this.onUnauthorized) {
-        await this.onUnauthorized();
-      }
-
       throw new ApiError(errorCode, errorMessage, response.status, errorDetails);
     }
 
@@ -76,7 +72,7 @@ export class ApiClient {
     return responseBody;
   }
 
-  async request<T>(
+  private async attemptOnce<T>(
     method: HttpMethod,
     path: string,
     body?: unknown,
@@ -134,6 +130,25 @@ export class ApiClient {
     throw new Error(`Request failed: ${lastError?.message ?? "Unknown error"}`);
   }
 
+  async request<T>(
+    method: HttpMethod,
+    path: string,
+    body?: unknown,
+    options?: RequestOptions,
+  ): Promise<T> {
+    try {
+      return await this.attemptOnce<T>(method, path, body, options);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401 && this.onUnauthorized) {
+        const hasFreshToken = await this.onUnauthorized();
+        if (hasFreshToken) {
+          return await this.attemptOnce<T>(method, path, body, options);
+        }
+      }
+      throw error;
+    }
+  }
+
   async get<T>(path: string, options?: RequestOptions): Promise<T> {
     return this.request<T>("GET", path, undefined, options);
   }
@@ -150,7 +165,11 @@ export class ApiClient {
     return this.request<T>("DELETE", path, undefined, options);
   }
 
-  async upload<T>(path: string, formData: FormData, options?: RequestOptions): Promise<T> {
+  private async attemptUploadOnce<T>(
+    path: string,
+    formData: FormData,
+    options?: RequestOptions,
+  ): Promise<T> {
     const url = this.buildUrl(path, options?.params);
 
     const headers: Record<string, string> = {
@@ -171,5 +190,19 @@ export class ApiClient {
 
     const response = await fetch(url, fetchOptions);
     return this.handleResponse<T>(response);
+  }
+
+  async upload<T>(path: string, formData: FormData, options?: RequestOptions): Promise<T> {
+    try {
+      return await this.attemptUploadOnce<T>(path, formData, options);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401 && this.onUnauthorized) {
+        const hasFreshToken = await this.onUnauthorized();
+        if (hasFreshToken) {
+          return await this.attemptUploadOnce<T>(path, formData, options);
+        }
+      }
+      throw error;
+    }
   }
 }
