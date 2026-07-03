@@ -21,7 +21,7 @@ import type {
 import { InventoryEndpoints } from "./endpoints/inventory";
 import { ProductGroupEndpoints } from "./endpoints/productGroups";
 import { ProductionEndpoints } from "./endpoints/production";
-import type { RecipeFilters, BatchFilters as ProductionBatchFilters, ExecuteBatchRequest } from "./endpoints/production";
+import type { RecipeFilters, BatchFilters as ProductionBatchFilters, CompleteBatchRequest } from "./endpoints/production";
 import type { ProductFilters } from "./endpoints/products";
 import { ProductEndpoints } from "./endpoints/products";
 import { PurchaseEndpoints } from "./endpoints/purchases";
@@ -55,7 +55,7 @@ export { ApiClient, ApiError, AuthEndpoints, BranchEndpoints, CategoryEndpoints,
 export type { ApiClientOptions, RequestOptions, AuthResponse, ProductFilters, InventoryFilters,
   BatchFilters, MovementFilters, TransferFilters, CreateMovementRequest, CreateCountRequest,
   SaleFilters, CustomerFilters, CustomerSaleFilters, CashSessionFilters, RecipeFilters,
-  ProductionBatchFilters, ExecuteBatchRequest, SupplierFilters, PurchaseOrderFilters,
+  ProductionBatchFilters, CompleteBatchRequest, SupplierFilters, PurchaseOrderFilters,
   CreatePurchaseOrderRequest, ReceiveOrderRequest, ReportFilters, DashboardFilters, AuditFilters,
   ExpenseFilters, CreateExpenseRequest, Expense,
   SupplyRequestFilters, CreateSupplyRequestRequest, UpdateSupplyRequestRequest, SupplyRequest };

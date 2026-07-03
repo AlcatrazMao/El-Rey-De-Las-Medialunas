@@ -562,6 +562,9 @@ export async function syncProductToD1(product: {
   cost: number;
   minStock: number;
   category: string;
+  isRawMaterial?: boolean;
+  isProducible?: boolean;
+  unit?: Product['unit'];
 }): Promise<void> {
   const branchId = getSettings().business.branchId;
   const ivaRate = getSettings().fiscal.ivaRate;
@@ -583,15 +586,15 @@ export async function syncProductToD1(product: {
     name: product.name,
     branch_id: branchId,
     category_id,
-    unit: 'unit' as const,
+    unit: product.unit ?? 'unit',
     price: product.price,
     cost: product.cost,
     tax_rate: ivaRate,
     min_stock: product.minStock,
     max_stock: product.minStock * 10,
     track_inventory: true,
-    is_producible: true,
-    is_raw_material: false,
+    is_producible: product.isProducible ?? true,
+    is_raw_material: product.isRawMaterial ?? false,
     is_active: true,
   };
 
@@ -623,6 +626,9 @@ export async function syncProductUpdateToD1(id: string, changes: {
   cost?: number;
   minStock?: number;
   category?: string;
+  isRawMaterial?: boolean;
+  isProducible?: boolean;
+  unit?: Product['unit'];
 }): Promise<void> {
   const payload: UpdateProductRequest = {};
   if (changes.name !== undefined) payload.name = changes.name;
@@ -630,6 +636,9 @@ export async function syncProductUpdateToD1(id: string, changes: {
   if (changes.price !== undefined) payload.price = changes.price;
   if (changes.cost !== undefined) payload.cost = changes.cost;
   if (changes.minStock !== undefined) payload.min_stock = changes.minStock;
+  if (changes.isRawMaterial !== undefined) payload.is_raw_material = changes.isRawMaterial;
+  if (changes.isProducible !== undefined) payload.is_producible = changes.isProducible;
+  if (changes.unit !== undefined) payload.unit = changes.unit;
 
   if (changes.category !== undefined) {
     const branchId = getSettings().business.branchId;
@@ -723,6 +732,9 @@ export async function fetchProductsFromD1(
         code: String(d1.code ?? local.code),
         category,
         stock: serverStock ?? local.stock,
+        isRawMaterial: Boolean(Number(d1.is_raw_material ?? 0)),
+        isProducible: Boolean(Number(d1.is_producible ?? 0)),
+        unit: (d1.unit ?? 'unit') as Product['unit'],
       };
     } else if (!seenIds.has(id)) {
       seenIds.add(id);
@@ -737,6 +749,9 @@ export async function fetchProductsFromD1(
         image: "🥐",
         code: String(d1.code ?? ""),
         ingredients: [],
+        isRawMaterial: Boolean(Number(d1.is_raw_material ?? 0)),
+        isProducible: Boolean(Number(d1.is_producible ?? 0)),
+        unit: (d1.unit ?? 'unit') as Product['unit'],
       });
     }
   }

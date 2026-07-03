@@ -38,6 +38,9 @@ export interface Product {
   elaborationDate?: string; // YYYY-MM-DD format
   durabilityDays?: number; // expiry days
   groups?: ProductGroup[]; // grupos de venta por presentación (hasta 3)
+  isRawMaterial?: boolean; // materia prima / insumo (products.is_raw_material en D1)
+  isProducible?: boolean; // se puede elaborar/producir (products.is_producible en D1)
+  unit?: 'unit' | 'kg' | 'g' | 'l' | 'ml' | 'dozen' | 'pack'; // unidad de medida (products.unit CHECK en D1)
 }
 
 export interface SaleItem {

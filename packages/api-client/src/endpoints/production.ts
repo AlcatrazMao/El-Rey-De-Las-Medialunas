@@ -11,7 +11,6 @@ import type {
 } from "@medialunas/shared/types/api";
 
 import type { ApiClient } from "../client";
-import type { ProductionPlanning } from "../types";
 
 export interface RecipeFilters {
   product_id?: string;
@@ -28,7 +27,7 @@ export interface BatchFilters {
   to_date?: string;
 }
 
-export interface ExecuteBatchRequest {
+export interface CompleteBatchRequest {
   actual_quantity: number;
   waste_quantity?: number;
   notes?: string;
@@ -76,14 +75,6 @@ export class ProductionEndpoints {
     return response.data!;
   }
 
-  async executeBatch(id: string, data: ExecuteBatchRequest): Promise<ProductionBatch> {
-    const response = await this.client.post<ProductionBatchResponse>(
-      `/api/v1/production/batches/${id}/execute`,
-      data,
-    );
-    return response.data!;
-  }
-
   async getBatches(filters?: BatchFilters): Promise<ProductionBatch[]> {
     const params = filters as Record<string, string | number | boolean | undefined>;
     const response = await this.client.get<ProductionBatchesResponse>(
@@ -93,11 +84,29 @@ export class ProductionEndpoints {
     return response.data ?? [];
   }
 
-  async getPlanning(branchId: string): Promise<ProductionPlanning> {
-    const response = await this.client.get<{ success: boolean; data: ProductionPlanning }>(
-      "/api/v1/production/planning",
-      { params: { branch_id: branchId } },
+  // Inicia el lote: consume ingredientes de inventario. El backend no lee body.
+  async startBatch(id: string): Promise<ProductionBatch> {
+    const response = await this.client.post<ProductionBatchResponse>(
+      `/api/v1/production/batches/${id}/start`,
     );
-    return response.data;
+    return response.data!;
+  }
+
+  // Completa el lote: agrega el producto terminado al inventario.
+  async completeBatch(id: string, data: CompleteBatchRequest): Promise<ProductionBatch> {
+    const response = await this.client.post<ProductionBatchResponse>(
+      `/api/v1/production/batches/${id}/complete`,
+      data,
+    );
+    return response.data!;
+  }
+
+  // Cancela el lote (revierte consumo si estaba in_progress). El backend no lee
+  // body, por eso no enviamos payload.
+  async cancelBatch(id: string): Promise<ProductionBatch> {
+    const response = await this.client.post<ProductionBatchResponse>(
+      `/api/v1/production/batches/${id}/cancel`,
+    );
+    return response.data!;
   }
 }

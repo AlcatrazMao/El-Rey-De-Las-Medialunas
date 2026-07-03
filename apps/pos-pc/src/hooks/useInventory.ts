@@ -21,7 +21,9 @@ export function useInventory(notify: NotifyFn) {
     safeParseLocalStorage<PaymentGateway[]>('pan_erp_gateways', PAYMENT_GATEWAYS)
   );
 
+  const ingredientsRef = useRef<Ingredient[]>(ingredients);
   useEffect(() => {
+    ingredientsRef.current = ingredients;
     safeSetItem('pan_erp_ingredients', JSON.stringify(ingredients));
   }, [ingredients]);
 
@@ -44,6 +46,35 @@ export function useInventory(notify: NotifyFn) {
     notify(
       '🌾 Nueva Materia Prima',
       `Se incorporó ${item.name} (${item.unitCost?.toFixed(2)} $/unidad) al catálogo.`,
+      'success'
+    );
+  };
+
+  /**
+   * Edita campos de un insumo existente (modal de edición en InventoryView).
+   *
+   * A diferencia de updateProduct, esto NO llama al backend: no existe una
+   * tabla `ingredients` en D1 ni un recurso REST equivalente — todo el
+   * catálogo de materia prima vive únicamente en localStorage, igual que
+   * addIngredient/updateIngredientStock (ninguna de las dos sincroniza con
+   * D1 tampoco). recipe_ingredients.ingredient_product_id referencia la
+   * tabla `products`, no una tabla de insumos separada, así que agregar un
+   * PUT contra un recurso que nunca tuvo un POST de creación dejaría el
+   * endpoint sin filas que actualizar. Mismo patrón que updateIngredientStock:
+   * optimistic update local puro, usando el ref para evitar closures stale.
+   */
+  const updateIngredient = (
+    id: string,
+    changes: Partial<Pick<Ingredient, 'name' | 'unit' | 'unitCost' | 'minStock'>>
+  ) => {
+    const previous = ingredientsRef.current.find(ing => ing.id === id);
+    if (!previous) return;
+
+    setIngredients(prev => prev.map(ing => (ing.id === id ? { ...ing, ...changes } : ing)));
+
+    notify(
+      '✏️ Insumo Actualizado',
+      `Se actualizaron los datos de "${changes.name ?? previous.name}".`,
       'success'
     );
   };
@@ -85,6 +116,9 @@ export function useInventory(notify: NotifyFn) {
       cost: productInstance.cost ?? 0,
       minStock: productInstance.minStock ?? 5,
       category: productInstance.category,
+      isRawMaterial: productInstance.isRawMaterial,
+      isProducible: productInstance.isProducible,
+      unit: productInstance.unit,
     }).catch(() => {
       // Surface the failure: the product lives locally but the backend never
       // received it. Background sync engine will retry, but the user should know.
@@ -111,7 +145,7 @@ export function useInventory(notify: NotifyFn) {
    */
   const updateProduct = (
     id: string,
-    changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image'>>
+    changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image' | 'isRawMaterial' | 'isProducible' | 'unit'>>
   ) => {
     const previous = productsRef.current.find(prod => prod.id === id);
     if (!previous) return;
@@ -126,6 +160,9 @@ export function useInventory(notify: NotifyFn) {
       cost: changes.cost,
       minStock: changes.minStock,
       category: changes.category,
+      isRawMaterial: changes.isRawMaterial,
+      isProducible: changes.isProducible,
+      unit: changes.unit,
     }).catch(() => {
       // El cambio ya vive en el estado local (offline-first), pero el backend
       // no lo recibió. Sin cola de reintento para updates (fuera de alcance v1):
@@ -175,6 +212,7 @@ export function useInventory(notify: NotifyFn) {
     gateways,
     setGateways,
     addIngredient,
+    updateIngredient,
     updateIngredientStock,
     addProduct,
     updateProduct,

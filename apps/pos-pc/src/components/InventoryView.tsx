@@ -25,12 +25,22 @@ import { ImagePicker } from './ImagePicker';
 import { BatchPanel } from './inventory/BatchPanel';
 import { ProductGroupsEditor } from './ProductGroupsEditor';
 
+// SECURITY/UX: gateo del botón "Editar" de insumos según la matriz real de
+// permisos (packages/shared/src/constants/permissions.ts, módulo `inventory`,
+// acción "update"). A diferencia de `products` (donde sólo admin/owner
+// pueden editar), el módulo `inventory` también habilita a supervisor y
+// warehouse — reflejamos exactamente esa matriz acá en vez de asumir que es
+// el mismo criterio que productos. El cast a string es el mismo patrón ya
+// usado para 'owner' en este archivo: el tipo local UserRole no incluye los
+// roles reales que emite el backend (owner/supervisor/warehouse/production).
+function canManageInventory(role: string | undefined): boolean {
+  return role === 'admin' || role === 'owner' || role === 'supervisor' || role === 'warehouse';
+}
+
 export const InventoryView: React.FC = () => {
   const {
     ingredients,
     products,
-    addIngredient,
-    updateIngredientStock,
     addProduct,
     updateProduct,
     updateProductStock,
@@ -95,7 +105,7 @@ export const InventoryView: React.FC = () => {
   };
 
   const getPrioritizedExpiryProducts = () => {
-    const list = products.filter(p => p.durabilityDays !== undefined);
+    const list = products.filter(p => p.durabilityDays !== undefined && !p.isRawMaterial);
     
     list.sort((a, b) => {
       const daysA = getProductExpiryDays(a);
@@ -121,10 +131,18 @@ export const InventoryView: React.FC = () => {
     return list;
   };
   
-  // Insumo creation form modal
+  // Insumo creation/edit form modal — el mismo modal se reutiliza para editar
+  // cuando `editingIngredient` !== null (mismo patrón que showProductModal /
+  // editingProduct más abajo).
+  // El tab "insumos" ahora lista `products` reales con is_raw_material=1 (no el
+  // array local Ingredient[]). El modal crea/edita esos products vía
+  // addProduct/updateProduct con isRawMaterial:true. `insumoUnit` usa las
+  // unidades de Product (products.unit CHECK en D1), no las de Ingredient.
+  type ProductUnit = NonNullable<Product['unit']>;
   const [showInsumoModal, setShowInsumoModal] = useState(false);
+  const [editingRawMaterial, setEditingRawMaterial] = useState<Product | null>(null);
   const [insumoName, setInsumoName] = useState('');
-  const [insumoUnit, setInsumoUnit] = useState<Ingredient['unit']>('kg');
+  const [insumoUnit, setInsumoUnit] = useState<ProductUnit>('kg');
   const [insumoStock, setInsumoStock] = useState(10);
   const [insumoMinStock, setInsumoMinStock] = useState(5);
   const [insumoCost, setInsumoCost] = useState(1.5);
@@ -136,7 +154,38 @@ export const InventoryView: React.FC = () => {
     setInsumoMinStock(5);
     setInsumoCost(1.5);
     setShowInsumoModal(false);
+    setEditingRawMaterial(null);
   };
+
+  const openEditInsumoModal = (prod: Product) => {
+    setEditingRawMaterial(prod);
+    setInsumoName(prod.name);
+    setInsumoUnit(prod.unit ?? 'kg');
+    setInsumoStock(prod.stock);
+    setInsumoMinStock(prod.minStock);
+    setInsumoCost(prod.cost);
+    setShowInsumoModal(true);
+  };
+
+  // Mapea las unidades del array local Ingredient (kg/g/L/ml/unidades) a las
+  // unidades válidas de Product (kg/g/l/ml/unit/…). Usado tanto por la
+  // migración a la nube como por cualquier lectura del catálogo viejo.
+  const mapIngredientUnitToProductUnit = (u: Ingredient['unit']): ProductUnit => {
+    switch (u) {
+      case 'L': return 'l';
+      case 'unidades': return 'unit';
+      case 'kg': return 'kg';
+      case 'g': return 'g';
+      case 'ml': return 'ml';
+      default: return 'unit';
+    }
+  };
+
+  // Categoría por defecto para insumos migrados/creados: 'panes' es una
+  // CategoryType válida ya existente. No aparece en caja porque isRawMaterial
+  // los excluye del catálogo vendible.
+  const RAW_MATERIAL_DEFAULT_CATEGORY: CategoryType = 'panes';
+  const RAW_MATERIAL_ICON = '🌾';
 
   // Product creation form modal & dynamic recipe builder — state encapsulado
   // en `useProductForm`. La visibilidad del modal sigue siendo state local
@@ -206,18 +255,38 @@ export const InventoryView: React.FC = () => {
     setShowProductModal(true);
   };
 
-  // Handle ingredient addition
+  // Handle raw-material (insumo) addition or edit. Ahora escribe sobre
+  // `products` reales (isRawMaterial:true, isProducible:false) vía
+  // addProduct/updateProduct, no sobre el array local Ingredient[]. El precio
+  // de venta va en 0: un insumo no se vende directo en caja.
   const handleCreateInsumoSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!insumoName.trim()) return;
 
-    addIngredient({
-      name: insumoName,
-      unit: insumoUnit,
-      stock: Number(insumoStock),
-      minStock: Number(insumoMinStock),
-      unitCost: Number(insumoCost)
-    });
+    if (editingRawMaterial) {
+      updateProduct(editingRawMaterial.id, {
+        name: insumoName,
+        unit: insumoUnit,
+        minStock: Number(insumoMinStock),
+        cost: Number(insumoCost),
+        isRawMaterial: true,
+        isProducible: false,
+      });
+    } else {
+      addProduct({
+        name: insumoName,
+        category: RAW_MATERIAL_DEFAULT_CATEGORY,
+        price: 0,
+        cost: Number(insumoCost),
+        stock: Number(insumoStock),
+        minStock: Number(insumoMinStock),
+        image: RAW_MATERIAL_ICON,
+        ingredients: [],
+        isRawMaterial: true,
+        isProducible: false,
+        unit: insumoUnit,
+      });
+    }
 
     // Reset fields
     setInsumoName('');
@@ -226,17 +295,76 @@ export const InventoryView: React.FC = () => {
     setInsumoMinStock(5);
     setInsumoCost(1.5);
     setShowInsumoModal(false);
+    setEditingRawMaterial(null);
   };
 
-  // Quick replenish helper
-  const triggerIncrementStockVal = (ing: Ingredient, incAmount: number) => {
-    updateIngredientStock(ing.id, ing.stock + incAmount);
+  // Quick replenish helper — un insumo es un Product real, así que su stock se
+  // ajusta con updateProductStock (mismo mecanismo directo que ya usa el resto
+  // del archivo para ajustar Product.stock, p. ej. en el tab de caducidad),
+  // no con updateIngredientStock (array local).
+  const triggerIncrementStockVal = (prod: Product, incAmount: number) => {
+    updateProductStock(prod.id, prod.stock + incAmount);
+    addSystemNotification(
+      '🔄 Stock de Insumo Actualizado',
+      `Se sumaron ${incAmount} ${prod.unit ?? 'u'} a "${prod.name}". Nuevo stock: ${prod.stock + incAmount}.`,
+      'info'
+    );
   };
 
-  const currentIngredientsInventoryValue = ingredients.reduce((sum, ing) => sum + (ing.stock * ing.unitCost), 0);
-  const currentProductsInventoryValue = products.reduce((sum, prod) => sum + (prod.stock * prod.price), 0);
-  const totalLowStockInsumos = ingredients.filter(i => i.stock <= i.minStock).length;
-  const totalLowStockProducts = products.filter(p => p.stock <= p.minStock).length;
+  // Insumos reales = products con is_raw_material. Productos terminados = el resto.
+  const rawMaterials = products.filter(p => p.isRawMaterial === true);
+  const finishedProducts = products.filter(p => !p.isRawMaterial);
+
+  // Insumos locales (array viejo) que todavía NO tienen equivalente creado en
+  // `products` (match por nombre normalizado). Fuente pendiente de migración.
+  const pendingMigrationIngredients = ingredients.filter(
+    ing => !rawMaterials.some(
+      rm => rm.name.trim().toLowerCase() === ing.name.trim().toLowerCase()
+    )
+  );
+
+  const handleMigrateInsumosToCloud = () => {
+    const pending = pendingMigrationIngredients;
+    if (pending.length === 0) return;
+
+    let migrated = 0;
+    const failed: string[] = [];
+
+    for (const ing of pending) {
+      try {
+        addProduct({
+          name: ing.name,
+          category: RAW_MATERIAL_DEFAULT_CATEGORY,
+          price: 0,
+          cost: ing.unitCost,
+          stock: 0,
+          minStock: ing.minStock,
+          image: RAW_MATERIAL_ICON,
+          ingredients: [],
+          isRawMaterial: true,
+          isProducible: false,
+          unit: mapIngredientUnitToProductUnit(ing.unit),
+        });
+        migrated++;
+      } catch {
+        // Error por ítem: registramos cuál falló y seguimos con el resto del lote.
+        failed.push(ing.name);
+      }
+    }
+
+    addSystemNotification(
+      '☁️ Migración de Insumos',
+      failed.length === 0
+        ? `${migrated} insumo(s) migrado(s) a la nube correctamente.`
+        : `${migrated} insumo(s) migrado(s), ${failed.length} falló(aron): ${failed.join(', ')}.`,
+      failed.length === 0 ? 'success' : 'warning'
+    );
+  };
+
+  const currentIngredientsInventoryValue = rawMaterials.reduce((sum, prod) => sum + (prod.stock * prod.cost), 0);
+  const currentProductsInventoryValue = finishedProducts.reduce((sum, prod) => sum + (prod.stock * prod.price), 0);
+  const totalLowStockInsumos = rawMaterials.filter(p => p.stock <= p.minStock).length;
+  const totalLowStockProducts = finishedProducts.filter(p => p.stock <= p.minStock).length;
 
   return (
     <div className="space-y-6 transition-all duration-300">
@@ -395,6 +523,29 @@ export const InventoryView: React.FC = () => {
 
       {/* LIST OR CARDS VIEW IN REAL TIME */}
       {activeSubTab === 'insumos' && (
+        <div className="space-y-4">
+        {/* Banner de migración: mientras existan insumos locales (array viejo)
+            sin equivalente en `products`, ofrecemos migrarlos a la nube. */}
+        {pendingMigrationIngredients.length > 0 && (
+          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/60 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <Download className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-extrabold text-amber-800 dark:text-amber-300">Insumos locales sin sincronizar</p>
+                <p className="text-[11px] text-amber-700/80 dark:text-amber-400/80 mt-0.5">
+                  Hay {pendingMigrationIngredients.length} insumo(s) en el catálogo local que todavía no existen como producto real en la nube.
+                </p>
+              </div>
+            </div>
+            <button
+              id="btn-migrate-insumos-cloud"
+              onClick={handleMigrateInsumosToCloud}
+              className="py-2 px-4 rounded-xl text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 cursor-pointer flex items-center gap-1.5 shadow-sm h-9 shrink-0 transition-all"
+            >
+              <Download className="h-4 w-4" /> Migrar insumos a la nube ({pendingMigrationIngredients.length} pendientes)
+            </button>
+          </div>
+        )}
         <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -406,25 +557,27 @@ export const InventoryView: React.FC = () => {
                   <th className="py-4 px-5 text-center">Nivel Crítico</th>
                   <th className="py-4 px-5 text-right">Stock de Reserva</th>
                   <th className="py-4 px-5 text-right">Restablecer / Sumar</th>
+                  <th className="py-4 px-5 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60 font-semibold text-gray-800 dark:text-zinc-200">
-                {ingredients
-                  .filter(ing => ing.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                  .map(ing => {
-                    const isAlert = ing.stock <= ing.minStock;
-                    const stockPercentage = Math.min((ing.stock / (ing.minStock * 3)) * 100, 100);
+                {rawMaterials
+                  .filter(prod => prod.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .map(prod => {
+                    const unitLabel = prod.unit ?? 'u';
+                    const isAlert = prod.stock <= prod.minStock;
+                    const stockPercentage = Math.min((prod.stock / (prod.minStock * 3)) * 100, 100);
 
                     return (
-                      <tr key={ing.id} className={`hover:bg-gray-50/50 dark:hover:bg-zinc-855/30 ${isAlert ? 'bg-red-50/10' : ''}`}>
+                      <tr key={prod.id} className={`hover:bg-gray-50/50 dark:hover:bg-zinc-855/30 ${isAlert ? 'bg-red-50/10' : ''}`}>
                         <td className="py-4 px-5">
                           <div>
-                            <p className="font-bold text-gray-855 dark:text-zinc-100">{ing.name}</p>
-                            <p className="text-[10px] text-gray-450 dark:text-zinc-500 font-mono italic">ID: {ing.id}</p>
+                            <p className="font-bold text-gray-855 dark:text-zinc-100">{prod.name}</p>
+                            <p className="text-[10px] text-gray-450 dark:text-zinc-500 font-mono italic">ID: {prod.id}</p>
                           </div>
                         </td>
-                        <td className="py-4 px-5 font-mono">{formatCurrency(ing.unitCost)}</td>
-                        <td className="py-4 px-5 capitalize text-gray-500 font-medium">{ing.unit}</td>
+                        <td className="py-4 px-5 font-mono">{formatCurrency(prod.cost)}</td>
+                        <td className="py-4 px-5 capitalize text-gray-500 font-medium">{unitLabel}</td>
                         <td className="py-4 px-5 text-center">
                           <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                             isAlert
@@ -437,7 +590,7 @@ export const InventoryView: React.FC = () => {
                         <td className="py-4 px-5 text-right font-mono">
                           <div className="inline-block text-right">
                             <span className={`font-extrabold text-sm ${isAlert ? 'text-red-500' : 'text-gray-800 dark:text-zinc-50'}`}>
-                              {ing.stock.toFixed(2)} {ing.unit}
+                              {prod.stock.toFixed(2)} {unitLabel}
                             </span>
                             <div className="w-24 bg-gray-100 dark:bg-zinc-800 h-1.5 rounded-full mt-1 overflow-hidden">
                               <div
@@ -445,28 +598,40 @@ export const InventoryView: React.FC = () => {
                                 style={{ width: `${stockPercentage}%` }}
                               />
                             </div>
-                            <span className="text-[9px] text-gray-400 block mt-0.5 leading-none">Mín: {ing.minStock} {ing.unit}</span>
+                            <span className="text-[9px] text-gray-400 block mt-0.5 leading-none">Mín: {prod.minStock} {unitLabel}</span>
                           </div>
                         </td>
                         <td className="py-4 px-5 text-right">
                           <div className="flex items-center justify-end gap-1 select-none">
                             <button
-                              id={`btn-replenish-10-${ing.id}`}
-                              onClick={() => triggerIncrementStockVal(ing, 10)}
+                              id={`btn-replenish-10-${prod.id}`}
+                              onClick={() => triggerIncrementStockVal(prod, 10)}
                               className="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50 border border-amber-200 dark:border-amber-900/60 text-[10px] font-bold text-amber-700 dark:text-amber-400 cursor-pointer"
                               title="Suma 10 unidades al stock físico del insumo de inmediato"
                             >
-                              +10 {ing.unit}
+                              +10 {unitLabel}
                             </button>
                             <button
-                              id={`btn-replenish-50-${ing.id}`}
-                              onClick={() => triggerIncrementStockVal(ing, 50)}
+                              id={`btn-replenish-50-${prod.id}`}
+                              onClick={() => triggerIncrementStockVal(prod, 50)}
                               className="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50 border border-amber-200 dark:border-amber-900/60 text-[10px] font-bold text-amber-700 dark:text-amber-400 cursor-pointer"
                               title="Suma 50 unidades al stock físico del insumo de inmediato"
                             >
-                              +50 {ing.unit}
+                              +50 {unitLabel}
                             </button>
                           </div>
+                        </td>
+                        <td className="py-4 px-5 text-right">
+                          {canManageInventory(activeUser.role) && (
+                            <button
+                              id={`btn-edit-insumo-${prod.id}`}
+                              onClick={() => openEditInsumoModal(prod)}
+                              className="p-1.5 rounded-lg bg-gray-50 hover:bg-amber-100 dark:bg-zinc-850 dark:hover:bg-amber-950/30 text-gray-500 hover:text-amber-700 dark:text-zinc-400 dark:hover:text-amber-400 cursor-pointer transition-colors"
+                              title="Editar insumo"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -475,11 +640,12 @@ export const InventoryView: React.FC = () => {
             </table>
           </div>
         </div>
+        </div>
       )}
 
       {activeSubTab === 'productos' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {products
+          {finishedProducts
             .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
             .map(prod => {
               const isAlert = prod.stock <= prod.minStock;
@@ -1171,7 +1337,7 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 1: ADD NEW INSUMO */}
+      {/* MODAL 1: ADD OR EDIT INSUMO */}
       {showInsumoModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-55 p-4 animate-fade-in">
           <form
@@ -1180,7 +1346,8 @@ export const InventoryView: React.FC = () => {
           >
             <div className="flex items-center justify-between border-b pb-2.5 border-gray-100 dark:border-zinc-800">
               <h3 className="font-extrabold text-base text-gray-850 dark:text-zinc-50 flex items-center gap-1.5">
-                <Wheat className="h-4.5 w-4.5 text-amber-500" /> Registrar Materia Prima
+                <Wheat className="h-4.5 w-4.5 text-amber-500" />
+                {editingRawMaterial ? <>✏️ Editar Insumo: {editingRawMaterial.name}</> : <>Registrar Materia Prima</>}
               </h3>
               <button
                 type="button"
@@ -1211,14 +1378,14 @@ export const InventoryView: React.FC = () => {
                 <select
                   id="modal-insumo-unit"
                   value={insumoUnit}
-                  onChange={(e) => setInsumoUnit(e.target.value as Ingredient['unit'])}
+                  onChange={(e) => setInsumoUnit(e.target.value as ProductUnit)}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800/80 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
                 >
                   <option value="kg">kilogramos (kg)</option>
                   <option value="g">gramos (g)</option>
-                  <option value="L">litros (L)</option>
+                  <option value="l">litros (L)</option>
                   <option value="ml">mililitros (ml)</option>
-                  <option value="unidades">unidades (u)</option>
+                  <option value="unit">unidades (u)</option>
                 </select>
               </div>
 
@@ -1238,21 +1405,27 @@ export const InventoryView: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Stock Inicial</label>
-                <input
-                  id="modal-insumo-stock"
-                  type="number"
-                  step="0.1"
-                  required
-                  min="0"
-                  value={insumoStock}
-                  onChange={(e) => setInsumoStock(Number(e.target.value))}
-                  className="w-full text-xs bg-gray-50 dark:bg-zinc-800/80 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
-                />
-              </div>
+              {/* Stock inicial sólo aplica al crear: una vez que el insumo existe, el
+                  stock físico se gestiona vía los botones de reposición dedicados
+                  (updateProductStock), no reescribiéndolo desde este modal —
+                  mismo criterio que el modal de productos con editingProduct. */}
+              {!editingRawMaterial && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Stock Inicial</label>
+                  <input
+                    id="modal-insumo-stock"
+                    type="number"
+                    step="0.1"
+                    required
+                    min="0"
+                    value={insumoStock}
+                    onChange={(e) => setInsumoStock(Number(e.target.value))}
+                    className="w-full text-xs bg-gray-50 dark:bg-zinc-800/80 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100"
+                  />
+                </div>
+              )}
 
-              <div className="space-y-1">
+              <div className={`space-y-1 ${editingRawMaterial ? 'col-span-2' : ''}`}>
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Alerta de Stock (Mín)</label>
                 <input
                   id="modal-insumo-minstock"
@@ -1281,7 +1454,7 @@ export const InventoryView: React.FC = () => {
                 id="btn-insumo-modal-submit"
                 className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
-                Guardar Insumo
+                {editingRawMaterial ? 'Guardar Cambios' : 'Guardar Insumo'}
               </button>
             </div>
           </form>

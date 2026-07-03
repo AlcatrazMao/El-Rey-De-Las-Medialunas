@@ -157,17 +157,6 @@ export interface CustomerDebt {
   available_credit: number;
 }
 
-export interface ProductionPlanning {
-  branch_id: string;
-  planned_date: string;
-  recipes: {
-    recipe_id: string;
-    name: string;
-    planned_quantity: number;
-    needed_ingredients: { product_id: string; name: string; required: number; available: number }[];
-  }[];
-}
-
 export type SalesReport = Record<string, unknown>;
 export type InventoryReport = Record<string, unknown>;
 export type ProductionReport = Record<string, unknown>;
