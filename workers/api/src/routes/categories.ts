@@ -14,8 +14,11 @@ const errBody = (code: string, message: string) => ({
   error: { code, message },
 });
 
+// SECURITY: supervisor excluido a propósito — la matriz de permisos
+// (packages/shared/src/constants/permissions.ts) marca `categories` como
+// solo-lectura para supervisor, igual que `products`.
 function canManageCategories(role: string | undefined): boolean {
-  return role === "admin" || role === "owner" || role === "supervisor";
+  return role === "admin" || role === "owner";
 }
 
 // SECURITY: subir por la cadena de parents desde `newParentId` y detectar

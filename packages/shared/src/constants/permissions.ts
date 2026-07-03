@@ -50,11 +50,13 @@ export const PERMISSIONS: PermissionMatrix = {
     purchases: ["read", "create", "update", "delete"],
     transfers: ["read", "create", "update", "delete"],
     reports: ["read", "create", "update", "delete"],
+    // NOTE: audit y users se mantienen restringidos aposta — admin no debe
+    // poder borrar el rastro de auditoría ni eliminar usuarios (solo owner).
     audit: ["read"],
     users: ["read", "create", "update"],
-    branches: ["read", "update"],
-    sync: ["read"],
-    settings: ["read", "update"],
+    branches: ["read", "create", "update", "delete"],
+    sync: ["read", "create", "update", "delete"],
+    settings: ["read", "create", "update", "delete"],
   },
   supervisor: {
     sales: ["read", "create", "update"],

@@ -19,8 +19,12 @@ const errBody = (code: string, message: string) => ({
 });
 
 // SECURITY: only catalog-management roles can create/modify/delete products.
+// supervisor quedó excluido a propósito: según la matriz de permisos
+// (packages/shared/src/constants/permissions.ts) supervisor es solo-lectura
+// en el módulo `products` — puede ver/consultar productos pero no
+// crearlos/editarlos/borrarlos.
 function canManageProducts(role: string | undefined): boolean {
-  return role === "admin" || role === "owner" || role === "supervisor";
+  return role === "admin" || role === "owner";
 }
 
 // GET /
@@ -649,7 +653,7 @@ productRoutes.get("/:id/groups", async (c) => {
   return c.json({ success: true, data: results.results ?? [] });
 });
 
-// POST /:id/groups — create a new group (supervisor+)
+// POST /:id/groups — create a new group (admin/owner only)
 productRoutes.post("/:id/groups", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
@@ -738,7 +742,7 @@ productRoutes.post("/:id/groups", async (c) => {
   return c.json({ success: true, data: created }, 201);
 });
 
-// PUT /:id/groups/:gid — update a group (supervisor+)
+// PUT /:id/groups/:gid — update a group (admin/owner only)
 productRoutes.put("/:id/groups/:gid", async (c) => {
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
