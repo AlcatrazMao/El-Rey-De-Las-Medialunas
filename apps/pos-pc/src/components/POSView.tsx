@@ -178,6 +178,11 @@ export const POSView: React.FC = () => {
   const [modalSearchVisible, setModalSearchVisible] = useState(false);
   const [modalFiltersOpen, setModalFiltersOpen] = useState(false);
 
+  // Buscador rápido de la barra (lupa fija): input inline con resultados en vivo.
+  // Independiente del searchQuery del modal para no interferir entre sí.
+  const [quickSearch, setQuickSearch] = useState('');
+  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
+
   // Mobile config panel
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [observaciones, setObservaciones] = useState('');
@@ -396,7 +401,7 @@ export const POSView: React.FC = () => {
       const shouldOpen = localStorage.getItem('pan_erp_open_search_list');
       if (shouldOpen === 'true') {
         localStorage.removeItem('pan_erp_open_search_list');
-        setModalMode('visual');
+        // No forzamos el modo: lo controla el toggle Vista/Lista (fuente única).
         setModalSelectedCategory('todos');
         setSearchQuery('');
         setShowSelectionModal(true);
@@ -475,8 +480,9 @@ export const POSView: React.FC = () => {
   };
 
   const getSortedModalProducts = () => {
-    let list = [...products];
-    
+    // Excluir insumos / materia prima: sólo productos vendibles en el modal de caja.
+    let list = products.filter(p => !p.isRawMaterial);
+
     // filter by category in modal
     if (modalSelectedCategory && modalSelectedCategory !== 'todos') {
       list = list.filter(p => p.category === modalSelectedCategory);
@@ -1051,13 +1057,33 @@ export const POSView: React.FC = () => {
     }, 150);
   };
 
-  // Filter products list
+  // Normaliza texto para comparar sin distinción de mayúsculas ni acentos.
+  const normalizeText = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+
+  // Fuente ÚNICA de match producto↔query (nombre O código, case/acento-insensitive).
+  // Reutilizada por el buscador del modal (filteredProducts) y por el buscador
+  // rápido de la barra (quickSearchResults) para no duplicar la lógica.
+  const productMatchesQuery = (prod: Product, query: string) => {
+    const q = normalizeText(query.trim());
+    if (!q) return true;
+    return normalizeText(prod.name).includes(q) || normalizeText(prod.code).includes(q);
+  };
+
+  // Filter products list (modal)
   const filteredProducts = products.filter(prod => {
+    // Los insumos / materia prima (is_raw_material) NO son vendibles en caja:
+    // viven en `products` sólo como stock de producción, nunca en la grilla POS.
+    if (prod.isRawMaterial) return false;
     const matchesCategory = selectedCategory === 'todos' || prod.category === selectedCategory;
-    const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          prod.code.includes(searchQuery);
-    return matchesCategory && matchesSearch;
+    return matchesCategory && productMatchesQuery(prod, searchQuery);
   });
+
+  // Resultados del buscador rápido de la barra: sólo vendibles que matcheen la
+  // query, sin filtrar por categoría (búsqueda global mientras se tipea).
+  const quickSearchResults = quickSearch.trim().length >= 1
+    ? products.filter(p => !p.isRawMaterial && productMatchesQuery(p, quickSearch))
+    : [];
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -1139,15 +1165,20 @@ export const POSView: React.FC = () => {
             </button>
 
             <button
-              id="btn-trigger-search-modal"
+              id="btn-trigger-quick-search"
               onClick={() => {
-                setModalSelectedCategory(null);
-                setSearchQuery('');
-                setShowSelectionModal(true);
+                setQuickSearchOpen(v => {
+                  if (v) setQuickSearch('');
+                  return !v;
+                });
                 playBeep(705, 0.05);
               }}
-              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-amber-200 dark:border-zinc-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/40 text-amber-700 dark:text-amber-400 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
-              title="Seleccionar Panificados"
+              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                quickSearchOpen
+                  ? 'border-amber-400 bg-amber-500 text-black dark:text-black'
+                  : 'border-amber-200 dark:border-zinc-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/40 text-amber-700 dark:text-amber-400'
+              }`}
+              title="Búsqueda rápida por nombre o código"
             >
               <Search className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Buscar</span>
@@ -1176,6 +1207,57 @@ export const POSView: React.FC = () => {
           </div>
         </div>
 
+        {/* Buscador rápido inline (lupa fija de la barra) — filtra en vivo por
+            nombre o código y agrega al carrito con un click */}
+        {quickSearchOpen && (
+          <div className="shrink-0 px-3 py-2 relative border-b border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+            <div className="flex items-center bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2 gap-2 focus-within:border-amber-500 transition-colors">
+              <Search className="h-4 w-4 text-gray-400 shrink-0" />
+              <input
+                id="input-quick-search"
+                autoFocus
+                type="text"
+                placeholder="Búsqueda rápida por nombre o código..."
+                value={quickSearch}
+                onChange={e => setQuickSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') { setQuickSearch(''); setQuickSearchOpen(false); }
+                  else if (e.key === 'Enter' && quickSearchResults.length > 0) {
+                    addToCart(quickSearchResults[0]);
+                    playBeep(800, 0.05);
+                    setQuickSearch('');
+                  }
+                }}
+                className="bg-transparent flex-1 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 dark:placeholder-zinc-600 outline-none"
+              />
+              {quickSearch && (
+                <button onClick={() => setQuickSearch('')} className="text-gray-400 hover:text-red-500 cursor-pointer shrink-0">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            {quickSearch.trim().length >= 1 && (
+              <div className="absolute top-full left-3 right-3 z-40 mt-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                {quickSearchResults.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-gray-400 text-center">Sin resultados para “{quickSearch}”</div>
+                ) : (
+                  quickSearchResults.map(product => (
+                    <button
+                      key={product.id}
+                      id={`btn-quick-search-add-${product.id}`}
+                      onClick={() => { addToCart(product); playBeep(800, 0.05); setQuickSearch(''); }}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-amber-50 dark:hover:bg-zinc-800 text-left transition-colors cursor-pointer border-b border-gray-50 dark:border-zinc-800/60 last:border-0"
+                    >
+                      <span className="text-sm font-medium text-gray-800 dark:text-zinc-100 truncate">{product.name}</span>
+                      <span className="text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">{formatCurrency(product.price)}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Cart Item rows list */}
         <div
           className="flex-1 min-h-0 overflow-y-auto flex flex-col px-3 pb-3"
@@ -1190,7 +1272,7 @@ export const POSView: React.FC = () => {
             playBeep={playBeep}
             activeOffers={activeOffers}
             onEmptyClick={() => {
-              setModalMode('visual');
+              // Respeta el modo Vista/Lista actual (fuente única: modalMode).
               setModalSelectedCategory('todos');
               setSearchQuery('');
               setShowSelectionModal(true);
@@ -1479,6 +1561,23 @@ export const POSView: React.FC = () => {
         </div>
 
       </div>{/* end panel carrito */}
+
+      {/* LUPA FLOTANTE (FAB) — abre el modal de selección de productos.
+          No fija el modo: respeta el toggle Vista/Lista (modalMode = fuente única). */}
+      <button
+        id="btn-floating-lupa-search"
+        onClick={() => {
+          setModalSelectedCategory(null);
+          setSearchQuery('');
+          setShowSelectionModal(true);
+          playBeep(705, 0.05);
+        }}
+        className="hidden md:flex fixed bottom-28 right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
+        title="Buscar Panificados"
+        aria-label="Buscar productos"
+      >
+        <Search className="h-6 w-6 group-hover:rotate-12 transition-transform duration-300" />
+      </button>
 
       {/* MODAL / POPUP: TRANSACTION CONFIRMATION / PRINT PREVIEW */}
       {showInvoiceModal && latestInvoice && (
@@ -1797,7 +1896,8 @@ export const POSView: React.FC = () => {
                   <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-2">Categorías</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
                     {categoriesList.map(cat => {
-                      const count = cat.id === 'todos' ? products.length : products.filter(p => p.category === cat.id).length;
+                      const sellable = products.filter(p => !p.isRawMaterial);
+                      const count = cat.id === 'todos' ? sellable.length : sellable.filter(p => p.category === cat.id).length;
                       return (
                         <button
                           key={cat.id}
