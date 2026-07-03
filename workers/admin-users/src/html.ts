@@ -85,7 +85,7 @@ input:focus,select:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px 
 <label>Email *</label><input type="email" id="fEmail" required>
 <label>Nombre</label><input type="text" id="fName">
 <label>Contraseña <span id="pwdHint">*</span></label><input type="password" id="fPassword" minlength="6">
-<label>Rol</label><select id="fRole"><option value="admin">Administrador</option><option value="cajero">Cajero</option><option value="panadero">Panadero</option></select>
+<label>Rol</label><select id="fRole"><option value="owner">Dueño</option><option value="admin">Administrador</option><option value="supervisor">Supervisor</option><option value="cashier">Cajero</option><option value="production">Producción</option><option value="warehouse">Depósito</option></select>
 <label>Estado</label><select id="fDisabled"><option value="false">Activo</option><option value="true">Deshabilitado</option></select>
 <div class="btn-row">
 <button type="button" class="btn" id="btnCancel">Cancelar</button>
@@ -98,6 +98,7 @@ let AUTH = "";
 let RELOGIN_COUNT = 0;
 let INACTIVITY_TIMER = null;
 const TIMEOUT_MS = 10 * 60 * 1000;
+const VALID_ROLES = ["owner", "admin", "supervisor", "cashier", "production", "warehouse"];
 
 function resetTimer() {
   if (INACTIVITY_TIMER) clearTimeout(INACTIVITY_TIMER);
@@ -210,12 +211,12 @@ async function loadUsers() {
       html += "<tr>" +
         "<td><div style=font-weight:600>" + esc(u.email) + "</div></td>" +
         "<td>" + esc(u.displayName || "-") + "</td>" +
-        "<td><span class=badge style=background:#FFF8DC;color:#8B4513>" + esc(u.role || "cajero") + "</span></td>" +
+        "<td><span class=badge style=background:#FFF8DC;color:#8B4513>" + esc(u.role || "cashier") + "</span></td>" +
         "<td><span class=badge " + (u.disabled ? "badge-disabled" : "badge-active") + ">" + (u.disabled ? "Deshabilitado" : "Activo") + "</span>" +
         (u.emailVerified ? "<span class=badge badge-verified style=margin-left:4px>OK</span>" : "") + "</td>" +
         "<td style=font-size:.75rem;color:#8B7355>" + (u.created ? new Date(u.created).toLocaleDateString() : "-") + "</td>" +
         "<td>" +
-        "<button class=btn btn-sm data-action=edit data-uid=" + u.uid + " data-email=" + esc(u.email) + " data-name=" + esc(u.displayName || "") + " data-disabled=" + u.disabled + " data-role=" + esc(u.role || "cajero") + ">Editar</button>" +
+        "<button class=btn btn-sm data-action=edit data-uid=" + u.uid + " data-email=" + esc(u.email) + " data-name=" + esc(u.displayName || "") + " data-disabled=" + u.disabled + " data-role=" + esc(u.role || "cashier") + ">Editar</button>" +
         "<button class=btn btn-sm btn-danger data-action=delete data-uid=" + u.uid + " data-email=" + esc(u.email) + ">Eliminar</button>" +
         "</td></tr>";
     }
@@ -246,7 +247,7 @@ function openCreateModal() {
   document.getElementById("fEmail").value = "";
   document.getElementById("fName").value = "";
   document.getElementById("fPassword").value = "";
-  document.getElementById("fRole").value = "cajero";
+  document.getElementById("fRole").value = "cashier";
   document.getElementById("fDisabled").value = "false";
   document.getElementById("pwdHint").textContent = "*";
   document.getElementById("fPassword").required = true;
@@ -260,7 +261,18 @@ function openEditModal(uid, email, name, disabled, role) {
   document.getElementById("fEmail").value = email;
   document.getElementById("fName").value = name;
   document.getElementById("fPassword").value = "";
-  document.getElementById("fRole").value = role || "cajero";
+  var roleSelect = document.getElementById("fRole");
+  var legacyOpt = roleSelect.querySelector("[data-legacy-option]");
+  if (legacyOpt) legacyOpt.remove();
+  if (role && VALID_ROLES.indexOf(role) === -1) {
+    var opt = document.createElement("option");
+    opt.value = role;
+    opt.textContent = "⚠️ " + role + " (legacy — elegí un rol válido para continuar)";
+    opt.disabled = true;
+    opt.setAttribute("data-legacy-option", "true");
+    roleSelect.insertBefore(opt, roleSelect.firstChild);
+  }
+  roleSelect.value = role || "cashier";
   document.getElementById("fDisabled").value = String(disabled);
   document.getElementById("pwdHint").textContent = "(vacio = no cambiar)";
   document.getElementById("fPassword").required = false;

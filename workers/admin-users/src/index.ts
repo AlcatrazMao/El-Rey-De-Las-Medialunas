@@ -112,6 +112,20 @@ function checkRateLimit(ip: string): boolean {
 // ── In-memory user cache ─────────────────────────────────────────────
 let userCache: { uid: string; email: string; displayName: string; role: string; disabled: boolean; created: string }[] = [];
 
+// ── Valid roles ───────────────────────────────────────────────────────
+// Debe coincidir exactamente con packages/shared/src/constants/roles.ts
+// (ROLES) y con VALID_ROLES en workers/api/src/middleware/auth.ts. Antes se
+// persistía `body.role || 'cajero'` sin validar, lo que permitía guardar
+// roles en español (o cualquier string) en D1.users.role — el middleware de
+// auth del worker de API sólo acepta estos 6 roles en inglés, así que un
+// usuario guardado con rol inválido quedaba sin poder operar contra la API.
+const VALID_ROLES = ['owner', 'admin', 'supervisor', 'cashier', 'production', 'warehouse'] as const;
+type ValidRole = (typeof VALID_ROLES)[number];
+const DEFAULT_ROLE: ValidRole = 'cashier';
+function isValidRole(role: unknown): role is ValidRole {
+  return typeof role === 'string' && (VALID_ROLES as readonly string[]).includes(role);
+}
+
 // ── Get OAuth2 token ──────────────────────────────────────────────────
 async function getAccessToken(env: Env): Promise<string> {
   const raw = (env.FIREBASE_SERVICE_ACCOUNT || '').trim();
@@ -231,8 +245,8 @@ async function handleRequest(req: Request, env: Env, url: URL) {
       if (res.ok) {
         const fbData = await res.json() as FirebaseBatchGetResponse;
         const users = (fbData.users || []).map((u: FirebaseUserRecord) => {
-          let role = 'cajero';
-          try { role = JSON.parse(u.customAttributes || '{}').role || 'cajero'; } catch {}
+          let role: string = DEFAULT_ROLE;
+          try { role = JSON.parse(u.customAttributes || '{}').role || DEFAULT_ROLE; } catch {}
           return {
             uid: u.localId,
             email: u.email || '',
@@ -276,6 +290,12 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   // ── Create user (OAuth2, no API key) ──
   if (method === 'POST' && path === '/api/users') {
     const body = await req.json() as CreateUserBody;
+    // Validar role ANTES de crear nada en Firebase: si viene un string
+    // inválido (o en español, ej. "cajero"/"panadero") lo rechazamos acá en
+    // vez de dejarlo persistir en D1/Firestore sin normalizar.
+    if (body.role !== undefined && !isValidRole(body.role)) {
+      return { status: 400, error: `Rol inválido: "${body.role}". Debe ser uno de: ${VALID_ROLES.join(', ')}` };
+    }
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts`,
       { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -284,9 +304,8 @@ async function handleRequest(req: Request, env: Env, url: URL) {
     const text = await res.text();
     if (!res.ok) return { status: res.status, error: `Firebase: ${text.substring(0, 300)}` };
     const data = JSON.parse(text);
-    userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', role: body.role || 'cajero', disabled: false, created: new Date().toISOString() });
-    
-    const role = body.role || 'cajero';
+    const role: ValidRole = isValidRole(body.role) ? body.role : DEFAULT_ROLE;
+    userCache.push({ uid: data.localId, email: data.email, displayName: body.displayName || '', role, disabled: false, created: new Date().toISOString() });
 
     // Set Firebase custom claims
     try {
@@ -331,6 +350,9 @@ async function handleRequest(req: Request, env: Env, url: URL) {
   if (method === 'PATCH' && path.startsWith('/api/users/')) {
     const uid = path.split('/api/users/')[1] ?? '';
     const body = await req.json() as UpdateUserBody;
+    if (body.role !== undefined && !isValidRole(body.role)) {
+      return { status: 400, error: `Rol inválido: "${body.role}". Debe ser uno de: ${VALID_ROLES.join(', ')}` };
+    }
     const updates: FirebaseUpdatePayload = { localId: uid };
     if (body.email) updates.email = body.email;
     if (body.password) updates.password = body.password;
