@@ -1,0 +1,27 @@
+{
+  "name": "@medialunas/print-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servicio local (localhost) de impresión directa para el POS de El Rey De Las Medialunas — recibe tickets vía HTTP y los manda a la impresora sin pasar por el diálogo nativo del navegador.",
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "lint": "eslint src/",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.14",
+    "hono": "^4.12.23",
+    "node-thermal-printer": "^4.6.0",
+    "pdf-to-printer": "^5.8.0",
+    "pdfkit": "^0.15.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.42",
+    "@types/pdfkit": "^0.13.9",
+    "tsx": "^4.22.5",
+    "typescript": "^5.9.3"
+  }
+}

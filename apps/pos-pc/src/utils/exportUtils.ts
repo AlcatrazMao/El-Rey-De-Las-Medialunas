@@ -5,6 +5,43 @@ import type { Sale, Ingredient, Expense } from '../types';
 // the local package version string so prints never go out unlabeled.
 const APP_VERSION: string = import.meta.env.VITE_APP_VERSION ?? 'v0.1.0';
 
+const DEFAULT_BRIDGE_URL = 'http://localhost:9100';
+const BRIDGE_TIMEOUT_MS = 1500;
+
+/**
+ * Intenta imprimir directo vía el servicio local apps/print-bridge (POST /print),
+ * evitando el diálogo nativo de impresión del navegador. Devuelve true solo si el
+ * bridge confirmó la impresión ({success: true} con status 200); devuelve false ante
+ * cualquier otro escenario (deshabilitado en settings, timeout, connection refused,
+ * CORS, respuesta no-OK) para que el caller caiga al fallback de window.print()
+ * de forma silenciosa — el bridge es opcional y muchas PCs no lo van a tener instalado.
+ */
+async function tryPrintViaBridge(sale: Sale, style: 'receipt' | 'invoice'): Promise<boolean> {
+  const printerSettings = getSettings().printer;
+  if (!printerSettings?.useBridge) return false;
+
+  const bridgeUrl = (printerSettings.bridgeUrl?.trim() || DEFAULT_BRIDGE_URL).replace(/\/$/, '');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), BRIDGE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${bridgeUrl}/print`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sale, style }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return false;
+    const data = (await response.json().catch(() => null)) as { success?: boolean } | null;
+    return data?.success === true;
+  } catch {
+    // Timeout, connection refused, CORS, bridge no instalado, etc: fallback silencioso.
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Downloads arbitrary structural rows as a clean CSV file
  */
@@ -78,25 +115,15 @@ export const exportExpensesToCSV = (expenses: Expense[]) => {
 };
 
 /**
- * Triggers a beautiful browser-level print layout formatted as an authentic ticket receipt or formal invoice.
- * Generates an iframe on the fly to print cleanly without messing up the main ERP styling!
+ * Arma el HTML completo (documento standalone, con estilos inline) de un ticket/factura
+ * para una venta dada. Factorizado desde printTicketOrInvoice para poder reusarlo tanto
+ * en el iframe de impresión como en la exportación a archivo .html descargable
+ * (ver downloadTicketHtml) sin duplicar el armado del comprobante.
  */
-export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 'receipt') => {
+export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'receipt'): string => {
   const isReceipt = style === 'receipt';
   const ivaRate = getSettings().fiscal.ivaRate;
   const ivaPct = (ivaRate * 100).toFixed(2);
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  
-  document.body.appendChild(iframe);
-  
-  const doc = iframe.contentWindow?.document || iframe.contentDocument;
-  if (!doc) return;
 
   const dateStr = new Date(sale.date).toLocaleString('es-AR');
   const itemsRows = sale.items.map(item => `
@@ -106,7 +133,7 @@ export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 
     </tr>
   `).join('');
 
-  const html = `
+  return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -222,7 +249,36 @@ export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 
     </body>
     </html>
   `;
-  
+};
+
+/**
+ * Triggers a beautiful browser-level print layout formatted as an authentic ticket receipt or formal invoice.
+ * Generates an iframe on the fly to print cleanly without messing up the main ERP styling!
+ *
+ * Primero intenta imprimir vía el bridge local de impresión directa (apps/print-bridge, ver
+ * tryPrintViaBridge). Si está deshabilitado en settings o no responde, cae de forma transparente
+ * al comportamiento de siempre (iframe + window.print()) — ningún caller necesita saber cuál de
+ * los dos caminos se usó.
+ */
+export const printTicketOrInvoice = async (sale: Sale, style: 'receipt' | 'invoice' = 'receipt'): Promise<void> => {
+  const printedViaBridge = await tryPrintViaBridge(sale, style);
+  if (printedViaBridge) return;
+
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow?.document || iframe.contentDocument;
+  if (!doc) return;
+
+  const html = buildTicketHtml(sale, style);
+
   doc.open();
   doc.write(html);
   doc.close();
@@ -231,4 +287,24 @@ export const printTicketOrInvoice = (sale: Sale, style: 'receipt' | 'invoice' = 
   setTimeout(() => {
     document.body.removeChild(iframe);
   }, 30000); // 30 seconds should be plenty for print dialog to show up and dismiss
+};
+
+/**
+ * Exporta el ticket/factura de una venta como archivo .html descargable, reusando el mismo
+ * armado de comprobante que printTicketOrInvoice (ver buildTicketHtml). No requiere librerías
+ * de PDF: el usuario puede abrir el .html en el navegador e imprimirlo o "Guardar como PDF"
+ * desde el diálogo de impresión nativo. Mismo patrón Blob + URL.createObjectURL + <a download>
+ * que downloadCSV.
+ */
+export const downloadTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'receipt'): void => {
+  const html = buildTicketHtml(sale, style);
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `ticket-${sale.invoiceNumber}.html`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 };

@@ -16,6 +16,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
+  Download,
+  CheckCircle2,
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
@@ -26,7 +28,7 @@ import type { IDBOffer } from '../lib/idb';
 import { offerStore } from '../lib/idb';
 import { API_URL, fetchWithAuth } from '../services/api';
 import type { CategoryType, Product, ProductGroup, Sale } from '../types';
-import { printTicketOrInvoice } from '../utils/exportUtils';
+import { downloadTicketHtml, printTicketOrInvoice } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
 import { calcularPrecioUnitarioGrupo } from '../utils/productGroups';
 
@@ -1019,8 +1021,12 @@ export const POSView: React.FC = () => {
         if (result.success && result.invoice) {
           setLatestInvoice(result.invoice);
           setShowInvoiceModal(true);
-          // Print ticket automatically on sound success
-          printTicketOrInvoice(result.invoice, 'receipt');
+          // Print ticket automatically on sound success, solo si el cajero activó
+          // "Auto-imprimir al cerrar venta" en Configuración > Impresora. Si está en
+          // false (default), el usuario decide desde los botones del modal.
+          if (posSettings.printer.autoPrint) {
+            printTicketOrInvoice(result.invoice, 'receipt');
+          }
           // Clear Cart and customer state
           updateActiveTab({
             cart: [],
@@ -1583,6 +1589,40 @@ export const POSView: React.FC = () => {
                 <FileDown className="h-4 w-4" /> Ticket Digital (PDF)
               </button>
             </div>
+
+            {/* Botones de acción manual: solo se muestran si "Auto-imprimir al cerrar venta"
+                está desactivado en Configuración > Impresora. Con autoPrint activo, el ticket
+                ya se imprimió solo y no hace falta este paso extra. */}
+            {!posSettings.printer.autoPrint && (
+              <div className="p-4 pt-0 bg-gray-50 dark:bg-zinc-950 flex items-center gap-2 border-t border-gray-100 dark:border-zinc-800">
+                <button
+                  id="btn-invoice-imprimir"
+                  onClick={() => printTicketOrInvoice(latestInvoice, 'receipt')}
+                  className="flex-1 py-2 px-3 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-850 hover:bg-gray-100 dark:hover:bg-zinc-800 text-xs font-bold text-gray-750 dark:text-zinc-200 cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Imprime el ticket ahora"
+                >
+                  <Printer className="h-4 w-4" /> Imprimir
+                </button>
+
+                <button
+                  id="btn-invoice-exportar"
+                  onClick={() => downloadTicketHtml(latestInvoice, 'receipt')}
+                  className="flex-1 py-2 px-3 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-850 hover:bg-gray-100 dark:hover:bg-zinc-800 text-xs font-bold text-gray-750 dark:text-zinc-200 cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Descarga el ticket como archivo HTML para abrir, imprimir o guardar como PDF"
+                >
+                  <Download className="h-4 w-4" /> Exportar
+                </button>
+
+                <button
+                  id="btn-invoice-cerrar-guardar"
+                  onClick={() => setShowInvoiceModal(false)}
+                  className="flex-1 py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold cursor-pointer flex items-center justify-center gap-1.5"
+                  title="La venta ya está guardada: solo cierra este comprobante"
+                >
+                  <CheckCircle2 className="h-4 w-4" /> Cerrar y guardar
+                </button>
+              </div>
+            )}
 
             <div className="p-3 bg-gray-100 dark:bg-zinc-900 border-t border-gray-200 dark:border-zinc-850">
               <button

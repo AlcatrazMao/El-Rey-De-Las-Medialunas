@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useState, useEffect } from 'react';
 
 import { useSettings } from '../hooks/useSettings';
-import type { BusinessSettings, FiscalSettings, CashSettings, InventorySettings, GatewayCredential, PriceList, Promotion, SyncSettings } from '../hooks/useSettings';
+import type { BusinessSettings, FiscalSettings, CashSettings, InventorySettings, GatewayCredential, PriceList, Promotion, SyncSettings, PrinterSettings } from '../hooks/useSettings';
 import { BusinessSettings as BusinessSettingsPanel } from '../settings/BusinessSettings';
 import { CashSettings as CashSettingsPanel } from '../settings/CashSettings';
 import { DangerZoneSettings as DangerZoneSettingsPanel } from '../settings/DangerZoneSettings';
@@ -81,6 +81,8 @@ export const SettingsView: React.FC = () => {
     safeRun(() => updateSection('inventory', values));
   const handleUpdateSync = (_section: 'sync', values: Partial<SyncSettings>) =>
     safeRun(() => updateSection('sync', values));
+  const handleUpdatePrinter = (_section: 'printer', values: Partial<PrinterSettings>) =>
+    safeRun(() => updateSection('printer', values));
   const handleUpdatePayment = (credentials: GatewayCredential[]) =>
     safeRun(() => setGatewayCredentials(credentials));
   const handleUpdatePriceLists = (priceLists: PriceList[]) =>
@@ -117,7 +119,7 @@ export const SettingsView: React.FC = () => {
       case 'promotions':
         return <PromotionsSettingsPanel settings={settings} onUpdate={handleUpdatePromotions} onSaved={showSavedToast} />;
       case 'printer':
-        return <PrinterSettingsPanel />;
+        return <PrinterSettingsPanel settings={settings} onUpdate={handleUpdatePrinter} onSaved={showSavedToast} />;
       case 'sync':
         return <SyncSettingsPanel settings={settings} onUpdate={handleUpdateSync} onSaved={showSavedToast} />;
       case 'sync_console':

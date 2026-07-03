@@ -34,6 +34,15 @@ export interface SyncSettings {
   autoSyncOnClose: boolean;
 }
 
+export interface PrinterSettings {
+  /** Si está activo, printTicketOrInvoice intenta primero el bridge local antes del fallback de window.print(). */
+  useBridge: boolean;
+  /** URL base del servicio local apps/print-bridge (sin trailing slash). */
+  bridgeUrl: string;
+  /** Si está activo, imprime automáticamente al completar una venta. Si está en false, el usuario elige manualmente desde el modal de comprobante. */
+  autoPrint: boolean;
+}
+
 export interface GatewayCredential {
   gatewayId: string;
   publicKey: string;
@@ -114,6 +123,7 @@ export interface AppSettings {
   paymentMethods: PaymentMethodConfig[];
   discountConfig: DiscountConfig;
   pos: PosSettings;
+  printer: PrinterSettings;
 }
 
 type ObjectSections = Omit<AppSettings, 'gatewayCredentials' | 'priceLists' | 'promotions' | 'paymentMethods' | 'discountConfig'>;
@@ -171,6 +181,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   pos: {
     defaultPaymentMethod: 'efectivo',
     defaultViewMode: 'visual',
+  },
+  printer: {
+    useBridge: false,
+    bridgeUrl: 'http://localhost:9100',
+    autoPrint: false,
   },
 };
 
@@ -258,6 +273,7 @@ export function getSettings(): AppSettings {
         };
       })(),
       pos: { ...DEFAULT_SETTINGS.pos, ...(parsed.pos ?? {}) },
+      printer: { ...DEFAULT_SETTINGS.printer, ...(parsed.printer ?? {}) },
     };
   } catch {
     return DEFAULT_SETTINGS;

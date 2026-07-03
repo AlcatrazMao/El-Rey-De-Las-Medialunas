@@ -1,67 +1,105 @@
 import { Printer } from 'lucide-react';
 import * as React from 'react';
+import { useState } from 'react';
 
-export const PrinterSettings: React.FC = () => {
+import type { AppSettings, PrinterSettings as PrinterSettingsType } from '../hooks/useSettings';
+
+interface Props {
+  settings: AppSettings;
+  onUpdate: (section: 'printer', values: Partial<PrinterSettingsType>) => void;
+  onSaved: () => void;
+}
+
+export const PrinterSettings: React.FC<Props> = ({ settings, onUpdate, onSaved }) => {
+  const [form, setForm] = useState<PrinterSettingsType>({ ...settings.printer });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onUpdate('printer', {
+      useBridge: form.useBridge,
+      bridgeUrl: form.bridgeUrl.trim() || 'http://localhost:9100',
+      autoPrint: form.autoPrint,
+    });
+    onSaved();
+  };
+
   return (
-    <div className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-5">
       <div className="flex items-center gap-2 border-b border-gray-100 dark:border-zinc-800 pb-4">
         <Printer className="h-4 w-4 text-amber-500" />
         <h3 className="text-sm font-extrabold text-gray-800 dark:text-zinc-50">Impresora Térmica</h3>
-        <span className="ml-auto text-[10px] font-black bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 px-2.5 py-1 rounded-full uppercase tracking-wider">
-          En desarrollo
-        </span>
       </div>
 
-      <div className="bg-amber-50 dark:bg-amber-950/15 border border-amber-200/60 dark:border-amber-800/30 rounded-2xl p-5 text-center space-y-2">
-        <Printer className="h-8 w-8 text-amber-400 mx-auto opacity-50" />
-        <p className="text-xs font-extrabold text-amber-700 dark:text-amber-400">
-          Configuración de impresora térmica — Próximamente disponible
-        </p>
-        <p className="text-[10px] text-amber-600/70 dark:text-amber-500/60">
-          Esta sección permitirá configurar impresoras para tickets y comprobantes de caja.
-        </p>
-      </div>
-
-      <div className="space-y-4 opacity-50 pointer-events-none select-none">
+      <div className="space-y-4">
         <div className="space-y-1">
           <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-            Tipo de Conexión
+            Impresión directa
           </label>
-          <select
-            disabled
-            className="w-full text-xs font-bold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 text-gray-400 dark:text-zinc-600 cursor-not-allowed"
-          >
-            <option value="usb">USB</option>
-            <option value="com">Puerto COM (Serial)</option>
-            <option value="network">Red (TCP/IP)</option>
-          </select>
+          <label className="flex items-center gap-3 w-full text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.useBridge}
+              onChange={e => setForm(f => ({ ...f, useBridge: e.target.checked }))}
+              className="h-4 w-4 accent-amber-500 cursor-pointer"
+            />
+            <span className="text-gray-850 dark:text-zinc-100">
+              Usar impresión directa (bridge local)
+            </span>
+          </label>
+          <p className="text-[10px] text-gray-400">
+            Envía el ticket a un servicio local instalado en esta PC que imprime directo a la impresora
+            térmica, sin pasar por el diálogo de impresión del navegador. Si el servicio no responde,
+            se usa automáticamente el método habitual (diálogo de impresión del navegador).
+          </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-              IP / Host
-            </label>
+        <div className="space-y-1">
+          <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+            URL del bridge local
+          </label>
+          <input
+            type="text"
+            value={form.bridgeUrl}
+            onChange={e => setForm(f => ({ ...f, bridgeUrl: e.target.value }))}
+            disabled={!form.useBridge}
+            placeholder="http://localhost:9100"
+            className="w-full text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-850 dark:text-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <p className="text-[10px] text-gray-400">
+            Dirección donde escucha el servicio de impresión local (por defecto http://localhost:9100).
+          </p>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+            Impresión automática
+          </label>
+          <label className="flex items-center gap-3 w-full text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 cursor-pointer">
             <input
-              type="text"
-              disabled
-              placeholder="192.168.1.100"
-              className="w-full text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 text-gray-300 dark:text-zinc-600 cursor-not-allowed"
+              type="checkbox"
+              checked={form.autoPrint}
+              onChange={e => setForm(f => ({ ...f, autoPrint: e.target.checked }))}
+              className="h-4 w-4 accent-amber-500 cursor-pointer"
             />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-              Puerto
-            </label>
-            <input
-              type="number"
-              disabled
-              placeholder="9100"
-              className="w-full text-xs font-semibold bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-xl p-3 text-gray-300 dark:text-zinc-600 cursor-not-allowed"
-            />
-          </div>
+            <span className="text-gray-850 dark:text-zinc-100">
+              Auto-imprimir al cerrar venta
+            </span>
+          </label>
+          <p className="text-[10px] text-gray-400">
+            Si está desactivado, el comprobante no se imprime solo: al completar la venta se muestra
+            el modal con botones para imprimir, exportar o simplemente cerrar.
+          </p>
         </div>
       </div>
-    </div>
+
+      <div className="pt-2">
+        <button
+          type="submit"
+          className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
+        >
+          Guardar cambios
+        </button>
+      </div>
+    </form>
   );
 };
