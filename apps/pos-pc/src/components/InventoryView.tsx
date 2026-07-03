@@ -9,10 +9,11 @@ import {
   X,
   Check,
   ShieldAlert,
-  Layers
+  Layers,
+  Pencil
 } from 'lucide-react';
 import * as React from 'react'
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 import { useApp } from '../AppContext';
 import { useProductForm } from '../hooks/useProductForm';
@@ -31,6 +32,7 @@ export const InventoryView: React.FC = () => {
     addIngredient,
     updateIngredientStock,
     addProduct,
+    updateProduct,
     updateProductStock,
     addBatch,
     requestBatchWithdrawal,
@@ -139,15 +141,69 @@ export const InventoryView: React.FC = () => {
   // Product creation form modal & dynamic recipe builder — state encapsulado
   // en `useProductForm`. La visibilidad del modal sigue siendo state local
   // porque la usa el render de InventoryView, no la lógica del formulario.
+  // Reutilizamos el mismo modal para editar: `editingProduct` !== null indica
+  // modo edición. `useProductForm` ya soportaba `defaults` (pensado para esto)
+  // — sólo faltaba: 1) alimentar esos defaults con el producto a editar,
+  // 2) forzar un reset() para que los inputs tomen esos valores (los defaults
+  // sólo se aplican al primer montaje del hook), y 3) bifurcar el submit entre
+  // addProduct/updateProduct según el modo.
   const [showProductModal, setShowProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  const productFormDefaults = useMemo(() => (
+    editingProduct
+      ? {
+          name: editingProduct.name,
+          category: editingProduct.category,
+          price: editingProduct.price,
+          cost: editingProduct.cost,
+          minStock: editingProduct.minStock,
+          image: editingProduct.image,
+          code: editingProduct.code,
+          stock: editingProduct.stock,
+        }
+      : {}
+  ), [editingProduct]);
+
   const productForm = useProductForm((payload) => {
-    addProduct(payload);
+    if (editingProduct) {
+      updateProduct(editingProduct.id, {
+        name: payload.name,
+        category: payload.category,
+        price: payload.price,
+        cost: payload.cost,
+        minStock: payload.minStock,
+        image: payload.image,
+        code: payload.code,
+      });
+    } else {
+      addProduct(payload);
+    }
     setShowProductModal(false);
-  });
+    setEditingProduct(null);
+  }, productFormDefaults);
+
+  // Los defaults de useProductForm sólo se aplican al montar el hook (useState
+  // lazy init) — para que abrir el modal en modo edición precargue los campos
+  // del producto seleccionado, forzamos un reset() cuando cambia editingProduct.
+  // Sin el `if`: también se resetea cuando editingProduct vuelve a null (cierre
+  // sin guardar), así el form no arrastra los datos del producto editado hacia
+  // el próximo alta (productFormDefaults ya es {} en ese render, por lo que
+  // reset() aplica FALLBACK_DEFAULTS).
+  useEffect(() => {
+    productForm.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- productForm.reset es estable (useCallback sin deps); sólo nos interesa reaccionar al producto seleccionado
+  }, [editingProduct]);
 
   const closeProductModal = () => {
     productForm.reset();
     setShowProductModal(false);
+    setEditingProduct(null);
+  };
+
+  const openEditProductModal = (prod: Product) => {
+    setEditingProduct(prod);
+    setShowProductModal(true);
   };
 
   // Handle ingredient addition
@@ -448,9 +504,23 @@ export const InventoryView: React.FC = () => {
                         </div>
                       </div>
                       
-                      <div className="text-right">
-                        <p className="text-xs font-extrabold text-emerald-500">{formatCurrency(prod.price)}</p>
-                        <p className="text-[9px] text-gray-400 leading-tight">Costo: {formatCurrency(prod.cost)}</p>
+                      <div className="text-right flex items-start gap-1.5">
+                        <div>
+                          <p className="text-xs font-extrabold text-emerald-500">{formatCurrency(prod.price)}</p>
+                          <p className="text-[9px] text-gray-400 leading-tight">Costo: {formatCurrency(prod.cost)}</p>
+                        </div>
+                        {/* 'owner' no está en el tipo UserRole pero el backend lo emite — cast
+                            explícito para que la comparación no rompa el typecheck. */}
+                        {(activeUser.role === 'admin' || (activeUser.role as string) === 'owner') && (
+                          <button
+                            id={`btn-edit-product-${prod.id}`}
+                            onClick={() => openEditProductModal(prod)}
+                            className="p-1.5 rounded-lg bg-gray-50 hover:bg-amber-100 dark:bg-zinc-850 dark:hover:bg-amber-950/30 text-gray-500 hover:text-amber-700 dark:text-zinc-400 dark:hover:text-amber-400 cursor-pointer transition-colors"
+                            title="Editar producto"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -1227,7 +1297,7 @@ export const InventoryView: React.FC = () => {
           >
             <div className="flex items-center justify-between border-b pb-2.5 border-gray-100 dark:border-zinc-800">
               <h3 className="font-extrabold text-base text-gray-850 dark:text-zinc-50 flex items-center gap-1.5 font-sans">
-                👑 Agregar Panificado / Producto Especial
+                {editingProduct ? <>✏️ Editar Producto: {editingProduct.name}</> : <>👑 Agregar Panificado / Producto Especial</>}
               </h3>
               <button
                 type="button"
@@ -1277,6 +1347,22 @@ export const InventoryView: React.FC = () => {
               </div>
             </div>
 
+            {editingProduct && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1 col-span-2">
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Código de Barras</label>
+                  <input
+                    id="modal-prod-code"
+                    type="text"
+                    placeholder="Código de barras"
+                    value={productForm.fields.code}
+                    onChange={(e) => productForm.setters.setCode(e.target.value)}
+                    className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100 font-mono"
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Precio de Venta Mostrador ($)</label>
@@ -1308,18 +1394,23 @@ export const InventoryView: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Stock Inicial Horneado</label>
-                <input
-                  id="modal-prod-stock"
-                  type="number"
-                  required
-                  min="0"
-                  value={productForm.fields.stock}
-                  onChange={(e) => productForm.setters.setStock(Number(e.target.value))}
-                  className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
-                />
-              </div>
+              {/* Stock inicial sólo aplica al crear: una vez que el producto existe,
+                  el stock se gestiona vía lotes/reposición dedicados (updateProductStock,
+                  BatchPanel), no reescribiéndolo desde este modal. */}
+              {!editingProduct && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Stock Inicial Horneado</label>
+                  <input
+                    id="modal-prod-stock"
+                    type="number"
+                    required
+                    min="0"
+                    value={productForm.fields.stock}
+                    onChange={(e) => productForm.setters.setStock(Number(e.target.value))}
+                    className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
+                  />
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Alerta Quiebre Stock (Mín)</label>
@@ -1393,7 +1484,7 @@ export const InventoryView: React.FC = () => {
                 id="btn-prod-modal-submit"
                 className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
-                Guardar Nuevo Horneado
+                {editingProduct ? 'Guardar Cambios' : 'Guardar Nuevo Horneado'}
               </button>
             </div>
           </form>

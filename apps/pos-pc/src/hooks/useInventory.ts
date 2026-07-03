@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 const uid = () => crypto.randomUUID().replace(/-/g, '');
 
 import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
-import { fetchProductsFromD1, syncProductToD1 } from '../services/d1-sync';
+import { fetchProductsFromD1, syncProductToD1, syncProductUpdateToD1 } from '../services/d1-sync';
 import type { Ingredient, Product, PaymentGateway, ProductGroup } from '../types';
 import { safeSetItem, safeParseLocalStorage } from '../utils/safeStorage';
 
@@ -101,6 +101,43 @@ export function useInventory(notify: NotifyFn) {
     );
   };
 
+  /**
+   * Edita campos de un producto existente (modal de edición en InventoryView).
+   * Mismo patrón que addProduct: optimistic update local primero, luego se
+   * intenta sincronizar al backend vía PUT /products/:id. A diferencia de
+   * addProduct, si la sync falla NO se encola (enqueue() en d1-sync sólo
+   * soporta operation "create" — extenderlo a "update" queda fuera de alcance
+   * de v1). En su lugar avisamos con un error pidiendo reintentar manualmente.
+   */
+  const updateProduct = (
+    id: string,
+    changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image'>>
+  ) => {
+    const previous = productsRef.current.find(prod => prod.id === id);
+    if (!previous) return;
+
+    // Optimistic update: reflejamos el cambio local de inmediato.
+    setProducts(prev => prev.map(prod => (prod.id === id ? { ...prod, ...changes } : prod)));
+
+    syncProductUpdateToD1(id, {
+      name: changes.name,
+      code: changes.code,
+      price: changes.price,
+      cost: changes.cost,
+      minStock: changes.minStock,
+      category: changes.category,
+    }).catch(() => {
+      // El cambio ya vive en el estado local (offline-first), pero el backend
+      // no lo recibió. Sin cola de reintento para updates (fuera de alcance v1):
+      // el usuario debe reintentar guardarlo manualmente más tarde.
+      notify(
+        '❌ Cambios sin sincronizar',
+        `Los cambios en "${previous.name}" se guardaron localmente, pero no pudieron sincronizarse con el servidor. Reintentá guardarlos nuevamente.`,
+        'error'
+      );
+    });
+  };
+
   const updateProductStock = (id: string, newStock: number) => {
     setProducts(prev => prev.map(prod => (prod.id === id ? { ...prod, stock: newStock } : prod)));
   };
@@ -140,6 +177,7 @@ export function useInventory(notify: NotifyFn) {
     addIngredient,
     updateIngredientStock,
     addProduct,
+    updateProduct,
     updateProductStock,
     updateProductGroups,
     toggleGateway,

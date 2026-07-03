@@ -5,6 +5,9 @@ import type { CategoryType } from '../types';
 
 // Payload exacto que espera AppContext.addProduct — duplicado intencional
 // para no acoplar el hook a la firma completa de Product (sin id/code).
+// `code` es opcional: sólo se usa en modo edición (AppContext.updateProduct
+// acepta cambiarlo); en modo creación el id/code se generan en addProduct y
+// este campo, si viniera seteado, se ignora.
 export interface NewProductPayload {
   name: string;
   category: CategoryType;
@@ -13,6 +16,7 @@ export interface NewProductPayload {
   stock: number;
   minStock: number;
   image: string;
+  code?: string;
   ingredients: { ingredientId: string; quantity: number }[];
 }
 
@@ -24,6 +28,7 @@ export interface ProductFormDefaults {
   stock?: number;
   minStock?: number;
   image?: string;
+  code?: string;
 }
 
 const FALLBACK_DEFAULTS = {
@@ -34,6 +39,7 @@ const FALLBACK_DEFAULTS = {
   stock: 50,
   minStock: 10,
   image: '🥖',
+  code: '',
 };
 
 /**
@@ -57,6 +63,7 @@ export function useProductForm(
   const [stock, setStock] = useState(initial.stock);
   const [minStock, setMinStock] = useState(initial.minStock);
   const [image, setImage] = useState(initial.image);
+  const [code, setCode] = useState(initial.code);
   const [recipeIngredients, setRecipeIngredients] = useState<{ ingredientId: string; quantity: number }[]>([]);
 
   // Ref que siempre apunta al último `initial`. El callback `reset` lee de la
@@ -74,6 +81,7 @@ export function useProductForm(
     setStock(i.stock);
     setMinStock(i.minStock);
     setImage(i.image);
+    setCode(i.code);
     setRecipeIngredients([]);
   }, []);
 
@@ -103,18 +111,19 @@ export function useProductForm(
       stock: Number(stock),
       minStock: Number(minStock),
       image,
+      code: code.trim() || undefined,
       ingredients: recipeIngredients,
     });
     reset();
-  }, [name, category, price, cost, stock, minStock, image, recipeIngredients, onSubmit, reset]);
+  }, [name, category, price, cost, stock, minStock, image, code, recipeIngredients, onSubmit, reset]);
 
   return {
     fields: {
-      name, category, price, cost, stock, minStock, image,
+      name, category, price, cost, stock, minStock, image, code,
       recipeIngredients,
     },
     setters: {
-      setName, setCategory, setPrice, setCost, setStock, setMinStock, setImage,
+      setName, setCategory, setPrice, setCost, setStock, setMinStock, setImage, setCode,
     },
     recipe: {
       items: recipeIngredients,

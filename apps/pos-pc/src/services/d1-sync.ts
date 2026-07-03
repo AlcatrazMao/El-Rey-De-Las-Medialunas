@@ -1,3 +1,5 @@
+import type { UpdateProductRequest } from "@medialunas/shared/types/api";
+
 import { getSettings } from "../hooks/useSettings";
 import { syncErrorStore } from "../lib/idb";
 import type { Sale, Product, CategoryType, CashSession as LocalCashSession, SyncErrorCategory } from "../types";
@@ -600,6 +602,52 @@ export async function syncProductToD1(product: {
       await enqueue('product', { id: product.id, ...payload });
     }
   }
+}
+
+/**
+ * Sincroniza una edición de producto existente (PUT /products/:id).
+ * Mismo mapeo camelCase → snake_case que syncProductToD1, pero parcial: sólo
+ * mandamos los campos que el caller efectivamente cambió. `category`, si
+ * viene, se resuelve a `category_id` igual que en la sync de creación
+ * (buscando por nombre en categories.getAll()).
+ *
+ * A diferencia de syncProductToD1, NO encolamos en `enqueue()` si falla: la
+ * cola de sync (enqueue) sólo soporta operation "create" — extenderla para
+ * "update" queda fuera de alcance de v1. El caller (useInventory.updateProduct)
+ * es responsable de notificar al usuario y de que reintente manualmente.
+ */
+export async function syncProductUpdateToD1(id: string, changes: {
+  name?: string;
+  code?: string;
+  price?: number;
+  cost?: number;
+  minStock?: number;
+  category?: string;
+}): Promise<void> {
+  const payload: UpdateProductRequest = {};
+  if (changes.name !== undefined) payload.name = changes.name;
+  if (changes.code !== undefined) payload.code = changes.code;
+  if (changes.price !== undefined) payload.price = changes.price;
+  if (changes.cost !== undefined) payload.cost = changes.cost;
+  if (changes.minStock !== undefined) payload.min_stock = changes.minStock;
+
+  if (changes.category !== undefined) {
+    const branchId = getSettings().business.branchId;
+    let category_id = '';
+    try {
+      const categories = await getApi().categories.getAll(branchId, undefined, true);
+      const cats = (Array.isArray(categories) ? categories : []) as Array<{ id: unknown; name: unknown }>;
+      const match = cats.find(c => String(c.name ?? '').toLowerCase() === changes.category!.toLowerCase());
+      if (match) category_id = String(match.id ?? '');
+    } catch {
+      // silently skip category resolution — el resto de los campos igual se manda
+    }
+    if (category_id) payload.category_id = category_id;
+  }
+
+  if (Object.keys(payload).length === 0) return;
+
+  await getApi().products.update(id, payload);
 }
 
 const VALID_CATEGORIES = new Set<CategoryType>(['panes', 'facturas', 'pasteleria', 'bebidas', 'salados']);

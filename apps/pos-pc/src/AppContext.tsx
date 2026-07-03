@@ -51,6 +51,7 @@ interface AppContextType {
   addIngredient: (ingredient: Omit<Ingredient, 'id'>) => void;
   updateIngredientStock: (id: string, newStock: number) => void;
   addProduct: (product: Omit<Product, 'id' | 'code'>) => void;
+  updateProduct: (id: string, changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image'>>) => void;
   updateProductStock: (id: string, newStock: number) => void;
   updateProductGroups: (id: string, groups: ProductGroup[]) => void;
   toggleGateway: (id: string) => void;
@@ -569,7 +570,7 @@ export const AppProvider: React.FC<{
     setActiveUserRole: usr.setActiveUserRole, setActiveTab: usr.setActiveTab,
     setBatches: bch.setBatches, addSale, addExpense: exp.addExpense,
     addIngredient: inv.addIngredient, updateIngredientStock: inv.updateIngredientStock,
-    addProduct: inv.addProduct, updateProductStock: inv.updateProductStock,
+    addProduct: inv.addProduct, updateProduct: inv.updateProduct, updateProductStock: inv.updateProductStock,
     updateProductGroups: inv.updateProductGroups,
     toggleGateway: inv.toggleGateway, updateUserWidgets: usr.updateUserWidgets,
     addSystemNotification: notif.addSystemNotification,
