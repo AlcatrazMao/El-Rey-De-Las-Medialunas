@@ -246,12 +246,29 @@ export interface SyncStatus {
 
 // ── SISTEMA DE SOLICITUDES UNIFICADO ──────────────────────────────────────
 
-export type RequestType = 'supply' | 'production' | 'delivery' | 'task' | 'maintenance' | 'custom';
+export type RequestType = 'supply' | 'production' | 'delivery' | 'task' | 'maintenance' | 'custom' | 'waste';
 export type RequestStatus =
   | 'pending_approval' | 'approved' | 'rejected'
   | 'accepted' | 'in_progress' | 'completed'
   | 'reassignment_requested' | 'cancelled';
 export type RequestPriority = 'low' | 'medium' | 'high';
+
+/**
+ * Metadata libre asociada a una solicitud. Para `type:'waste'` (mermas) el
+ * backend transporta el vínculo con el lote local del POS y los datos del
+ * descuento de stock que se aplica al aprobarse:
+ *   - batch_id:   id LOCAL del ProductBatch en el cliente (client_batch_id).
+ *   - product_id: producto asociado al lote.
+ *   - quantity:   unidades a dar de baja.
+ *   - reason:     motivo de la merma.
+ */
+export interface RequestMetadata {
+  batch_id?: string;
+  product_id?: string;
+  quantity?: number;
+  reason?: string;
+  branch_id?: string;
+}
 
 export interface ERPRequest {
   id: string;
@@ -281,6 +298,7 @@ export interface ERPRequest {
   time_completed?: string;
   duration_minutes?: number;
   incidents?: string;
+  metadata?: RequestMetadata | null;
   created_at: string;
   updated_at: string;
 }

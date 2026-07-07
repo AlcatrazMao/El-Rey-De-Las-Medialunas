@@ -1,25 +1,21 @@
 import {
   ClipboardList, Clock, CheckCircle2, X, Play, Undo2,
-  AlertTriangle, MapPin, Truck, ChefHat, Wrench, Package,
-  Loader2, RefreshCw, Inbox,
+  AlertTriangle, MapPin,
+  Loader2, RefreshCw, Inbox, Plus,
 } from 'lucide-react';
 import React, { useState, useMemo, useCallback } from 'react';
 
 import { useApp } from '../AppContext';
 import { useRequests } from '../hooks/useRequests';
-import { API_URL, fetchWithAuth } from '../services/api';
+import { API_URL, fetchWithAuth, getCurrentUserId } from '../services/api';
 import type { ERPRequest, RequestPriority, RequestStatus, RequestType } from '../types';
 
-// ── helpers ──────────────────────────────────────────────────────────────
+import { CreateRequestModal } from './requests/CreateRequestModal';
+import {
+  TYPE_OPTIONS, getTypeMeta, formatTime, formatRoleLabel, TypeFilterTab,
+} from './requests/shared';
 
-const TYPE_META: Record<RequestType, { label: string; icon: React.ReactNode; color: string }> = {
-  supply:      { label: 'Insumos',      icon: <Package className="h-3 w-3" />,    color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
-  production:  { label: 'Producción',   icon: <ChefHat className="h-3 w-3" />,    color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
-  delivery:    { label: 'Entrega',      icon: <Truck className="h-3 w-3" />,      color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
-  task:        { label: 'Tarea',        icon: <ClipboardList className="h-3 w-3" />, color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' },
-  maintenance: { label: 'Mantenim.',    icon: <Wrench className="h-3 w-3" />,     color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300' },
-  custom:      { label: 'Otro',         icon: <ClipboardList className="h-3 w-3" />, color: 'bg-gray-100 text-gray-700 dark:bg-zinc-800 dark:text-zinc-300' },
-};
+// ── helpers ──────────────────────────────────────────────────────────────
 
 const PRIORITY_META: Record<RequestPriority, { label: string; dot: string }> = {
   low:    { label: 'Baja',  dot: 'bg-gray-400' },
@@ -37,18 +33,6 @@ const STATUS_META: Record<RequestStatus, { label: string; cls: string }> = {
   reassignment_requested:  { label: 'Pide reasignar',       cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
   cancelled:               { label: 'Cancelada',            cls: 'bg-gray-200 text-gray-600 dark:bg-zinc-800 dark:text-zinc-400' },
 };
-
-function formatTime(iso?: string): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatRoleLabel(role: string): string {
-  if (!role) return '';
-  return role.charAt(0).toUpperCase() + role.slice(1);
-}
 
 // ── API helpers ──────────────────────────────────────────────────────────
 
@@ -291,7 +275,7 @@ const RequestCard: React.FC<{
   onSimpleAction: (action: string, r: ERPRequest) => Promise<void>;
   busyId: string | null;
 }> = ({ request, isAdmin, isOptional, showCompletionMeta, onAction, onSimpleAction, busyId }) => {
-  const typeMeta = TYPE_META[request.type] ?? TYPE_META.custom;
+  const typeMeta = getTypeMeta(request.type);
   const priorityMeta = PRIORITY_META[request.priority];
   const statusMeta = STATUS_META[request.status];
   const busy = busyId === request.id;
@@ -469,24 +453,34 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
   const { activeUser, addSystemNotification } = useApp();
   const { requests, loading, error, invalidate, refetch } = useRequests();
   const [tab, setTab] = useState<'mine' | 'optional'>('mine');
+  const [activeTypeFilter, setActiveTypeFilter] = useState<RequestType | 'all'>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [modal, setModal] = useState<ActionState>({ type: null, request: null });
+  const [showCreate, setShowCreate] = useState(false);
 
   const role = (activeUser?.role ?? 'panadero') as string;
   const isAdmin = role === 'admin' || role === 'owner' || role === 'supervisor';
+  // Id interno (sub del token), NO activeUser.id (firebase uid): es lo que el
+  // backend guarda en created_by_user_id.
+  const currentUserId = useMemo(() => getCurrentUserId(), []);
 
-  // Aplicamos primero typeFilter si vino
+  // Aplicamos primero typeFilter (prop fija) y luego el sub-filtro por tipo de la sub-nav.
+  // El prop typeFilter (ProductionView, etc.) tiene prioridad y deshabilita la sub-nav.
   const baseRequests = useMemo(() => {
-    return typeFilter ? requests.filter(r => r.type === typeFilter) : requests;
-  }, [requests, typeFilter]);
+    if (typeFilter) return requests.filter(r => r.type === typeFilter);
+    if (activeTypeFilter !== 'all') return requests.filter(r => r.type === activeTypeFilter);
+    return requests;
+  }, [requests, typeFilter, activeTypeFilter]);
 
   const mine = useMemo(() => {
     return baseRequests.filter(r => {
-      // "Mías" = asignadas a mi rol Y en un estado activo (no terminadas)
-      if (r.assigned_role !== role) return false;
+      // "Mías" = asignadas a mi rol O creadas por mí (ej: un cajero que reporta
+      // una merma, aunque quede assigned_role='admin', debe volver a verla acá).
+      const isMine = r.assigned_role === role || (!!currentUserId && r.created_by_user_id === currentUserId);
+      if (!isMine) return false;
       return r.status !== 'rejected' && r.status !== 'cancelled';
     });
-  }, [baseRequests, role]);
+  }, [baseRequests, role, currentUserId]);
 
   const optional = useMemo(() => {
     // Solicitudes APROBADAS de OTROS roles que aún no fueron tomadas definitivamente.
@@ -550,19 +544,27 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
         <div className="flex items-center gap-2">
           <ClipboardList className="h-5 w-5 text-amber-500" />
           <h1 className="text-base font-bold text-gray-900 dark:text-white">
-            {typeFilter ? `Solicitudes · ${TYPE_META[typeFilter].label}` : 'Solicitudes'}
+            {typeFilter ? `Solicitudes · ${getTypeMeta(typeFilter).label}` : 'Solicitudes'}
           </h1>
           {mine.length > 0 && (
             <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{mine.length}</span>
           )}
         </div>
-        <button
-          onClick={() => void refetch()}
-          className="text-gray-400 hover:text-amber-500 transition-colors"
-          aria-label="Refrescar"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void refetch()}
+            className="text-gray-400 hover:text-amber-500 transition-colors p-1"
+            aria-label="Refrescar"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg"
+          >
+            <Plus className="h-3.5 w-3.5" /> Nueva solicitud
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -594,6 +596,27 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
           Opcionales {optional.length > 0 && `(${optional.length})`}
         </button>
       </div>
+
+      {/* Sub-nav por tipo (solo en la vista raíz; el prop typeFilter la deshabilita).
+          Se combina con el filtro de audiencia (mine/optional) de arriba. */}
+      {!typeFilter && (
+        <div className="px-4 py-2 flex gap-1.5 flex-wrap shrink-0 bg-white dark:bg-zinc-900 border-b border-gray-100 dark:border-zinc-800">
+          <TypeFilterTab
+            label="Todas"
+            active={activeTypeFilter === 'all'}
+            onClick={() => setActiveTypeFilter('all')}
+          />
+          {TYPE_OPTIONS.map(opt => (
+            <TypeFilterTab
+              key={opt.value}
+              label={opt.label}
+              icon={opt.icon}
+              active={activeTypeFilter === opt.value}
+              onClick={() => setActiveTypeFilter(opt.value)}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-4">
@@ -649,6 +672,18 @@ export const RequestsView: React.FC<RequestsViewProps> = ({ typeFilter }) => {
       </div>
 
       {/* Modals */}
+      {showCreate && (
+        <CreateRequestModal
+          lockedType={typeFilter}
+          isAdmin={isAdmin}
+          onClose={() => setShowCreate(false)}
+          onCreated={async () => {
+            setShowCreate(false);
+            addSystemNotification('Solicitud creada', 'La solicitud se registró correctamente.', 'success');
+            await invalidate();
+          }}
+        />
+      )}
       {modal.type === 'complete' && modal.request && (
         <CompleteModal request={modal.request} onClose={handleCloseModal} onDone={handleModalDone} />
       )}
