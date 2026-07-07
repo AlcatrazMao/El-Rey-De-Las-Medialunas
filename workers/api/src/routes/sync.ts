@@ -554,6 +554,66 @@ async function applyOperation(
       break;
     }
 
+    case "waste_request": {
+      // Drenaje de mermas encoladas offline (useBatches.requestBatchWithdrawal).
+      // Se inserta SIEMPRE como 'pending_approval' — incluso si el creador es
+      // admin/owner — para NO duplicar acá la lógica sensible de baja instantánea
+      // de stock. Al sincronizar, un WASTE_ROLE la aprueba y el descuento atómico
+      // (lote + inventario + stock_movement) lo hace el endpoint /requests/:id/approve.
+      if (op.operation !== "create") break;
+
+      const rawMeta = d.metadata;
+      const meta = (rawMeta && typeof rawMeta === "object" && !Array.isArray(rawMeta))
+        ? (rawMeta as Record<string, unknown>)
+        : {};
+      const batchId = typeof meta.batch_id === "string" ? meta.batch_id.trim() : "";
+      const productId = typeof meta.product_id === "string" ? meta.product_id.trim() : "";
+      const qty = Number(meta.quantity);
+      const reason = typeof meta.reason === "string" ? meta.reason.trim() : "";
+      if (batchId.length < 1 || !Number.isFinite(qty) || qty <= 0 || reason.length < 1) {
+        throw new Error("VALIDATION_ERROR: metadata de merma inválida (batch_id, quantity, reason)");
+      }
+
+      const metadataJson = JSON.stringify({
+        batch_id: batchId,
+        ...(productId.length > 0 ? { product_id: productId } : {}),
+        quantity: qty,
+        reason,
+      });
+
+      const assignedRole = typeof d.assigned_role === "string"
+        && ["admin", "cajero", "cocinero", "repartidor", "panadero", "all"].includes(d.assigned_role)
+        ? d.assigned_role
+        : "admin";
+      const title = typeof d.title === "string" && d.title.trim().length > 0 ? d.title.trim() : "Merma";
+      const requestBranch = typeof d.branch_id === "string" && d.branch_id.length > 0 ? d.branch_id : branchId;
+
+      await db.batch([
+        db.prepare(
+          `INSERT OR IGNORE INTO requests
+            (id, type, title, description, priority, created_by_user_id, created_by_role,
+             assigned_role, branch_id, is_permanent, status, metadata, created_at, updated_at)
+           VALUES (?, 'waste', ?, ?, 'medium', ?, ?, ?, ?, 0, 'pending_approval', ?, ?, ?)`,
+        ).bind(
+          id,
+          title,
+          typeof d.description === "string" ? d.description : reason,
+          userId,
+          userRole,
+          assignedRole,
+          requestBranch,
+          metadataJson,
+          now,
+          now,
+        ),
+        db.prepare(
+          `INSERT INTO request_activity (id, request_id, user_id, user_role, user_name, action, note, created_at)
+           VALUES (?, ?, ?, ?, NULL, 'created', ?, ?)`,
+        ).bind(genId(), id, userId, userRole, "Merma registrada offline, sincronizada", now),
+      ]);
+      break;
+    }
+
     case "batch": {
       // Fix 4 — MEDIUM: RBAC para lotes de inventario.
       if (!["admin", "owner", "supervisor", "warehouse", "production"].includes(userRole)) {
