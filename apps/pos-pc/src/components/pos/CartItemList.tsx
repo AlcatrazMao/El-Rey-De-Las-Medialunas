@@ -66,11 +66,10 @@ export const CartItemList: React.FC<CartItemListProps> = ({
           onClick={onEmptyClick}
           className="flex-1 group w-full flex flex-col items-center justify-center px-4 text-gray-400 dark:text-zinc-500 border border-dashed border-gray-100 dark:border-zinc-800 rounded-xl cursor-pointer transition-colors duration-200 hover:border-orange-300 dark:hover:border-orange-700 hover:bg-orange-50/40 dark:hover:bg-orange-900/10"
         >
-          <span className="text-4xl block mb-2 opacity-50 font-emoji transition-opacity duration-200 group-hover:opacity-100" role="img" aria-label="bread">🍞</span>
+          <span className="text-4xl block mb-2 opacity-50 font-emoji transition-opacity duration-200 group-hover:opacity-100 animate-pulse" role="img" aria-label="bread">🍞</span>
           <p className="text-xs font-bold uppercase tracking-wider text-gray-400 transition-colors duration-200 group-hover:text-orange-500 dark:group-hover:text-orange-400">Espera de Selección</p>
           <p className="text-[11px] text-gray-400/80 mt-1 transition-colors duration-200 group-hover:text-orange-500/80 dark:group-hover:text-orange-400/80">
-            <span className="group-hover:hidden">Pulsa un panificado o escanea un barcode para facturar</span>
-            <span className="hidden group-hover:inline">Tocá para explorar el catálogo</span>
+            Pulsa para Seleccionar o Vender un Producto
           </p>
         </button>
       ) : (
