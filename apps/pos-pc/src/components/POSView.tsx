@@ -197,6 +197,11 @@ export const POSView: React.FC = () => {
   // Rate-limit: si el mismo código llega 2x en <800ms (doble disparo del scanner físico),
   // ignoramos el segundo para que no se agregue duplicado al carrito.
   const lastScanRef = useRef<{ code: string; at: number } | null>(null);
+  // Type-to-search (PC): buffer propio + timer para volcar el tipeo humano al
+  // buscador rápido. Es independiente del buffer del scanner para no perder la
+  // primera tecla cuando el reset de ráfaga (>100ms) limpia el buffer del lector.
+  const typeBufferRef = useRef<string>('');
+  const typeToSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Stable refs so the keydown listener always gets the latest closures without re-subscribing
   const addToCartRef = useRef<((product: Product) => void) | null>(null);
   const productsRef = useRef(products);
@@ -242,10 +247,12 @@ export const POSView: React.FC = () => {
   const showNewCustomerModalRef = useRef(showNewCustomerModal);
   const showInvoiceModalRef = useRef(showInvoiceModal);
   const showCustomerDropdownRef = useRef(showCustomerDropdown);
+  const quickSearchOpenRef = useRef(quickSearchOpen);
   showSelectionModalRef.current = showSelectionModal;
   showNewCustomerModalRef.current = showNewCustomerModal;
   showInvoiceModalRef.current = showInvoiceModal;
   showCustomerDropdownRef.current = showCustomerDropdown;
+  quickSearchOpenRef.current = quickSearchOpen;
 
   // Real barcode scanner: HID scanners emulate keyboard, spitting digits at ~5ms/char then Enter
   useEffect(() => {
@@ -272,6 +279,8 @@ export const POSView: React.FC = () => {
       if (e.key === 'Enter') {
         const code = barcodeBufferRef.current.trim();
         barcodeBufferRef.current = '';
+        typeBufferRef.current = '';
+        if (typeToSearchTimerRef.current) clearTimeout(typeToSearchTimerRef.current);
         if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
         if (code.length >= 3) {
           const found = productsRef.current.find(p => p.code === code || p.code.endsWith(code));
@@ -300,12 +309,37 @@ export const POSView: React.FC = () => {
       // Safety reset: clear buffer if no Enter arrives within 500ms
       if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
       barcodeTimerRef.current = setTimeout(() => { barcodeBufferRef.current = ''; }, 500);
+
+      // Type-to-search (PC): al tipear normal con la barra cerrada, abrir el
+      // buscador rápido y volcar lo tecleado. Se distingue del lector de código
+      // porque el scanner dispara una ráfaga + Enter (que cancela este timer),
+      // mientras el humano deja una pausa: el timer sólo abre si NO llegó otra
+      // tecla ni Enter dentro de la ventana. Sólo desktop; no roba foco a inputs.
+      if (
+        !quickSearchOpenRef.current &&
+        e.key.length === 1 &&
+        !e.ctrlKey && !e.altKey && !e.metaKey &&
+        target.tagName !== 'SELECT' &&
+        window.matchMedia('(min-width: 768px)').matches
+      ) {
+        typeBufferRef.current += e.key;
+        if (typeToSearchTimerRef.current) clearTimeout(typeToSearchTimerRef.current);
+        typeToSearchTimerRef.current = setTimeout(() => {
+          const typed = typeBufferRef.current;
+          typeBufferRef.current = '';
+          if (typed && !quickSearchOpenRef.current) {
+            setQuickSearch(typed);
+            setQuickSearchOpen(true);
+          }
+        }, 120);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
+      if (typeToSearchTimerRef.current) clearTimeout(typeToSearchTimerRef.current);
     };
   }, []);
 
@@ -315,6 +349,8 @@ export const POSView: React.FC = () => {
   useEffect(() => {
     const clearBuffer = () => {
       barcodeBufferRef.current = '';
+      typeBufferRef.current = '';
+      if (typeToSearchTimerRef.current) clearTimeout(typeToSearchTimerRef.current);
       lastKeyTimeRef.current = 0;
     };
     window.addEventListener('blur', clearBuffer);
@@ -1141,6 +1177,14 @@ export const POSView: React.FC = () => {
                 )}
               </div>
             ))}
+
+            <button
+              onClick={addTab}
+              title="Nueva venta"
+              className="shrink-0 ml-0.5 p-1 rounded-md text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           </div>
 
           {/* Flecha derecha */}
@@ -1157,14 +1201,6 @@ export const POSView: React.FC = () => {
           {/* Acciones */}
           <div className="shrink-0 flex items-center gap-1">
             <button
-              onClick={addTab}
-              title="Nueva venta"
-              className="p-1.5 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-md transition-colors cursor-pointer"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-
-            <button
               id="btn-trigger-quick-search"
               onClick={() => {
                 setQuickSearchOpen(v => {
@@ -1173,10 +1209,10 @@ export const POSView: React.FC = () => {
                 });
                 playBeep(705, 0.05);
               }}
-              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+              className={`shrink-0 p-2 sm:px-2.5 sm:py-1.5 rounded-full sm:rounded-lg border text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
                 quickSearchOpen
                   ? 'border-amber-400 bg-amber-500 text-black dark:text-black'
-                  : 'border-amber-200 dark:border-zinc-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/40 text-amber-700 dark:text-amber-400'
+                  : 'border-amber-400 bg-amber-500 text-white sm:border-amber-200 dark:sm:border-zinc-700 sm:bg-amber-50 sm:hover:bg-amber-100 dark:sm:bg-amber-950/20 dark:sm:hover:bg-amber-950/40 sm:text-amber-700 dark:sm:text-amber-400'
               }`}
               title="Búsqueda rápida por nombre o código"
             >
