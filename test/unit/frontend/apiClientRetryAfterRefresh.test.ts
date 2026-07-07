@@ -91,6 +91,61 @@ describe('ApiClient — retry after onUnauthorized refresh', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('2+ concurrent requests hitting 401 share ONE real refresh (dedup mutex) and both retry with the fresh token', async () => {
+    // Reproduces the "double-401" race: right after a sale, several D1-sync
+    // requests fire almost simultaneously with the same (expired) access token.
+    // Each request independently invokes onUnauthorized(); the module-level
+    // refreshInFlight mutex in apps/pos-pc/src/services/api.ts must collapse
+    // those into a SINGLE network refresh so the rotating refresh_token is not
+    // spent twice (the second use would find it revoked → broken session).
+    let currentToken = 'stale-token';
+
+    // The fetch mock decides 401 vs 200 by the token actually sent — so a retry
+    // only succeeds once the shared refresh has swapped the token to 'fresh'.
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const auth = new Headers(init.headers).get('Authorization');
+      return auth === 'Bearer fresh-token' ? jsonResponse({ data: { ok: true } }, 200) : make401();
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    // Real refresh network call — must run exactly once despite N callers.
+    const doRefresh = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 5)); // in-flight window
+      currentToken = 'fresh-token';
+      return true;
+    });
+
+    // Mirror of api.ts refreshInFlight singleton-promise dedup.
+    let refreshInFlight: Promise<boolean> | null = null;
+    const onUnauthorized = vi.fn(async () => {
+      if (refreshInFlight) return refreshInFlight;
+      refreshInFlight = doRefresh().finally(() => {
+        refreshInFlight = null;
+      });
+      return refreshInFlight;
+    });
+
+    const client = new ApiClient({
+      baseUrl: 'https://api.test',
+      getToken: () => currentToken,
+      onUnauthorized,
+      retries: 0,
+    });
+
+    const [a, b] = await Promise.all([
+      client.request('POST', '/api/v1/sales', { total: 100 }),
+      client.request('POST', '/api/v1/sync/push', { total: 200 }),
+    ]);
+
+    expect(a).toEqual({ data: { ok: true } });
+    expect(b).toEqual({ data: { ok: true } });
+    // Each request asks for a refresh, but only ONE real refresh network call runs.
+    expect(onUnauthorized).toHaveBeenCalledTimes(2);
+    expect(doRefresh).toHaveBeenCalledTimes(1);
+    // 2 initial 401s + 2 successful retries.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it('upload() applies the same retry-after-refresh behaviour on 401', async () => {
     const fetchMock = vi
       .fn()

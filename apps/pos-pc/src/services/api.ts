@@ -31,7 +31,7 @@ export async function doTokenRefresh(): Promise<string | null> {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
     if (!res.ok) {
-      handleLogout();
+      if (res.status === 401 || res.status === 403) handleLogout();
       return null;
     }
     const data = await res.json();
@@ -112,12 +112,11 @@ export function getApi() {
       baseUrl: API_URL,
       getToken: () => sessionStorage.getItem("access_token") || "",
       onUnauthorized: async () => {
+        // doTokenRefresh ya desloguea en los casos de falla real (401/403,
+        // sin refresh_token, tokens malformados); un null aquí por 5xx/red
+        // transitorio NO debe forzar logout de nuevo — solo se propaga el 401.
         const newToken = await refreshAccessToken();
-        if (!newToken) {
-          handleLogout();
-          return false;
-        }
-        return true;
+        return !!newToken;
       },
     });
   }

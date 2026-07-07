@@ -82,8 +82,16 @@ export async function flushSalesQueue(): Promise<{ flushed: number; failed: numb
       if (response.ok) {
         await salesQueueStore.markSynced(item.id);
         flushed++;
+      } else if (response.status === 401 || response.status === 403) {
+        // Auth transitorio: el access_token venció y el refresh no recuperó en
+        // este intento (rotación, blip de red/servidor en /auth/refresh, etc.).
+        // NO es un error de payload — marcar permanent_fail bloquearía ventas
+        // legítimas y expondría el body crudo del 401. Se reintenta más tarde;
+        // tras re-login el token vuelve a ser válido y la venta se sincroniza.
+        await salesQueueStore.incrementRetries(item.id);
+        failed++;
       } else if (response.status >= 400 && response.status < 500) {
-        // 4xx → payload-side error (invalid data, unauthorized, etc.). Retrying
+        // 4xx no-auth → payload-side error (invalid data, etc.). Retrying
         // will never succeed, so mark permanently failed and stop pumping retries.
         let reason = `HTTP ${response.status}`;
         try { reason = (await response.text()) || reason; } catch { /* ignore body read errors */ }
