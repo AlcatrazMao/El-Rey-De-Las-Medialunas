@@ -8,6 +8,7 @@ import { useCustomers } from './hooks/useCustomers';
 import { useExpenses } from './hooks/useExpenses';
 import { useInventory } from './hooks/useInventory';
 import { useNotifications } from './hooks/useNotifications';
+import { useRequests } from './hooks/useRequests';
 import { useSales } from './hooks/useSales';
 import { getSettings } from './hooks/useSettings';
 import { addAutoNote } from './hooks/useStickyNotes';
@@ -26,7 +27,7 @@ import {
 import { syncSaleToD1, buildSalePayload, updateSupplyRequestStatusInD1, syncStockMovementToD1, syncBatchToD1 } from './services/d1-sync';
 import type {
   Ingredient, Product, ProductGroup, Sale, Expense, User, PushNotification, PaymentGateway,
-  UserRole, ProductBatch, BatchWithdrawalRequest, SupplyRequest, CashSession, Customer,
+  UserRole, ProductBatch, SupplyRequest, CashSession, Customer,
   SyncStatus,
 } from './types';
 import { formatCurrency } from './utils/format';
@@ -35,7 +36,7 @@ interface AppContextType {
   ingredients: Ingredient[]; products: Product[]; sales: Sale[]; expenses: Expense[];
   users: User[]; notifications: PushNotification[]; gateways: PaymentGateway[];
   activeUser: User; activeTab: string; batches: ProductBatch[];
-  withdrawalRequests: BatchWithdrawalRequest[]; supplyRequests: SupplyRequest[];
+  supplyRequests: SupplyRequest[];
   currentCashSession: CashSession | null; cashSessionsHistory: CashSession[]; customers: Customer[];
   setSales: React.Dispatch<React.SetStateAction<Sale[]>>;
   selectedSellerId: string; setSelectedSellerId: (id: string) => void;
@@ -62,9 +63,7 @@ interface AppContextType {
   clearNotifications: () => void;
   resetAllData: () => void;
   addBatch: (batch: Omit<ProductBatch, 'id' | 'status'>) => void;
-  requestBatchWithdrawal: (batchId: string, quantity: number, reason: string) => void;
-  approveWithdrawalRequest: (requestId: string, adminMemo: string) => void;
-  rejectWithdrawalRequest: (requestId: string, adminMemo: string) => void;
+  requestBatchWithdrawal: (batchId: string, quantity: number, reason: string) => Promise<{ queued: boolean }>;
   requestSupply: (type: 'ingredient' | 'product', itemId: string, quantity: number, reason: string) => void;
   approveSupplyRequest: (requestId: string, adminMemo: string) => void;
   rejectSupplyRequest: (requestId: string, adminMemo: string) => void;
@@ -110,11 +109,39 @@ export const AppProvider: React.FC<{
   });
   const sup = useSupplyRequests({ notify: notif.addSystemNotification, getActiveUser: () => usr.activeUser, ingredients: inv.ingredients, products: inv.products });
   const sal = useSales();
+  // Fuente de verdad de las solicitudes reales (incluye las de tipo 'waste'/mermas).
+  const { requests } = useRequests();
 
   // Fix 2: lock against concurrent addSale calls (double-click / rapid scanner).
   // A boolean ref is the correct primitive here — it's synchronous (no async gap
   // between read and write), unlike a state variable that would need a re-render.
   const isProcessingSaleRef = useRef(false);
+
+  // Mermas (type:'waste') → el descuento de stock lo persiste el backend en D1 de
+  // forma atómica al aprobar (inventory.current_quantity, inventory_batches.remaining_quantity
+  // y una fila en stock_movements). Acá NO restamos nada localmente: eso duplicaría
+  // el descuento (el backend ya bajó el stock y el refetch trae el valor correcto).
+  // Sólo forzamos un refetch inmediato de productos desde D1 cuando una merma pasa a
+  // 'completed', para reflejar el valor ya persistido sin esperar al próximo mount/poll.
+  // El ref evita disparar el refetch en cada tick de 60s del polling de useRequests.
+  const refetchedWasteRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const newlyCompleted = requests.filter(
+      (r) =>
+        r.type === 'waste' &&
+        r.status === 'completed' &&
+        !refetchedWasteRef.current.has(r.id),
+    );
+    if (newlyCompleted.length === 0) return;
+    newlyCompleted.forEach((r) => refetchedWasteRef.current.add(r.id));
+    // Al completarse una merma el backend descontó atómicamente producto Y lote:
+    // refrescamos ambos desde D1 para reflejar el valor persistido sin esperar al
+    // próximo poll (antes solo se refrescaba el producto, el lote quedaba stale).
+    inv.refreshProductsFromD1(getSettings().business.branchId);
+    void bch.refreshBatchesFromD1();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reaccionamos sólo a `requests`; refreshProductsFromD1/refreshBatchesFromD1 son estables (useCallback)
+  }, [requests]);
 
   useEffect(() => {
     const loadFromD1 = () => {
@@ -439,43 +466,6 @@ export const AppProvider: React.FC<{
     }).catch(() => {});
   };
 
-  const approveWithdrawalRequest = (requestId: string, adminMemo: string) => {
-    const target = bch.withdrawalRequests.find(r => r.id === requestId);
-    if (!target || target.status !== 'pending') return;
-
-    const req = { ...target, status: 'approved' as const, adminMemo };
-
-    const updatedRequests = bch.withdrawalRequests.map(r => (r.id === requestId ? req : r));
-
-    const updatedBatches = bch.batches.map(b => {
-      if (b.id !== req.batchId) return b;
-      const nextStock = Math.max(0, b.stock - req.quantity);
-      return { ...b, stock: nextStock, status: nextStock === 0 ? ('withdrawn' as const) : b.status };
-    });
-
-    const updatedProducts = inv.products.map(p =>
-      p.id === req.productId ? { ...p, stock: Math.max(0, p.stock - req.quantity) } : p
-    );
-
-    bch.setWithdrawalRequests(updatedRequests);
-    bch.setBatches(updatedBatches);
-    inv.setProducts(updatedProducts);
-
-    // sync product stock update and batch withdrawal to D1
-    // FIX A2: 'withdrawal' no está en la whitelist del backend — una baja de
-    // lote es desperdicio/merma → 'waste_out'. La cantidad debe ser positiva:
-    // el backend calcula el signo a partir del sufijo _in/_out.
-    syncStockMovementToD1({
-      product_id: req.productId,
-      branch_id: getSettings().business.branchId,
-      movement_type: 'waste_out',
-      quantity: req.quantity,
-      reason: `Baja aprobada: ${req.reason}`,
-    }).catch(() => {});
-
-    notif.addSystemNotification('✅ Solicitud de Baja Aprobada', `Se aprobó retirar del local ${req.quantity} u. de "${req.productName}". Detalle: ${adminMemo}`, 'success');
-  };
-
   const approveSupplyRequest = (requestId: string, adminMemo: string) => {
     const req = sup.supplyRequests.find(r => r.id === requestId);
     if (!req || req.status !== 'pending') return;
@@ -538,7 +528,7 @@ export const AppProvider: React.FC<{
     inv.setIngredients(INITIAL_INGREDIENTS); inv.setProducts(INITIAL_PRODUCTS); inv.setGateways(PAYMENT_GATEWAYS);
     sal.setSales(INITIAL_SALES); exp.setExpenses(INITIAL_EXPENSES); usr.setUsers(USERS);
     usr.setActiveTab('dashboard'); usr.invoiceSeqRef.current = 0;
-    bch.setBatches([]); bch.setWithdrawalRequests([]);
+    bch.setBatches([]);
     cash.setCurrentCashSession(null); cash.setCashSessionsHistory([]);
     cust.setCustomers([]);
     sup.setSupplyRequests([]);
@@ -548,8 +538,8 @@ export const AppProvider: React.FC<{
     notif.addSystemNotification('⚙️ Sistema Reiniciado', 'La base de datos original ha sido restablecida en tiempo real.', 'success');
   };
 
-  const requestBatchWithdrawal = (batchId: string, quantity: number, reason: string) => {
-    bch.requestBatchWithdrawal(batchId, quantity, reason, usr.activeUser.name, usr.activeUser.role);
+  const requestBatchWithdrawal = (batchId: string, quantity: number, reason: string): Promise<{ queued: boolean }> => {
+    return bch.requestBatchWithdrawal(batchId, quantity, reason);
   };
 
   // MOD-2: memoise the context value so every render of AppProvider doesn't
@@ -562,7 +552,7 @@ export const AppProvider: React.FC<{
     ingredients: inv.ingredients, products: inv.products, sales: sal.sales, expenses: exp.expenses,
     users: usr.users, notifications: notif.notifications, gateways: inv.gateways,
     activeUser: usr.activeUser, activeTab: usr.activeTab, batches: bch.batches,
-    withdrawalRequests: bch.withdrawalRequests, supplyRequests: sup.supplyRequests,
+    supplyRequests: sup.supplyRequests,
     currentCashSession: cash.currentCashSession, cashSessionsHistory: cash.cashSessionsHistory,
     customers: cust.customers, setSales: sal.setSales,
     selectedSellerId: usr.selectedSellerId, setSelectedSellerId: usr.setSelectedSellerId,
@@ -577,8 +567,7 @@ export const AppProvider: React.FC<{
     addSystemNotification: notif.addSystemNotification,
     markNotificationAsRead: notif.markNotificationAsRead,
     clearNotifications: notif.clearNotifications, resetAllData,
-    addBatch, requestBatchWithdrawal, approveWithdrawalRequest,
-    rejectWithdrawalRequest: bch.rejectWithdrawalRequest,
+    addBatch, requestBatchWithdrawal,
     requestSupply: sup.requestSupply, approveSupplyRequest,
     rejectSupplyRequest: sup.rejectSupplyRequest,
     openCashSession: cash.openCashSession, closeCashSession: cash.closeCashSession,
@@ -593,7 +582,7 @@ export const AppProvider: React.FC<{
     exp.expenses,
     usr.users, usr.activeUser, usr.activeTab, usr.selectedSellerId,
     notif.notifications,
-    bch.batches, bch.withdrawalRequests,
+    bch.batches,
     sup.supplyRequests,
     cash.currentCashSession, cash.cashSessionsHistory, cash.hasMoreSessions, cash.isCheckingRemoteSession,
     cust.customers,

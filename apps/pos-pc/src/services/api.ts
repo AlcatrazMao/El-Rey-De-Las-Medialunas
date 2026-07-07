@@ -87,6 +87,30 @@ export function isAccessTokenExpired(): boolean {
   return exp * 1000 < Date.now();
 }
 
+// Decodes the `sub` claim (internal user id, hex-32) from a JWT payload without
+// verifying the signature. El backend firma el token con sub = user.id interno
+// (NO el firebase uid), y ese mismo id es el que guarda requests.created_by_user_id.
+// Por eso para saber "qué solicitudes creé yo" hay que comparar contra este valor,
+// no contra activeUser.id (que es el firebase uid).
+export function getAccessTokenUserId(token: string | null): string | null {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as { sub?: string };
+    return typeof payload.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Id interno del usuario logueado (sub del access token). Null si no hay sesión. */
+export function getCurrentUserId(): string | null {
+  return getAccessTokenUserId(sessionStorage.getItem("access_token"));
+}
+
 export async function fetchWithAuth(input: string, init: RequestInit = {}): Promise<Response> {
   const buildHeaders = (token: string | null): HeadersInit => {
     const headers = new Headers(init.headers || {});

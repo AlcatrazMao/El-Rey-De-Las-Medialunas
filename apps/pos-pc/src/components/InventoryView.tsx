@@ -17,6 +17,7 @@ import { useState, useEffect, useMemo } from 'react';
 
 import { useApp } from '../AppContext';
 import { useProductForm } from '../hooks/useProductForm';
+import { useRequests } from '../hooks/useRequests';
 import type { Ingredient, Product, ProductGroup, CategoryType} from '../types';
 import { exportIngredientsToCSV } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
@@ -50,20 +51,18 @@ export const InventoryView: React.FC = () => {
     setActiveTab,
     batches = [],
     setBatches,
-    withdrawalRequests = [],
-    approveWithdrawalRequest,
-    rejectWithdrawalRequest,
     activeUser,
     updateProductGroups
   } = useApp();
+  // Fuente real de mermas: solicitudes type==='waste' del sistema de Solicitudes.
+  // La aprobación/rechazo de mermas vive únicamente en AdminRequestsView; acá el
+  // tab de mermas es sólo lectura (monitoreo + KPIs).
+  const { requests: erpRequests } = useRequests();
 
   const [activeSubTab, setActiveSubTab] = useState<'insumos' | 'productos' | 'caducidad' | 'mermas'>('insumos');
   const [selectedProductForBatches, setSelectedProductForBatches] = useState<Product | null>(null);
   const [expandedGroupsFor, setExpandedGroupsFor] = useState<string | null>(null);
   const [mermasFilter, setMermasFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  const [resolvingRequestId, setResolvingRequestId] = useState<string | null>(null);
-  const [resolvingMemo, setResolvingMemo] = useState<string>('');
-  const [resolvingAction, setResolvingAction] = useState<'approved' | 'rejected' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Expiry Priority States
@@ -365,6 +364,39 @@ export const InventoryView: React.FC = () => {
   const currentProductsInventoryValue = finishedProducts.reduce((sum, prod) => sum + (prod.stock * prod.price), 0);
   const totalLowStockInsumos = rawMaterials.filter(p => p.stock <= p.minStock).length;
   const totalLowStockProducts = finishedProducts.filter(p => p.stock <= p.minStock).length;
+
+  // Mermas (type==='waste') mapeadas a filas de sólo lectura. El estado ERP se
+  // colapsa a 3 buckets de monitoreo: pending / approved / rejected. Los datos
+  // del lote y la cantidad viajan en metadata.
+  const wasteRows = useMemo(() => {
+    return erpRequests
+      .filter(r => r.type === 'waste')
+      .map(r => {
+        const bucket: 'pending' | 'approved' | 'rejected' | 'other' =
+          r.status === 'pending_approval' ? 'pending'
+          : (r.status === 'approved' || r.status === 'completed') ? 'approved'
+          : r.status === 'rejected' ? 'rejected'
+          : 'other';
+        return {
+          id: r.id,
+          productName: products.find(p => p.id === r.metadata?.product_id)?.name ?? r.title,
+          batchNumber: batches.find(b => b.id === r.metadata?.batch_id)?.batchNumber ?? '—',
+          quantity: r.metadata?.quantity ?? 0,
+          reason: r.metadata?.reason ?? r.description ?? '',
+          bucket,
+          date: r.created_at,
+          requestedBy: r.created_by_role,
+          adminMemo: r.rejection_reason ?? r.admin_note ?? '',
+        };
+      });
+  }, [erpRequests, products, batches]);
+
+  const wasteTotals = useMemo(() => ({
+    total:    wasteRows.length,
+    pending:  wasteRows.filter(r => r.bucket === 'pending').length,
+    approved: wasteRows.filter(r => r.bucket === 'approved').length,
+    rejected: wasteRows.filter(r => r.bucket === 'rejected').length,
+  }), [wasteRows]);
 
   return (
     <div className="space-y-6 transition-all duration-300">
@@ -921,7 +953,9 @@ export const InventoryView: React.FC = () => {
                                           const productBatches = batches.filter(b => b.productId === prod.id && b.status === 'active' && b.stock > 0);
                                           if (productBatches.length > 0) {
                                             const oldest = [...productBatches].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0];
-                                            requestBatchWithdrawal(oldest.id, oldest.stock, 'Merma por vencimiento de caducidad — solicitud generada automáticamente.');
+                                            void requestBatchWithdrawal(oldest.id, oldest.stock, 'Merma por vencimiento de caducidad — solicitud generada automáticamente.').catch(() =>
+                                              addSystemNotification('⚠️ Merma no registrada', `No se pudo registrar la baja de "${prod.name}". Reintentá.`, 'warning'),
+                                            );
                                           } else {
                                             // Zero out any remaining batches for this product to keep state in sync
                                             setBatches(prev => prev.map(b => b.productId === prod.id ? { ...b, stock: 0 } : b));
@@ -1086,24 +1120,24 @@ export const InventoryView: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-zinc-900 border border-gray-150 dark:border-zinc-800 p-4 rounded-2xl shadow-xs">
               <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">Total Solicitudes</p>
-              <h4 className="text-2xl font-black text-gray-855 dark:text-zinc-50 mt-1">{withdrawalRequests.length}</h4>
+              <h4 className="text-2xl font-black text-gray-855 dark:text-zinc-50 mt-1">{wasteTotals.total}</h4>
             </div>
             <div className="bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-950 p-4 rounded-2xl shadow-xs">
               <p className="text-[10px] font-extrabold text-amber-650 dark:text-amber-500 uppercase tracking-widest">Pendientes</p>
               <h4 className="text-2xl font-black text-amber-700 dark:text-amber-400 mt-1 font-mono">
-                {withdrawalRequests.filter(r => r.status === 'pending').length}
+                {wasteTotals.pending}
               </h4>
             </div>
             <div className="bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-950 p-4 rounded-2xl shadow-xs">
               <p className="text-[10px] font-extrabold text-emerald-650 dark:text-emerald-500 uppercase tracking-widest">Aprobados</p>
               <h4 className="text-2xl font-black text-emerald-700 dark:text-emerald-405 mt-1 font-mono">
-                {withdrawalRequests.filter(r => r.status === 'approved').length}
+                {wasteTotals.approved}
               </h4>
             </div>
             <div className="bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-950 p-4 rounded-2xl shadow-xs">
               <p className="text-[10px] font-extrabold text-red-650 dark:text-red-550 uppercase tracking-widest">Rechazados</p>
               <h4 className="text-2xl font-black text-red-705 dark:text-red-400 mt-1 font-mono">
-                {withdrawalRequests.filter(r => r.status === 'rejected').length}
+                {wasteTotals.rejected}
               </h4>
             </div>
           </div>
@@ -1132,20 +1166,21 @@ export const InventoryView: React.FC = () => {
 
           {/* List of Withdrawal Events */}
           <div className="space-y-4">
-            {withdrawalRequests
-              .filter(r => mermasFilter === 'all' || r.status === mermasFilter)
-              .filter(r => !searchQuery || r.productName?.toLowerCase().includes(searchQuery.toLowerCase()))
+            {wasteRows
+              .filter(r => mermasFilter === 'all' || r.bucket === mermasFilter)
+              .filter(r => !searchQuery || r.productName.toLowerCase().includes(searchQuery.toLowerCase()))
               .length === 0 ? (
               <div className="bg-white dark:bg-zinc-900 border border-gray-150 dark:border-zinc-800 rounded-2xl text-center py-12 text-gray-400 font-bold select-none">
                 Ninguna solicitud de baja coincide con este filtro.
               </div>
             ) : (
-              withdrawalRequests
-                .filter(r => mermasFilter === 'all' || r.status === mermasFilter)
-                .filter(r => !searchQuery || r.productName?.toLowerCase().includes(searchQuery.toLowerCase()))
+              wasteRows
+                .filter(r => mermasFilter === 'all' || r.bucket === mermasFilter)
+                .filter(r => !searchQuery || r.productName.toLowerCase().includes(searchQuery.toLowerCase()))
                 .map(req => {
-                  const isPending = req.status === 'pending';
-                  const isApproved = req.status === 'approved';
+                  const isPending = req.bucket === 'pending';
+                  const isApproved = req.bucket === 'approved';
+                  const isRejected = req.bucket === 'rejected';
                   const reqDate = new Date(req.date);
 
                   return (
@@ -1200,113 +1235,22 @@ export const InventoryView: React.FC = () => {
                       <div className="lg:w-96 select-none shrink-0 flex flex-col justify-between self-stretch border-t lg:border-t-0 lg:border-l border-gray-150 dark:border-zinc-800 pt-4 lg:pt-0 lg:pl-5 bg-white dark:bg-zinc-900">
                         <div className="space-y-3 flex-1 flex flex-col justify-center bg-white dark:bg-zinc-900">
                           {isPending ? (
-                            <>
-                              {activeUser.role === 'admin' ? (
-                                <div className="space-y-3 bg-white dark:bg-zinc-900">
-                                  <div className="flex items-center gap-1.5 justify-between">
-                                    <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-wider block">Decisión de Administración:</span>
-                                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
-                                  </div>
-                                  
-                                  {resolvingRequestId === req.id ? (
-                                    <div className="space-y-2.5 bg-gray-50 dark:bg-zinc-950/50 p-3 rounded-xl border border-gray-150 dark:border-zinc-800 select-none">
-                                      <p className="text-[9.5px] font-black text-gray-500">
-                                        Escribir {resolvingAction === 'approved' ? 'Aprobación' : 'Denegación'}:
-                                      </p>
-                                      <textarea
-                                        id={`txt-resolving-memo-${req.id}`}
-                                        value={resolvingMemo}
-                                        onChange={(e) => setResolvingMemo(e.target.value)}
-                                        placeholder={
-                                          resolvingAction === 'approved'
-                                            ? 'Ej: Autorizado retiro. Lote rancio.'
-                                            : 'Ej: Denegado. Mantener en mostrador, no expiró.'
-                                        }
-                                        className="w-full text-xs bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-750 p-2 focus:outline-none focus:ring-1 focus:ring-amber-500 min-h-[50px] text-gray-850 dark:text-zinc-150 leading-normal font-sans"
-                                      />
-                                      <div className="flex gap-2">
-                                        <button
-                                          type="button"
-                                          id={`btn-cancel-resolve-${req.id}`}
-                                          onClick={() => {
-                                            setResolvingRequestId(null);
-                                            setResolvingMemo('');
-                                            setResolvingAction(null);
-                                          }}
-                                          className="flex-1 py-1.5 px-2.5 bg-gray-200 dark:bg-zinc-800 text-gray-650 dark:text-zinc-350 rounded text-[9.5px] font-extrabold cursor-pointer"
-                                        >
-                                          Cancelar
-                                        </button>
-                                        <button
-                                          type="button"
-                                          id={`btn-confirm-resolve-${req.id}`}
-                                          disabled={!resolvingMemo.trim()}
-                                          onClick={() => {
-                                            if (resolvingAction === 'approved') {
-                                              approveWithdrawalRequest(req.id, resolvingMemo);
-                                            } else {
-                                              rejectWithdrawalRequest(req.id, resolvingMemo);
-                                            }
-                                            setResolvingRequestId(null);
-                                            setResolvingMemo('');
-                                            setResolvingAction(null);
-                                          }}
-                                          className={`flex-1 py-1.5 px-2.5 rounded text-[9.5px] font-extrabold cursor-pointer text-white disabled:opacity-40 transition-colors ${
-                                            resolvingAction === 'approved' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'
-                                          }`}
-                                        >
-                                          Confirmar
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="flex gap-2 pt-1 bg-white dark:bg-zinc-900">
-                                      <button
-                                        type="button"
-                                        id={`btn-start-reject-${req.id}`}
-                                        onClick={() => {
-                                          setResolvingRequestId(req.id);
-                                          setResolvingAction('rejected');
-                                          setResolvingMemo('Reprochado, la mercadería se encuentra apta; reingresar lote.');
-                                        }}
-                                        className="flex-1 py-2 rounded-xl bg-red-100 hover:bg-red-150 border border-red-200 text-red-650 text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors active:scale-95"
-                                        title="Rechazar solicitud y reponer stock del lote"
-                                      >
-                                        Rechazar Baja
-                                      </button>
-                                      <button
-                                        type="button"
-                                        id={`btn-start-approve-${req.id}`}
-                                        onClick={() => {
-                                          setResolvingRequestId(req.id);
-                                          setResolvingAction('approved');
-                                          setResolvingMemo('Confirmado retiro preventivo física y digitalmente del stock.');
-                                        }}
-                                        className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-605 text-white text-[10px] font-black uppercase tracking-wider cursor-pointer shadow-xs transition-colors active:scale-95"
-                                        title="Aprobar merma definitiva del inventario"
-                                      >
-                                        Aprobar Baja ✅
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="text-center py-4 bg-amber-500/10 rounded-2xl border border-amber-300 dark:border-amber-950 p-3 select-none text-xs">
-                                  <AlertTriangle className="h-5 w-5 text-amber-500 mx-auto mb-1.5 animate-bounce" />
-                                  <p className="text-[10px] font-extrabold text-amber-705 dark:text-amber-400">
-                                    Firmas Pendientes
-                                  </p>
-                                  <p className="text-[9px] text-gray-400 mt-1 leading-normal font-sans">
-                                    Enviado al panel de administración para su autorización formal y retiro.
-                                  </p>
-                                </div>
-                              )}
-                            </>
+                            <div className="text-center py-4 bg-amber-500/10 rounded-2xl border border-amber-300 dark:border-amber-950 p-3 select-none text-xs">
+                              <AlertTriangle className="h-5 w-5 text-amber-500 mx-auto mb-1.5 animate-bounce" />
+                              <p className="text-[10px] font-extrabold text-amber-705 dark:text-amber-400">
+                                Pendiente de aprobación
+                              </p>
+                              <p className="text-[9px] text-gray-400 mt-1 leading-normal font-sans">
+                                Enviada al Panel de Solicitudes para su autorización formal y retiro por administración.
+                              </p>
+                            </div>
                           ) : (
                             <div className={`p-4 rounded-xl border text-xs leading-normal select-none ${
-                              isApproved 
-                                ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-800 dark:text-emerald-300' 
-                                : 'bg-red-500/5 border-red-500/20 text-red-700 dark:text-red-300'
+                              isApproved
+                                ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-800 dark:text-emerald-300'
+                                : isRejected
+                                ? 'bg-red-500/5 border-red-500/20 text-red-700 dark:text-red-300'
+                                : 'bg-gray-500/5 border-gray-300/30 text-gray-600 dark:text-zinc-300'
                             }`}>
                               <div className="flex items-center gap-1.5 font-extrabold pb-2 mb-2 border-b border-gray-100 dark:border-zinc-800 uppercase text-[9px] tracking-wider">
                                 {isApproved ? (
@@ -1314,11 +1258,13 @@ export const InventoryView: React.FC = () => {
                                     <Check className="h-3.5 w-3.5 text-emerald-500" />
                                     <span>Solicitud Aprobada (Mermado)</span>
                                   </>
-                                ) : (
+                                ) : isRejected ? (
                                   <>
                                     <X className="h-3.5 w-3.5 text-red-500" />
                                     <span>Solicitud Desestimada</span>
                                   </>
+                                ) : (
+                                  <span>En proceso</span>
                                 )}
                               </div>
                               <span className="text-[8px] font-black text-gray-400 block uppercase mb-1">Comentario Administrativo:</span>

@@ -141,7 +141,7 @@ export async function persistSyncError(params: {
   });
 }
 
-async function enqueue(entity_type: string, data: Record<string, unknown>): Promise<void> {
+export async function enqueue(entity_type: string, data: Record<string, unknown>): Promise<void> {
   const client_id = String(data.id ?? crypto.randomUUID());
   await dbAdapter.syncQueue.add({
     client_id,
@@ -480,40 +480,6 @@ export async function updateSupplyRequestStatusInD1(
     status,
     admin_memo: adminMemo ?? null,
   });
-}
-
-// ── Withdrawal Requests ───────────────────────────────────────────────
-
-export async function syncWithdrawalRequestToD1(req: {
-  id: string;
-  batchId: string;
-  productId: string;
-  productName: string;
-  batchNumber: string;
-  quantity: number;
-  reason: string;
-  requestedBy: string;
-}): Promise<void> {
-  const payload = {
-    id: req.id,
-    batch_id: req.batchId,
-    product_id: req.productId,
-    product_name: req.productName,
-    batch_number: req.batchNumber,
-    quantity: req.quantity,
-    reason: req.reason,
-    requested_by: req.requestedBy,
-    branch_id: getSettings().business.branchId,
-  };
-  try {
-    await getApi().client.post('/api/v2/withdrawal-requests', payload);
-  } catch (err) {
-    if (isNetworkError(err)) {
-      await enqueue('withdrawal_request', payload);
-    } else {
-      throw err;
-    }
-  }
 }
 
 // ── User Preferences ──────────────────────────────────────────────────

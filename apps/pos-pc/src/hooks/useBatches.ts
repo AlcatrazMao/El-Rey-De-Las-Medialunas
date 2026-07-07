@@ -1,12 +1,79 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { INITIAL_PRODUCTS } from '../initialData';
-import { syncWithdrawalRequestToD1 } from '../services/d1-sync';
-import type { ProductBatch, BatchWithdrawalRequest, Product } from '../types';
+import { API_URL, fetchWithAuth } from '../services/api';
+import { enqueue, isNetworkError } from '../services/d1-sync';
+import type { ProductBatch, Product } from '../types';
 import { safeSetItem } from '../utils/safeStorage';
+
+import { getSettings } from './useSettings';
 
 /** UUID sin guiones, compatible con todos los entornos modernos (HTTPS o localhost). */
 const uid = () => crypto.randomUUID().replace(/-/g, '');
+
+/**
+ * Versión local conocida de los lotes. Mismo criterio que VERSION_KEY en
+ * useRequests: guardamos la última versión que trajimos de D1 para decidir en
+ * cada poll si hace falta refetch completo o alcanza con el cache local.
+ */
+const BATCHES_VERSION_KEY = 'pan_erp_batches_version';
+
+/** Forma cruda que devuelve GET /api/v2/batches (snake_case, ids de servidor). */
+interface BatchRow {
+  id: string;
+  product_id: string;
+  batch_number: string;
+  entry_date: string;
+  expiry_date: string | null;
+  initial_quantity: number;
+  remaining_quantity: number;
+  status: string;
+}
+
+const VALID_BATCH_STATUSES = new Set(['active', 'withdrawn', 'sold_out', 'expired']);
+
+// El backend no persiste withdrawalMode (manual/automatic); mapeamos a 'manual'
+// porque la expiración automática la resuelve el cron server-side (/expire-stale).
+function mapBatchRow(row: BatchRow): ProductBatch {
+  const status = VALID_BATCH_STATUSES.has(row.status) ? (row.status as ProductBatch['status']) : 'active';
+  return {
+    id: row.id,
+    productId: row.product_id,
+    batchNumber: row.batch_number,
+    quantity: Number(row.initial_quantity ?? 0),
+    stock: Number(row.remaining_quantity ?? 0),
+    elaborationDate: row.entry_date,
+    expiryDate: row.expiry_date ?? '',
+    status,
+    withdrawalMode: 'manual',
+  };
+}
+
+function readInitialBatchVersion(): number {
+  try {
+    return Number(localStorage.getItem(BATCHES_VERSION_KEY) ?? '0') || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Set persistido de ids de lotes para los que YA generamos una solicitud de
+ * merma automática por vencimiento. Evita que el chequeo horario (o un reload)
+ * dispare una solicitud duplicada mientras el lote sigue `active` esperando
+ * aprobación. Se limpia junto con el resto de `pan_erp_*` en resetAllData.
+ */
+const AUTO_EXPIRY_KEY = 'pan_erp_auto_expiry_requested';
+
+function loadAutoExpiryRequested(): Set<string> {
+  try {
+    const saved = localStorage.getItem(AUTO_EXPIRY_KEY);
+    if (saved) return new Set(JSON.parse(saved) as string[]);
+  } catch {
+    localStorage.removeItem(AUTO_EXPIRY_KEY);
+  }
+  return new Set();
+}
 
 type NotifyFn = (
   title: string,
@@ -17,6 +84,42 @@ type NotifyFn = (
 interface UseBatchesParams {
   notify: NotifyFn;
   products: Product[];
+}
+
+/**
+ * Construye y envía una solicitud de merma (`type:'waste'`) al backend real de
+ * Solicitudes (POST /api/v2/requests). El backend decide el status según el rol
+ * del creador: admin/owner → nace `completed`; cualquier otro → `pending_approval`.
+ * El descuento de stock NO se aplica acá: lo aplica AppContext cuando la request
+ * pasa a `completed` (source of truth = useRequests).
+ */
+function postWasteRequest(args: {
+  title: string;
+  description: string;
+  batchId: string;   // id LOCAL del ProductBatch (client_batch_id)
+  productId: string;
+  quantity: number;
+  reason: string;
+}): Promise<Response> {
+  const branchId = getSettings().business.branchId;
+  const payload = {
+    type: 'waste',
+    title: args.title,
+    description: args.description,
+    assigned_role: 'admin',
+    branch_id: branchId,
+    metadata: {
+      batch_id: args.batchId,
+      product_id: args.productId,
+      quantity: args.quantity,
+      reason: args.reason,
+    },
+  };
+  return fetchWithAuth(`${API_URL}/api/v2/requests`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 }
 
 export function useBatches({ notify, products }: UseBatchesParams) {
@@ -87,106 +190,127 @@ export function useBatches({ notify, products }: UseBatchesParams) {
     return initialBatches;
   });
 
-  const [withdrawalRequests, setWithdrawalRequests] = useState<BatchWithdrawalRequest[]>(() => {
-    try {
-      const saved = localStorage.getItem('pan_erp_withdrawal_requests');
-      if (saved) return JSON.parse(saved) as BatchWithdrawalRequest[];
-    } catch (e) {
-      localStorage.removeItem('pan_erp_withdrawal_requests');
-    }
-    return [];
-  });
-
-  // Bug 2 fix: keep a ref to products so checkExpiry can read the latest value
-  // without capturing it in the effect's closure.
+  // Refs para que checkExpiry lea SIEMPRE el último valor de products/batches
+  // sin capturarlos en la clausura del effect (evita stale closures).
   const productsRef = useRef(products);
   useEffect(() => { productsRef.current = products; }, [products]);
+  const batchesRef = useRef(batches);
+  useEffect(() => { batchesRef.current = batches; }, [batches]);
 
-  // Bug fix race-condition: si checkExpiry corre dos veces en paralelo (mount
-  // + interval que coincide), dos updaters de setBatches/setWithdrawalRequests
-  // podrían procesar el mismo batch generando una solicitud duplicada en el
-  // window entre el primer scheduling y el commit del setter. Trackear los
-  // batchIds "en vuelo" garantiza idempotencia por id durante el procesamiento.
-  const inFlightRef = useRef<Set<string>>(new Set());
+  // Idempotencia de las solicitudes de merma automática: una vez que POSTeamos
+  // la request de un lote vencido, guardamos su id acá (persistido) para no
+  // volver a generarla en el próximo tick horario ni tras un reload, mientras
+  // el lote sigue `active` esperando aprobación.
+  const autoExpiryRequestedRef = useRef<Set<string>>(loadAutoExpiryRequested());
+  const persistAutoExpiry = () => {
+    safeSetItem(AUTO_EXPIRY_KEY, JSON.stringify([...autoExpiryRequestedRef.current]));
+  };
 
   useEffect(() => {
     safeSetItem('pan_erp_batches', JSON.stringify(batches));
   }, [batches]);
 
-  useEffect(() => {
-    safeSetItem('pan_erp_withdrawal_requests', JSON.stringify(withdrawalRequests));
-  }, [withdrawalRequests]);
+  // ── Sincronización con D1 (mismo patrón version-check que useRequests) ──────
+  // Guardamos la última versión conocida en localStorage; cada poll compara
+  // contra GET /batches/version y solo hace el refetch completo si difiere.
+  const lastBatchVersionRef = useRef<number>(readInitialBatchVersion());
+  const batchSyncInFlightRef = useRef(false);
+
+  /**
+   * Refetch completo de los lotes de la sucursal desde D1 y reemplazo del cache
+   * (estado + localStorage vía el effect de persistencia). Sin red cae gentil al
+   * cache local existente sin romper el flujo de venta. Exportada para poder
+   * refrescar el stock del LOTE de forma inmediata tras completarse una merma.
+   */
+  const refreshBatchesFromD1 = useCallback(async (): Promise<void> => {
+    if (batchSyncInFlightRef.current) return;
+    batchSyncInFlightRef.current = true;
+    try {
+      const branchId = getSettings().business.branchId;
+      const res = await fetchWithAuth(
+        `${API_URL}/api/v2/batches/?status=all&branch_id=${encodeURIComponent(branchId)}`,
+      );
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const body = (await res.json()) as { success: boolean; data: BatchRow[] };
+      if (body.success && Array.isArray(body.data)) {
+        setBatches(body.data.map(mapBatchRow));
+      }
+    } catch {
+      // Sin red / error de servidor: conservamos el cache local ya cargado.
+    } finally {
+      batchSyncInFlightRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
+    const checkAndSync = async () => {
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/v2/batches/version`);
+        if (!res.ok) throw new Error(`version ${res.status}`);
+        const body = (await res.json()) as { success: boolean; data: { version: number } };
+        const remote = body?.data?.version ?? 0;
+        if (remote !== lastBatchVersionRef.current) {
+          await refreshBatchesFromD1();
+          lastBatchVersionRef.current = remote;
+          try { localStorage.setItem(BATCHES_VERSION_KEY, String(remote)); } catch { /* quota */ }
+        }
+      } catch {
+        // Sin red: seguimos con el cache local, sin romper nada.
+      }
+    };
+    void checkAndSync();
+    const id = setInterval(() => { void checkAndSync(); }, 60_000);
+    return () => clearInterval(id);
+  }, [refreshBatchesFromD1]);
+
+  useEffect(() => {
+    // checkExpiry es un puro side-effect: NO muta el estado del lote (ya no lo
+    // marcamos `expired` en el acto — ése era el bug de auto-expiración). En su
+    // lugar genera una solicitud de merma `waste`. El lote sigue `active` hasta
+    // que la request pase a `completed` y AppContext aplique el descuento.
     const checkExpiry = () => {
       const todayStr = new Date().toISOString().split('T')[0];
       const todayTime = new Date(todayStr + 'T00:00:00').getTime();
 
-      // Bug 1 fix: flat setters — no nested setState calls.
-      // Step 1: compute which batches expired and build the new requests array,
-      // then apply both setters sequentially (never nested).
-      setBatches((prevBatches) => {
-        // Bug C fix: derive expiredAutoBatches inside the updater so it always
-        // uses the latest state and never closes over a stale snapshot.
-        // Race fix: filtramos los batchIds que ya están siendo procesados por
-        // otra llamada en vuelo para no duplicar requests / commits.
-        const expiredAutoBatches = prevBatches.filter(
-          (b) =>
-            b.withdrawalMode === 'automatic' &&
-            b.status === 'active' &&
-            b.stock > 0 &&
-            new Date(b.expiryDate + 'T00:00:00').getTime() < todayTime &&
-            !inFlightRef.current.has(b.id),
-        );
+      const expiredAuto = batchesRef.current.filter(
+        (b) =>
+          b.withdrawalMode === 'automatic' &&
+          b.status === 'active' &&
+          b.stock > 0 &&
+          new Date(b.expiryDate + 'T00:00:00').getTime() < todayTime &&
+          !autoExpiryRequestedRef.current.has(b.id),
+      );
 
-        if (expiredAutoBatches.length === 0) return prevBatches;
+      if (expiredAuto.length === 0) return;
 
-        // Reservar los ids antes de schedulear el siguiente setter para que una
-        // llamada concurrente los vea como "in flight" y los saltee.
-        expiredAutoBatches.forEach((b) => inFlightRef.current.add(b.id));
+      // Reservar + persistir los ids ANTES de disparar los POST para que un tick
+      // concurrente / un reload no vuelva a generar la misma solicitud.
+      expiredAuto.forEach((b) => autoExpiryRequestedRef.current.add(b.id));
+      persistAutoExpiry();
 
-        // Schedule the withdrawal-requests update in the next microtask so it
-        // runs after this setter has committed — standard trick to break nesting.
-        setTimeout(() => {
-          setWithdrawalRequests((prevRequests) => {
-            const updated = [...prevRequests];
-            let addedAny = false;
-            expiredAutoBatches.forEach((b) => {
-              const exists = updated.some((r) => r.batchId === b.id && r.status === 'pending');
-              if (!exists) {
-                const productName =
-                  productsRef.current.find((p) => p.id === b.productId)?.name ?? 'Producto';
-                updated.unshift({
-                  id: uid(),
-                  batchId: b.id,
-                  productId: b.productId,
-                  productName,
-                  batchNumber: b.batchNumber,
-                  quantity: b.stock,
-                  reason: 'Baja automática generada por fecha límite de caducidad.',
-                  requestedBy: 'Chequeo Automatizado ERP',
-                  status: 'pending',
-                  date: new Date().toISOString(),
-                });
-                addedAny = true;
-                notify(
-                  '⏳ Lote Expirado (Automático)',
-                  `El lote ${b.batchNumber} ha expirado. Solicitud enviada a administración.`,
-                  'warning',
-                );
-              }
-            });
-            // Liberar los ids procesados — la transición ya está commiteada en
-            // ambos setters cuando este updater retorna.
-            expiredAutoBatches.forEach((b) => inFlightRef.current.delete(b.id));
-            return addedAny ? updated : prevRequests;
+      expiredAuto.forEach((b) => {
+        const productName =
+          productsRef.current.find((p) => p.id === b.productId)?.name ?? 'Producto';
+        postWasteRequest({
+          title: `Merma automática por vencimiento: ${productName}`,
+          description: 'Baja automática generada por fecha límite de caducidad.',
+          batchId: b.id,
+          productId: b.productId,
+          quantity: b.stock,
+          reason: 'Baja automática generada por fecha límite de caducidad.',
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error(`status ${res.status}`);
+          })
+          .catch(() => {
+            // Falló el POST: liberamos el id para reintentar en el próximo tick.
+            autoExpiryRequestedRef.current.delete(b.id);
+            persistAutoExpiry();
           });
-        }, 0);
-
-        // Bug A fix: return updated batches with expired ones marked as 'expired'
-        // instead of returning prevBatches unchanged.
-        return prevBatches.map((b) =>
-          expiredAutoBatches.some((e) => e.id === b.id) ? { ...b, status: 'expired' } : b,
+        notify(
+          '⏳ Lote Vencido (Automático)',
+          `El lote ${b.batchNumber} venció. Se generó una solicitud de merma para aprobación de administración.`,
+          'warning',
         );
       });
     };
@@ -194,84 +318,75 @@ export function useBatches({ notify, products }: UseBatchesParams) {
     checkExpiry(); // check al montar
     const interval = setInterval(checkExpiry, 3_600_000); // cada hora
     return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `notify` no cambia de identidad entre renders (viene de un useRef estable en useNotifications), y accedemos a batches/withdrawalRequests via setters funcionales para evitar stale closures
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `notify` es estable (useRef en useNotifications); products/batches se leen via refs para evitar stale closures
   }, []);
 
-  const requestBatchWithdrawal = (
+  /**
+   * Solicitud de merma MANUAL disparada por un operador (cajero/panadero/admin).
+   * POSTea a la API real de Solicitudes. El backend decide el status según el
+   * rol: admin/owner → `completed` (auto-aprobada); resto → `pending_approval`.
+   *
+   * Tolerancia offline: si el POST falla por error de RED, encolamos la merma en
+   * la cola de sync (`enqueue`, mismo patrón que supply_request) y devolvemos
+   * `{ queued: true }` para que el caller muestre un estado intermedio en vez de
+   * error. Si el fallo NO es de red (validación 4xx/servidor), re-lanzamos el
+   * error real — la merma no se encola ni se da por registrada.
+   */
+  const requestBatchWithdrawal = async (
     batchId: string,
     quantity: number,
     reason: string,
-    requestedByName: string,
-    requestedByRole: string,
-  ): void => {
+  ): Promise<{ queued: boolean }> => {
     const batch = batches.find((b) => b.id === batchId);
-    if (!batch) return;
+    if (!batch) throw new Error('El lote seleccionado ya no existe.');
     const prod = products.find((p) => p.id === batch.productId);
-    const roleLabel =
-      requestedByRole === 'admin'
-        ? 'Administrador'
-        : requestedByRole === 'cajero'
-        ? 'Caja'
-        : 'Panadero';
-    const request: BatchWithdrawalRequest = {
-      id: uid(),
-      batchId,
-      productId: batch.productId,
-      productName: prod?.name ?? 'Artículo',
-      batchNumber: batch.batchNumber,
-      quantity,
-      reason,
-      requestedBy: `${requestedByName} (${roleLabel})`,
-      status: 'pending',
-      date: new Date().toISOString(),
-    };
-    setWithdrawalRequests((prev) => [request, ...prev]);
-    syncWithdrawalRequestToD1({
-      id: request.id,
-      batchId: request.batchId,
-      productId: request.productId,
-      productName: request.productName,
-      batchNumber: request.batchNumber,
-      quantity: request.quantity,
-      reason: request.reason,
-      requestedBy: request.requestedBy,
-    }).catch(() => {
-      // Fire-and-forget: si falla la red el request queda en la cola offline
-      // (enqueue dentro de syncWithdrawalRequestToD1) y no se pierde.
-      notify('⚠️ Sync', 'No se pudo sincronizar el cliente. Se reintentará.', 'warning');
-    });
-    notify(
-      '🔔 Solicitud de Baja Registrada',
-      `Se solicitó retirar ${quantity} u. del lote ${batch.batchNumber} de "${request.productName}".`,
-      'info',
-    );
-  };
+    const productName = prod?.name ?? 'Artículo';
 
-  const rejectWithdrawalRequest = (requestId: string, adminMemo: string): void => {
-    let rejectedReq: BatchWithdrawalRequest | null = null;
-    setWithdrawalRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== requestId || r.status !== 'pending') return r;
-        rejectedReq = { ...r, status: 'rejected', adminMemo };
-        return rejectedReq;
-      }),
-    );
-    if (rejectedReq) {
-      const req = rejectedReq as BatchWithdrawalRequest;
-      notify(
-        '❌ Solicitud de Baja Rechazada',
-        `Se rechazó dar de baja el lote ${req.batchNumber} de "${req.productName}". Detalle: ${adminMemo}`,
-        'error',
-      );
+    // El id client-side permite que la merma encolada conserve identidad estable
+    // al drenar la cola (el backend lo usa como request id si vino offline).
+    const payload = {
+      id: uid(),
+      type: 'waste',
+      title: `Merma: ${productName} ×${quantity}`,
+      description: reason,
+      assigned_role: 'admin',
+      branch_id: getSettings().business.branchId,
+      metadata: {
+        batch_id: batch.id,
+        product_id: batch.productId,
+        quantity,
+        reason,
+      },
+    };
+
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/v2/requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        let msg = 'No se pudo registrar la solicitud de merma. Reintentá.';
+        try {
+          const data = (await res.json()) as { error?: { message?: string } };
+          if (data?.error?.message) msg = data.error.message;
+        } catch { /* body no-JSON */ }
+        throw new Error(msg);
+      }
+      return { queued: false };
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await enqueue('waste_request', payload);
+        return { queued: true };
+      }
+      throw err;
     }
   };
 
   return {
     batches,
     setBatches,
-    withdrawalRequests,
-    setWithdrawalRequests,
     requestBatchWithdrawal,
-    rejectWithdrawalRequest,
+    refreshBatchesFromD1,
   };
 }

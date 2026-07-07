@@ -3,6 +3,7 @@ import * as React from 'react';
 import { useState } from 'react';
 
 import { useApp } from '../../AppContext';
+import { useRequests } from '../../hooks/useRequests';
 import type { Product } from '../../types';
 
 // Extraído desde InventoryView.tsx (`ProductBatchesModal`). Refactor puramente
@@ -19,8 +20,8 @@ export const BatchPanel: React.FC<BatchPanelProps> = ({ product, onClose }) => {
     addBatch,
     requestBatchWithdrawal,
     addSystemNotification,
-    withdrawalRequests = [],
   } = useApp();
+  const { requests } = useRequests();
 
   const [newBatchNumber, setNewBatchNumber] = useState(
     `L-${product.name.slice(0, 3).toUpperCase()}-${(Date.now().toString(36) + Math.random().toString(36).slice(2)).slice(0, 6).toUpperCase()}`
@@ -266,8 +267,11 @@ export const BatchPanel: React.FC<BatchPanelProps> = ({ product, onClose }) => {
                     badgeText = 'Por Caducar';
                   }
 
-                  const hasPendingRequest = withdrawalRequests.some(
-                    (r) => r.batchId === b.id && r.status === 'pending'
+                  // Ya hay una solicitud de merma pendiente de aprobación para
+                  // este lote → ocultamos el botón de "Solicitar Retiro". El
+                  // vínculo con el lote local viaja en metadata.batch_id.
+                  const hasPendingRequest = requests.some(
+                    (r) => r.type === 'waste' && r.status === 'pending_approval' && r.metadata?.batch_id === b.id
                   );
 
                   return (
@@ -354,7 +358,9 @@ export const BatchPanel: React.FC<BatchPanelProps> = ({ product, onClose }) => {
                                       type="button"
                                       id="btn-submit-rollback"
                                       onClick={() => {
-                                        requestBatchWithdrawal(b.id, rollbackQty, rollbackReason);
+                                        void requestBatchWithdrawal(b.id, rollbackQty, rollbackReason).catch(() =>
+                                          addSystemNotification('⚠️ Merma no registrada', `No se pudo registrar la baja del lote ${b.batchNumber}. Reintentá.`, 'warning'),
+                                        );
                                         setSelectedBatchForRollback(null);
                                         addSystemNotification('🔔 Solicitud Almacenada', `Se solicitó la baja de ${rollbackQty} u. del lote ${b.batchNumber}`, 'success');
                                       }}
