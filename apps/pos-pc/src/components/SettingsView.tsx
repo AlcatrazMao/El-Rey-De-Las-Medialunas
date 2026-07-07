@@ -1,14 +1,15 @@
-import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check, Tag, Percent, RefreshCw, AlertCircle, ShieldAlert, AlertTriangle, Wrench } from 'lucide-react';
+import { Settings, Building2, Receipt, Wallet, Package, CreditCard, Printer, Check, Tag, Percent, RefreshCw, AlertCircle, ShieldAlert, AlertTriangle, Wrench, Keyboard } from 'lucide-react';
 import * as React from 'react';
 import { useState, useEffect } from 'react';
 
 import { useSettings } from '../hooks/useSettings';
-import type { BusinessSettings, FiscalSettings, CashSettings, InventorySettings, GatewayCredential, PriceList, Promotion, SyncSettings, PrinterSettings } from '../hooks/useSettings';
+import type { BusinessSettings, FiscalSettings, CashSettings, InventorySettings, GatewayCredential, PriceList, Promotion, SyncSettings, PrinterSettings, PosSettings } from '../hooks/useSettings';
 import { BusinessSettings as BusinessSettingsPanel } from '../settings/BusinessSettings';
 import { CashSettings as CashSettingsPanel } from '../settings/CashSettings';
 import { DangerZoneSettings as DangerZoneSettingsPanel } from '../settings/DangerZoneSettings';
 import { FiscalSettings as FiscalSettingsPanel } from '../settings/FiscalSettings';
 import { InventorySettings as InventorySettingsPanel } from '../settings/InventorySettings';
+import { KeyboardSettings as KeyboardSettingsPanel } from '../settings/KeyboardSettings';
 import { MaintenanceSettings as MaintenanceSettingsPanel } from '../settings/MaintenanceSettings';
 import { PaymentSettings as PaymentSettingsPanel } from '../settings/PaymentSettings';
 import { PriceListSettings as PriceListSettingsPanel } from '../settings/PriceListSettings';
@@ -18,7 +19,7 @@ import { SyncSettings as SyncSettingsPanel } from '../settings/SyncSettings';
 
 import { SyncErrorConsole } from './SyncErrorConsole';
 
-type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'pricelists' | 'promotions' | 'printer' | 'sync' | 'sync_console' | 'danger' | 'maintenance';
+type TabId = 'business' | 'fiscal' | 'cash' | 'inventory' | 'payment' | 'pricelists' | 'promotions' | 'printer' | 'keyboard' | 'sync' | 'sync_console' | 'danger' | 'maintenance';
 
 interface TabItem {
   id: TabId;
@@ -35,6 +36,7 @@ const TABS: TabItem[] = [
   { id: 'pricelists', label: 'Precios', icon: <Tag className="h-4 w-4" /> },
   { id: 'promotions', label: 'Promociones', icon: <Percent className="h-4 w-4" /> },
   { id: 'printer', label: 'Impresora', icon: <Printer className="h-4 w-4" /> },
+  { id: 'keyboard', label: 'Teclado', icon: <Keyboard className="h-4 w-4" /> },
   { id: 'sync', label: 'Sincronización', icon: <RefreshCw className="h-4 w-4" /> },
   { id: 'sync_console', label: 'Errores Sync', icon: <AlertTriangle className="h-4 w-4" /> },
   { id: 'maintenance', label: 'Mantenimiento', icon: <Wrench className="h-4 w-4" /> },
@@ -83,6 +85,8 @@ export const SettingsView: React.FC = () => {
     safeRun(() => updateSection('sync', values));
   const handleUpdatePrinter = (_section: 'printer', values: Partial<PrinterSettings>) =>
     safeRun(() => updateSection('printer', values));
+  const handleUpdatePos = (_section: 'pos', values: Partial<PosSettings>) =>
+    safeRun(() => updateSection('pos', values));
   const handleUpdatePayment = (credentials: GatewayCredential[]) =>
     safeRun(() => setGatewayCredentials(credentials));
   const handleUpdatePriceLists = (priceLists: PriceList[]) =>
@@ -120,6 +124,8 @@ export const SettingsView: React.FC = () => {
         return <PromotionsSettingsPanel settings={settings} onUpdate={handleUpdatePromotions} onSaved={showSavedToast} />;
       case 'printer':
         return <PrinterSettingsPanel settings={settings} onUpdate={handleUpdatePrinter} onSaved={showSavedToast} />;
+      case 'keyboard':
+        return <KeyboardSettingsPanel settings={settings} onUpdate={handleUpdatePos} onSaved={showSavedToast} />;
       case 'sync':
         return <SyncSettingsPanel settings={settings} onUpdate={handleUpdateSync} onSaved={showSavedToast} />;
       case 'sync_console':

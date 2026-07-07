@@ -182,6 +182,12 @@ export const POSView: React.FC = () => {
   // Independiente del searchQuery del modal para no interferir entre sí.
   const [quickSearch, setQuickSearch] = useState('');
   const [quickSearchOpen, setQuickSearchOpen] = useState(false);
+  // -1 = ningún resultado resaltado activamente (aún no se navegó con flechas).
+  const [quickSearchHighlight, setQuickSearchHighlight] = useState(-1);
+  const [quickSearchQty, setQuickSearchQty] = useState(1);
+  // Marca si el GroupSelectorModal se abrió desde el buscador rápido, para
+  // devolverle el foco al input al terminar la selección de grupo/unidad.
+  const quickSearchGroupRef = useRef(false);
 
   // Mobile config panel
   const [showConfigPanel, setShowConfigPanel] = useState(false);
@@ -356,6 +362,13 @@ export const POSView: React.FC = () => {
     window.addEventListener('blur', clearBuffer);
     return () => window.removeEventListener('blur', clearBuffer);
   }, []);
+
+  // La cantidad del buscador rápido se reinicia a 1 cada vez que cambia el
+  // resaltado (nuevo browse). El cambio de texto resetea el highlight a -1, lo
+  // que dispara este efecto y también reinicia la cantidad.
+  useEffect(() => {
+    setQuickSearchQty(1);
+  }, [quickSearchHighlight]);
 
   // Fetch customer purchase history when a customer is selected
   // AbortController evita race conditions cuando el cliente cambia rápidamente
@@ -825,6 +838,46 @@ export const POSView: React.FC = () => {
     });
   };
 
+  // Add N units at once (buscador rápido con cantidad). Reusa la lógica de
+  // "ya existe en el carrito" pero sumando el delta completo en una sola
+  // actualización de estado, evitando re-renders por unidad.
+  const addUnitsToCart = (product: Product, qty: number) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id && !item.presentation);
+      if (existing) {
+        playBeep(600, 0.05);
+        return prev.map(item =>
+          item === existing ? { ...item, quantity: item.quantity + qty } : item
+        );
+      }
+      playBeep(1000, 0.05);
+      return [...prev, { product, quantity: qty, unitPrice: product.price }];
+    });
+  };
+
+  const refocusQuickSearch = () => {
+    // Refocus explícito post-render: al desaparecer el resultado el navegador
+    // puede mover el foco a otro input real y romper el type-to-search global.
+    setTimeout(() => document.getElementById('input-quick-search')?.focus(), 0);
+  };
+
+  // Confirmación de un producto desde el buscador rápido. Si tiene grupos abre
+  // el modal (qty no aplica). Si no, agrega `qty` unidades de una sola vez.
+  const commitQuickSearchProduct = (product: Product, qty: number) => {
+    warnIfNoStock(product);
+    setQuickSearch('');
+    setQuickSearchHighlight(-1);
+    if ((product.groups?.length ?? 0) > 0) {
+      quickSearchGroupRef.current = true;
+      setGroupSelectorProduct(product);
+      playBeep(800, 0.05);
+      return;
+    }
+    addUnitsToCart(product, qty);
+    playBeep(800, 0.05);
+    refocusQuickSearch();
+  };
+
   // Add a group (presentation) line to the cart. Each group selection is a NEW
   // cart line — even if user already has the same group; this matches POS UX
   // expectations ("agregar otra docena").
@@ -1255,19 +1308,36 @@ export const POSView: React.FC = () => {
                 type="text"
                 placeholder="Búsqueda rápida por nombre o código..."
                 value={quickSearch}
-                onChange={e => setQuickSearch(e.target.value)}
+                onChange={e => { setQuickSearch(e.target.value); setQuickSearchHighlight(-1); }}
                 onKeyDown={e => {
-                  if (e.key === 'Escape') { setQuickSearch(''); setQuickSearchOpen(false); }
-                  else if (e.key === 'Enter' && quickSearchResults.length > 0) {
-                    addToCart(quickSearchResults[0]);
-                    playBeep(800, 0.05);
-                    setQuickSearch('');
+                  if (e.key === 'Escape') { setQuickSearch(''); setQuickSearchHighlight(-1); setQuickSearchOpen(false); }
+                  else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (quickSearchResults.length === 0) return;
+                    setQuickSearchHighlight(h => Math.min(h < 0 ? 0 : h + 1, quickSearchResults.length - 1));
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (quickSearchResults.length === 0) return;
+                    setQuickSearchHighlight(h => Math.max(h <= 0 ? 0 : h - 1, 0));
+                  } else if (e.key === 'ArrowRight') {
+                    // Izq/der sólo ajustan cantidad si ya se navegó con flechas
+                    // (highlight activo); si no, se deja mover el cursor de texto.
+                    if (quickSearchHighlight >= 0) { e.preventDefault(); setQuickSearchQty(q => q + 1); }
+                  } else if (e.key === 'ArrowLeft') {
+                    if (quickSearchHighlight >= 0) { e.preventDefault(); setQuickSearchQty(q => Math.max(1, q - 1)); }
+                  } else if (e.key === 'Enter') {
+                    if (!posSettings.pos.enterAddsToCart) return;
+                    if (quickSearchResults.length === 0) return;
+                    const idx = quickSearchHighlight >= 0 ? quickSearchHighlight : 0;
+                    const product = quickSearchResults[idx];
+                    if (!product) return;
+                    commitQuickSearchProduct(product, quickSearchHighlight >= 0 ? quickSearchQty : 1);
                   }
                 }}
                 className="bg-transparent flex-1 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 dark:placeholder-zinc-600 outline-none"
               />
               {quickSearch && (
-                <button onClick={() => setQuickSearch('')} className="text-gray-400 hover:text-red-500 cursor-pointer shrink-0">
+                <button onClick={() => { setQuickSearch(''); setQuickSearchHighlight(-1); }} className="text-gray-400 hover:text-red-500 cursor-pointer shrink-0">
                   <X className="h-4 w-4" />
                 </button>
               )}
@@ -1277,17 +1347,29 @@ export const POSView: React.FC = () => {
                 {quickSearchResults.length === 0 ? (
                   <div className="px-3 py-3 text-xs text-gray-400 text-center">Sin resultados para “{quickSearch}”</div>
                 ) : (
-                  quickSearchResults.map(product => (
-                    <button
-                      key={product.id}
-                      id={`btn-quick-search-add-${product.id}`}
-                      onClick={() => { addToCart(product); playBeep(800, 0.05); setQuickSearch(''); }}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-amber-50 dark:hover:bg-zinc-800 text-left transition-colors cursor-pointer border-b border-gray-50 dark:border-zinc-800/60 last:border-0"
-                    >
-                      <span className="text-sm font-medium text-gray-800 dark:text-zinc-100 truncate">{product.name}</span>
-                      <span className="text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">{formatCurrency(product.price)}</span>
-                    </button>
-                  ))
+                  quickSearchResults.map((product, idx) => {
+                    const isHighlighted = idx === quickSearchHighlight;
+                    return (
+                      <button
+                        key={product.id}
+                        id={`btn-quick-search-add-${product.id}`}
+                        onClick={() => commitQuickSearchProduct(product, isHighlighted ? quickSearchQty : 1)}
+                        className={`w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-amber-50 dark:hover:bg-zinc-800 text-left transition-colors cursor-pointer border-b last:border-0 ${
+                          isHighlighted
+                            ? 'bg-amber-50 dark:bg-zinc-800 border-amber-300 dark:border-amber-700'
+                            : 'border-gray-50 dark:border-zinc-800/60'
+                        }`}
+                      >
+                        <span className="text-sm font-medium text-gray-800 dark:text-zinc-100 truncate">{product.name}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isHighlighted && quickSearchQty > 1 && (
+                            <span className="text-[10px] font-black bg-amber-500 text-white rounded-full px-1.5 py-0.5 leading-none">x{quickSearchQty}</span>
+                          )}
+                          <span className="text-xs font-bold text-amber-600 dark:text-amber-400">{formatCurrency(product.price)}</span>
+                        </div>
+                      </button>
+                    );
+                  })
                 )}
               </div>
             )}
@@ -1608,7 +1690,7 @@ export const POSView: React.FC = () => {
           setShowSelectionModal(true);
           playBeep(705, 0.05);
         }}
-        className="hidden md:flex fixed bottom-28 right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group"
+        className="flex fixed top-[calc(50%+3.5rem)] right-0 md:top-auto md:bottom-28 md:right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group animate-pulse"
         title="Buscar Panificados"
         aria-label="Buscar productos"
       >
@@ -2046,12 +2128,14 @@ export const POSView: React.FC = () => {
           onSelectUnit={() => {
             addUnitToCart(groupSelectorProduct);
             setGroupSelectorProduct(null);
+            if (quickSearchGroupRef.current) { quickSearchGroupRef.current = false; refocusQuickSearch(); }
           }}
           onSelectGroup={(g) => {
             addGroupToCart(groupSelectorProduct, g);
             setGroupSelectorProduct(null);
+            if (quickSearchGroupRef.current) { quickSearchGroupRef.current = false; refocusQuickSearch(); }
           }}
-          onClose={() => setGroupSelectorProduct(null)}
+          onClose={() => { setGroupSelectorProduct(null); quickSearchGroupRef.current = false; }}
         />
       )}
 

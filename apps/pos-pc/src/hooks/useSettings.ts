@@ -109,6 +109,8 @@ export interface DiscountConfig {
 export interface PosSettings {
   defaultPaymentMethod: PaymentMethodId;
   defaultViewMode: 'visual' | 'list';
+  /** Si está en false, Enter en el buscador rápido NO agrega el producto al carrito (solo navegación por flechas). */
+  enterAddsToCart: boolean;
 }
 
 export interface AppSettings {
@@ -181,6 +183,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   pos: {
     defaultPaymentMethod: 'efectivo',
     defaultViewMode: 'visual',
+    enterAddsToCart: true,
   },
   printer: {
     useBridge: false,
