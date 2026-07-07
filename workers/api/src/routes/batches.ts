@@ -53,14 +53,18 @@ batchRoutes.get("/", async (c) => {
   const status = c.req.query("status") ?? "active";
   const expiringWithinHoursRaw = c.req.query("expiring_within_hours");
 
-  let query = `SELECT ib.*, p.name AS product_name, p.code AS product_code
-               FROM inventory_batches ib
-               LEFT JOIN products p ON p.id = ib.product_id
-               WHERE ib.branch_id = ? AND ib.status = ?`;
-  const bindings: (string | number)[] = [branchId, status];
+  const whereParts: string[] = ["ib.branch_id = ?"];
+  const bindings: (string | number)[] = [branchId];
+
+  // status='all' devuelve el listado completo de la sucursal (para el full-fetch
+  // que dispara el frontend cuando GET /version detecta un cambio de versión).
+  if (status !== "all") {
+    whereParts.push("ib.status = ?");
+    bindings.push(status);
+  }
 
   if (productId) {
-    query += " AND ib.product_id = ?";
+    whereParts.push("ib.product_id = ?");
     bindings.push(productId);
   }
 
@@ -76,14 +80,45 @@ batchRoutes.get("/", async (c) => {
     if (isNaN(limitTs) || limitDate === 'Invalid Date') {
       return c.json(errBody("VALIDATION_ERROR", "expiring_within_hours produce una fecha inválida"), 400);
     }
-    query += " AND ib.expiry_date IS NOT NULL AND ib.expiry_date >= date('now') AND ib.expiry_date <= ?";
+    whereParts.push("ib.expiry_date IS NOT NULL AND ib.expiry_date >= date('now') AND ib.expiry_date <= ?");
     bindings.push(limitDate);
   }
 
-  query += " ORDER BY (ib.expiry_date IS NULL), ib.expiry_date ASC, ib.entry_date ASC";
+  const whereClause = `WHERE ${whereParts.join(" AND ")}`;
 
-  const results = await db.prepare(query).bind(...bindings).all<BatchRow>();
-  return c.json({ success: true, data: results.results ?? [] });
+  const countStmt = db
+    .prepare(`SELECT COUNT(*) AS total FROM inventory_batches ib ${whereClause}`)
+    .bind(...bindings);
+  const listStmt = db
+    .prepare(
+      `SELECT ib.*, p.name AS product_name, p.code AS product_code
+         FROM inventory_batches ib
+         LEFT JOIN products p ON p.id = ib.product_id
+         ${whereClause}
+        ORDER BY (ib.expiry_date IS NULL), ib.expiry_date ASC, ib.entry_date ASC`,
+    )
+    .bind(...bindings);
+
+  const [countResult, listResult] = await db.batch([countStmt, listStmt]);
+  const total = (countResult?.results[0] as { total: number } | undefined)?.total ?? 0;
+  const rows = (listResult?.results ?? []) as BatchRow[];
+
+  return c.json({ success: true, data: rows, total });
+});
+
+// ─── GET /version ──────────────────────────────────────────────────────────
+// El frontend compara version local vs remota para decidir refetch de lotes.
+batchRoutes.get("/version", async (c) => {
+  const db = c.env.DB;
+  const row = await db
+    .prepare("SELECT version, updated_at FROM data_versions WHERE key = 'batches' LIMIT 1")
+    .first<{ version: number; updated_at: string }>();
+
+  if (!row) {
+    // Si no existe la row, devolvemos version=0 — el frontend tratará todo como nuevo.
+    return c.json({ success: true, data: { version: 0, updated_at: null } });
+  }
+  return c.json({ success: true, data: { version: row.version, updated_at: row.updated_at } });
 });
 
 batchRoutes.get("/:id", async (c) => {
