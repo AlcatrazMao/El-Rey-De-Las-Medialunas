@@ -11,7 +11,7 @@ export const requestsRouter = new Hono<{
 }>();
 
 // ─── Constantes ────────────────────────────────────────────────────────────
-const VALID_TYPES = ["supply", "production", "delivery", "task", "maintenance", "custom"] as const;
+const VALID_TYPES = ["supply", "production", "delivery", "task", "maintenance", "custom", "waste"] as const;
 const VALID_ROLES = ["admin", "cajero", "cocinero", "repartidor", "panadero", "all"] as const;
 const VALID_PRIORITIES = ["low", "medium", "high"] as const;
 
@@ -21,6 +21,12 @@ type Priority = (typeof VALID_PRIORITIES)[number];
 
 // Roles administrativos (pueden aprobar/rechazar/cancelar)
 const ADMIN_ROLES = new Set<string>(["admin", "owner", "supervisor"]);
+
+// Roles para MERMAS (type='waste'): más angostos que ADMIN_ROLES a propósito.
+// El dueño pidió explícitamente que supervisor NUNCA sea instantáneo ni pueda
+// aprobar/rechazar mermas, a diferencia de otros tipos de solicitud. La baja
+// instantánea y la aprobación/rechazo comparten exactamente el mismo conjunto.
+const WASTE_ROLES = new Set<string>(["admin", "owner"]);
 
 // Roles que pueden crear solicitudes (todos los operativos)
 const CREATOR_ROLES = new Set<string>([
@@ -53,6 +59,7 @@ const REQUEST_FIELDS_JOIN = `
   r.accepted_by_user_id, r.accepted_by_role, r.is_optional_acceptance, r.original_assigned_role,
   r.admin_note, r.rejection_reason, r.reassignment_note,
   r.cost_spent, r.time_started, r.time_completed, r.duration_minutes, r.incidents,
+  r.metadata,
   r.created_at, r.updated_at,
   b.name AS branch_name
 `.trim();
@@ -90,6 +97,7 @@ interface RequestRow {
   time_completed: string | null;
   duration_minutes: number | null;
   incidents: string | null;
+  metadata: string | null;
   created_at: string;
   updated_at: string;
   branch_name?: string | null;
@@ -156,6 +164,23 @@ function buildActivityInsert(
       args.note,
       nowSqliteTs(),
     );
+}
+
+/**
+ * requests.metadata se guarda como TEXT (JSON serializado). El cliente espera un
+ * objeto, así que lo parseamos acá antes de responder. Devuelve null si es null o
+ * si el JSON está corrupto (no rompemos la respuesta por una fila mal formada).
+ */
+function parseMetadata(raw: string | null): Record<string, unknown> | null {
+  if (raw == null) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── GET /version ──────────────────────────────────────────────────────────
@@ -259,7 +284,7 @@ requestsRouter.get("/", async (c) => {
 
   return c.json({
     success: true,
-    data: rows,
+    data: rows.map((r) => ({ ...r, metadata: parseMetadata(r.metadata) })),
     total,
   });
 });
@@ -308,7 +333,7 @@ requestsRouter.get("/:id", async (c) => {
   return c.json({
     success: true,
     data: {
-      request,
+      request: { ...request, metadata: parseMetadata(request.metadata) },
       activity: activity.results ?? [],
     },
   });
@@ -329,6 +354,7 @@ requestsRouter.post("/", async (c) => {
     is_permanent?: boolean | number;
     recurrence_days?: unknown;
     recurrence_time?: string | null;
+    metadata?: unknown;
   };
   try {
     body = await c.req.json();
@@ -383,6 +409,54 @@ requestsRouter.post("/", async (c) => {
   const priority: Priority = VALID_PRIORITIES.includes(body.priority as Priority)
     ? (body.priority as Priority)
     : "medium";
+
+  // Validar metadata para MERMAS (type='waste').
+  // Debe traer batch_id (o client_batch_id, string), quantity (number > 0) y
+  // reason (string no vacío). Se re-serializa normalizado para guardar en
+  // requests.metadata (columna TEXT nullable).
+  let wasteMetadataJson: string | null = null;
+  if (body.type === "waste") {
+    const meta = body.metadata;
+    if (typeof meta !== "object" || meta === null || Array.isArray(meta)) {
+      return c.json(
+        errBody("VALIDATION_ERROR", "metadata es requerido para mermas (batch_id/client_batch_id, quantity, reason)"),
+        400,
+      );
+    }
+    const m = meta as Record<string, unknown>;
+
+    const batchId = typeof m.batch_id === "string" ? m.batch_id.trim() : "";
+    const clientBatchId = typeof m.client_batch_id === "string" ? m.client_batch_id.trim() : "";
+    if (batchId.length < 1 && clientBatchId.length < 1) {
+      return c.json(
+        errBody("VALIDATION_ERROR", "metadata.batch_id o metadata.client_batch_id es requerido (string no vacío)"),
+        400,
+      );
+    }
+
+    const quantity = Number(m.quantity);
+    if (typeof m.quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0) {
+      return c.json(
+        errBody("VALIDATION_ERROR", "metadata.quantity debe ser un número mayor a 0"),
+        400,
+      );
+    }
+
+    const reason = typeof m.reason === "string" ? m.reason.trim() : "";
+    if (reason.length < 1) {
+      return c.json(
+        errBody("VALIDATION_ERROR", "metadata.reason es requerido (string no vacío)"),
+        400,
+      );
+    }
+
+    wasteMetadataJson = JSON.stringify({
+      ...(batchId.length > 0 ? { batch_id: batchId } : {}),
+      ...(clientBatchId.length > 0 ? { client_batch_id: clientBatchId } : {}),
+      quantity,
+      reason,
+    });
+  }
 
   // Recurrencia
   const isPermanent = body.is_permanent === true || body.is_permanent === 1 ? 1 : 0;
@@ -442,8 +516,21 @@ requestsRouter.post("/", async (c) => {
     return c.json(errBody("FORBIDDEN", "No tenés permisos para crear solicitudes"), 403);
   }
 
-  // Auto-aprobación si es admin
-  const initialStatus = ADMIN_ROLES.has(userRole) ? "approved" : "pending_approval";
+  // Estado inicial.
+  // MERMAS (type='waste') usan reglas propias, más angostas que el resto:
+  //   - Rol en WASTE_ROLES (admin/owner, SIN supervisor) → 'completed'
+  //     directo (la merma se da de baja al instante).
+  //   - Cualquier otro rol → 'pending_approval' (necesita aprobación de un
+  //     WASTE_ROLE).
+  // Otros tipos mantienen la auto-aprobación genérica (ADMIN_ROLES → 'approved').
+  const isWaste = body.type === "waste";
+  let initialStatus: string;
+  if (isWaste) {
+    initialStatus = WASTE_ROLES.has(userRole) ? "completed" : "pending_approval";
+  } else {
+    initialStatus = ADMIN_ROLES.has(userRole) ? "approved" : "pending_approval";
+  }
+  const wasteInstant = isWaste && initialStatus === "completed";
 
   const userInfo = await fetchUserName(db, user.id);
   const id = genId();
@@ -455,8 +542,8 @@ requestsRouter.post("/", async (c) => {
        created_by_user_id, created_by_role,
        assigned_role, assigned_user_id, branch_id,
        is_permanent, recurrence_days, recurrence_time,
-       status, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       status, time_completed, metadata, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id,
     body.type,
@@ -472,20 +559,40 @@ requestsRouter.post("/", async (c) => {
     recurrenceDaysJson,
     recurrenceTime,
     initialStatus,
+    wasteInstant ? now : null,
+    wasteMetadataJson,
     now,
     now,
   );
 
-  const activityStmt = buildActivityInsert(db, {
-    requestId: id,
-    userId: user.id,
-    userRole,
-    userName: userInfo?.name ?? null,
-    action: "created",
-    note: initialStatus === "approved" ? "Auto-aprobado por admin" : null,
-  });
+  const stmts = [
+    insertStmt,
+    buildActivityInsert(db, {
+      requestId: id,
+      userId: user.id,
+      userRole,
+      userName: userInfo?.name ?? null,
+      action: "created",
+      note: initialStatus === "approved" ? "Auto-aprobado por admin" : null,
+    }),
+  ];
 
-  await db.batch([insertStmt, activityStmt]);
+  // Para mermas instantáneas, la request nace ya completada: registramos también
+  // la actividad 'completed' en el mismo batch para dejar el audit trail correcto.
+  if (wasteInstant) {
+    stmts.push(
+      buildActivityInsert(db, {
+        requestId: id,
+        userId: user.id,
+        userRole,
+        userName: userInfo?.name ?? null,
+        action: "completed",
+        note: "Merma dada de baja al instante",
+      }),
+    );
+  }
+
+  await db.batch(stmts);
 
   return c.json({ success: true, data: { id, status: initialStatus } }, 201);
 });
@@ -512,15 +619,24 @@ requestsRouter.patch("/:id/approve", async (c) => {
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole") as string | undefined;
-  if (!userRole || !ADMIN_ROLES.has(userRole)) {
-    return c.json(errBody("FORBIDDEN", "Solo administradores pueden aprobar solicitudes"), 403);
+  if (!userRole) {
+    return c.json(errBody("FORBIDDEN", "Sin rol asignado"), 403);
   }
 
   const existing = await db
-    .prepare("SELECT id, status FROM requests WHERE id = ? LIMIT 1")
+    .prepare("SELECT id, status, type, metadata FROM requests WHERE id = ? LIMIT 1")
     .bind(id)
-    .first<{ id: string; status: string }>();
+    .first<{ id: string; status: string; type: string; metadata: string | null }>();
   if (!existing) return c.json(errBody("NOT_FOUND", "Solicitud no encontrada"), 404);
+
+  // El guard de rol depende del tipo: las MERMAS (type='waste') usan
+  // WASTE_ROLES (admin/owner, SIN supervisor), el resto usa ADMIN_ROLES.
+  const isWaste = existing.type === "waste";
+  const canApprove = isWaste ? WASTE_ROLES.has(userRole) : ADMIN_ROLES.has(userRole);
+  if (!canApprove) {
+    return c.json(errBody("FORBIDDEN", "Solo administradores pueden aprobar solicitudes"), 403);
+  }
+
   if (existing.status !== "pending_approval") {
     return c.json(
       errBody("INVALID_STATE", `Solo se puede aprobar desde 'pending_approval' (actual: ${existing.status})`),
@@ -531,28 +647,105 @@ requestsRouter.patch("/:id/approve", async (c) => {
   const userInfo = await fetchUserName(db, user.id);
   const now = nowSqliteTs();
 
-  const updateStmt = db
-    .prepare(
-      `UPDATE requests SET status = 'approved', admin_note = ?, updated_at = ?
-       WHERE id = ? AND status = 'pending_approval'`,
-    )
-    .bind(adminNote, now, id);
+  // Para mermas, aprobar equivale a completar: la baja se ejecuta directo.
+  // Transiciona a 'completed' (no al 'approved' intermedio genérico).
+  const newStatus = isWaste ? "completed" : "approved";
 
-  const activityStmt = buildActivityInsert(db, {
-    requestId: id,
-    userId: user.id,
-    userRole,
-    userName: userInfo?.name ?? null,
-    action: "approved",
-    note: adminNote,
-  });
+  const updateStmt = isWaste
+    ? db
+        .prepare(
+          `UPDATE requests SET status = 'completed', admin_note = ?, time_completed = datetime('now'), updated_at = ?
+             WHERE id = ? AND status = 'pending_approval'`,
+        )
+        .bind(adminNote, now, id)
+    : db
+        .prepare(
+          `UPDATE requests SET status = 'approved', admin_note = ?, updated_at = ?
+             WHERE id = ? AND status = 'pending_approval'`,
+        )
+        .bind(adminNote, now, id);
 
-  const [updateResult] = await db.batch([updateStmt, activityStmt]);
+  const stmts = [
+    updateStmt,
+    buildActivityInsert(db, {
+      requestId: id,
+      userId: user.id,
+      userRole,
+      userName: userInfo?.name ?? null,
+      action: "approved",
+      note: adminNote,
+    }),
+  ];
+
+  if (isWaste) {
+    stmts.push(
+      buildActivityInsert(db, {
+        requestId: id,
+        userId: user.id,
+        userRole,
+        userName: userInfo?.name ?? null,
+        action: "completed",
+        note: "Merma aprobada y dada de baja",
+      }),
+    );
+
+    // Persistir el descuento de stock en D1 (antes solo se simulaba en el front).
+    // Mismo patrón atómico que batches.ts DELETE /:id: descontar del lote, del
+    // inventario y dejar un stock_movement 'waste_out', todo en el mismo db.batch.
+    const meta = parseMetadata(existing.metadata);
+    const batchId =
+      (typeof meta?.batch_id === "string" && meta.batch_id.trim().length > 0 && meta.batch_id.trim()) ||
+      (typeof meta?.client_batch_id === "string" && meta.client_batch_id.trim().length > 0 && meta.client_batch_id.trim()) ||
+      null;
+    const rawQty = Number(meta?.quantity);
+    const quantity = Number.isFinite(rawQty) && rawQty > 0 ? rawQty : 0;
+
+    if (batchId && quantity > 0) {
+      const batch = await db
+        .prepare(
+          "SELECT id, product_id, branch_id, remaining_quantity FROM inventory_batches WHERE id = ? LIMIT 1",
+        )
+        .bind(batchId)
+        .first<{ id: string; product_id: string; branch_id: string; remaining_quantity: number }>();
+
+      // Si el lote fue borrado por otro proceso, la aprobación se completa igual
+      // (sin stock_movement): no rompemos la transacción por falta del lote.
+      if (batch) {
+        // La cantidad efectivamente aplicada nunca supera lo que queda en el lote.
+        const applied = Math.min(quantity, batch.remaining_quantity);
+        if (applied > 0) {
+          const reason = typeof meta?.reason === "string" && meta.reason.trim().length > 0 ? meta.reason.trim() : "Merma";
+          stmts.push(
+            // El clamp va en SQL (MAX(0,...)) y no en JS para que sea atómico
+            // respecto de cualquier otro write concurrente sobre el mismo lote.
+            db
+              .prepare(
+                `UPDATE inventory_batches SET remaining_quantity = MAX(0, remaining_quantity - ?), updated_at = ? WHERE id = ?`,
+              )
+              .bind(applied, now, batch.id),
+            db
+              .prepare(
+                `UPDATE inventory SET current_quantity = MAX(0, current_quantity - ?), updated_at = ? WHERE product_id = ? AND branch_id = ?`,
+              )
+              .bind(applied, now, batch.product_id, batch.branch_id),
+            db
+              .prepare(
+                `INSERT INTO stock_movements (id, product_id, branch_id, batch_id, movement_type, quantity, reason, user_id, created_at)
+                 VALUES (?, ?, ?, ?, 'waste_out', ?, ?, ?, ?)`,
+              )
+              .bind(genId(), batch.product_id, batch.branch_id, batch.id, applied, reason, user.id, now),
+          );
+        }
+      }
+    }
+  }
+
+  const [updateResult] = await db.batch(stmts);
   if ((updateResult?.meta?.changes ?? 0) === 0) {
     return c.json(errBody("CONFLICT", "La solicitud ya cambió de estado"), 409);
   }
 
-  return c.json({ success: true, data: { id, status: "approved", updated_at: now } });
+  return c.json({ success: true, data: { id, status: newStatus, updated_at: now } });
 });
 
 // ─── PATCH /:id/reject ─────────────────────────────────────────────────────
@@ -582,15 +775,23 @@ requestsRouter.patch("/:id/reject", async (c) => {
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const userRole = c.get("userRole") as string | undefined;
-  if (!userRole || !ADMIN_ROLES.has(userRole)) {
-    return c.json(errBody("FORBIDDEN", "Solo administradores pueden rechazar solicitudes"), 403);
+  if (!userRole) {
+    return c.json(errBody("FORBIDDEN", "Sin rol asignado"), 403);
   }
 
   const existing = await db
-    .prepare("SELECT id, status FROM requests WHERE id = ? LIMIT 1")
+    .prepare("SELECT id, status, type FROM requests WHERE id = ? LIMIT 1")
     .bind(id)
-    .first<{ id: string; status: string }>();
+    .first<{ id: string; status: string; type: string }>();
   if (!existing) return c.json(errBody("NOT_FOUND", "Solicitud no encontrada"), 404);
+
+  // Mismo criterio que /approve: mermas usan WASTE_ROLES (sin supervisor).
+  const isWaste = existing.type === "waste";
+  const canReject = isWaste ? WASTE_ROLES.has(userRole) : ADMIN_ROLES.has(userRole);
+  if (!canReject) {
+    return c.json(errBody("FORBIDDEN", "Solo administradores pueden rechazar solicitudes"), 403);
+  }
+
   if (existing.status !== "pending_approval") {
     return c.json(
       errBody("INVALID_STATE", `Solo se puede rechazar desde 'pending_approval' (actual: ${existing.status})`),
