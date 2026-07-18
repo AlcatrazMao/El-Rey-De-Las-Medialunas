@@ -1,12 +1,30 @@
 import { Hono } from "hono";
 
-import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
 import { nowSqliteTs } from "../utils/time";
 
 export const inventoryRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// SECURITY: mismo criterio que products.ts — solo admin/owner pueden
+// consultar/operar sobre una sucursal distinta a la que resolveBranchScope
+// les asignó (para admin/owner eso es el query param ?branch_id= validado,
+// o "" en modo agregado). Cualquier otro rol tiene branchId forzado por el
+// middleware (token.default_branch), así que ignoramos el override
+// (query param o body.branch_id) acá para no reabrir el vector que
+// resolveBranchScope cierra.
+function resolveScopedBranchId(
+  c: { get(key: "userRole"): string; get(key: "branchId"): string; req: { query(key: string): string | undefined } },
+  bodyBranchId?: string,
+): string {
+  const role = c.get("userRole");
+  const scopedBranchId = c.get("branchId");
+  if (role === "admin" || role === "owner") {
+    return c.req.query("branch_id") ?? bodyBranchId ?? scopedBranchId;
+  }
+  return scopedBranchId;
+}
 
 const VALID_MOVEMENT_TYPES = new Set([
   "purchase_in",
@@ -25,7 +43,7 @@ const VALID_MOVEMENT_TYPES = new Set([
 // GET /
 inventoryRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
+  const branchId = resolveScopedBranchId(c);
   const rawLimit = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);
   const limit = Math.min(Math.max(isNaN(rawLimit) ? 50 : rawLimit, 1), 500);
@@ -48,7 +66,7 @@ inventoryRoutes.get("/", async (c) => {
 // GET /low-stock
 inventoryRoutes.get("/low-stock", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
+  const branchId = resolveScopedBranchId(c);
 
   const results = await db
     .prepare(
@@ -67,7 +85,7 @@ inventoryRoutes.get("/low-stock", async (c) => {
 // GET /movements
 inventoryRoutes.get("/movements", async (c) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
+  const branchId = resolveScopedBranchId(c);
   const productId = c.req.query("product_id");
   const rawLimitMov = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffsetMov = parseInt(c.req.query("offset") ?? "0", 10);
@@ -134,7 +152,7 @@ inventoryRoutes.post("/adjust", async (c) => {
     return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "unit_cost_at_time debe ser un número finito >= 0" } }, 400);
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const branchId = resolveScopedBranchId(c, body.branch_id);
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);

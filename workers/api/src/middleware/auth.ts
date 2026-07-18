@@ -86,6 +86,7 @@ export function authMiddleware() {
       "cashier",
       "production",
       "warehouse",
+      "driver",
     ];
     const rawRole = typeof payload.role === "string" ? payload.role : null;
     if (!rawRole || !VALID_ROLES.includes(rawRole as Role)) {
@@ -120,13 +121,115 @@ export function authMiddleware() {
       }
     }
 
+    const rawBranches = Array.isArray(payload.branches)
+      ? payload.branches.filter((b): b is string => typeof b === "string")
+      : [];
+    const rawDefaultBranch = typeof payload.default_branch === "string" ? payload.default_branch : null;
+
     c.set("userId", sub);
     c.set("userRole", role);
     c.set("branchId", branchHeader);
     c.set("firebaseUid", "");
     c.set("userEmail", email);
     c.set("requestId", crypto.randomUUID());
+    c.set("userBranches", rawBranches);
+    c.set("userDefaultBranch", rawDefaultBranch);
 
+    await next();
+  });
+}
+
+// Roles operativos: siempre restringidos a su default_branch, sin importar
+// qué venga en query params — evita que un cashier/production/driver, etc.
+// pida datos de otra sucursal aunque no tenga membresía explícita ahí.
+const OPERATIONAL_ROLES: ReadonlySet<Role> = new Set([
+  "cashier",
+  "production",
+  "warehouse",
+  "driver",
+]);
+
+// Roles elevados: pueden operar en cualquier sucursal (o en modo agregado,
+// sin branchId, si la ruta lo soporta) mediante un query param validado.
+const ELEVATED_ROLES: ReadonlySet<Role> = new Set(["admin", "owner", "supervisor"]);
+
+interface BranchScopeContext {
+  get(key: "userRole"): Role;
+  get(key: "userDefaultBranch"): string | null | undefined;
+  req: { query(key: string): string | undefined };
+  set(key: "branchId", value: string): void;
+}
+
+// Resultado puro de resolveBranchScopeValue: o bien un branchId a setear, o
+// un error explícito que el caller (middleware o route) debe convertir en
+// una respuesta HTTP. No devolvemos "" silencioso en el caso de error porque
+// "" también es un valor legítimo (modo agregado para roles elevados) —
+// mezclar ambos significados en el mismo tipo fue el bug original: un rol
+// operativo sin default_branch terminaba con branchId="" y caía en el
+// fallback DEFAULT_BRANCH_ID de cada ruta, dándole acceso de facto a la
+// sucursal 1 en lugar de ser rechazado.
+type BranchScopeResult =
+  | { ok: true; branchId: string }
+  | { ok: false; code: "NO_DEFAULT_BRANCH" };
+
+// Resuelve qué branchId aplica a la request según el rol.
+//
+// - Roles operativos (cashier, production, warehouse, driver, etc.): se
+//   fuerza el uso de token.default_branch, IGNORANDO cualquier query param
+//   ?branch_id= que venga en la URL. Esto cierra el vector de que un rol de
+//   piso pida datos de una sucursal a la que no debería tener acceso por
+//   default con solo cambiar un query param.
+//   BUG FIX: si el rol operativo no tiene default_branch asignado (dato
+//   corrupto/incompleto), se rechaza explícitamente en vez de degradar a
+//   branchId="" (lo que antes terminaba en acceso implícito a la sucursal
+//   DEFAULT_BRANCH_ID vía el fallback de cada ruta).
+// - Roles elevados (admin, owner, supervisor): pueden pasar ?branch_id=<id>
+//   para operar sobre una sucursal específica (se valida contra
+//   userBranches si vino en el token; si branches está vacío —p.ej. admin
+//   con acceso implícito a todas— se permite igual, ya que auth middleware
+//   ya no restringe X-Branch-Id para admin/owner). Si no se pasa branch_id,
+//   queda en modo agregado (branchId vacío = "todas las sucursales").
+export function resolveBranchScopeValue(c: BranchScopeContext): BranchScopeResult {
+  const role = c.get("userRole");
+
+  if (OPERATIONAL_ROLES.has(role)) {
+    const defaultBranch = c.get("userDefaultBranch");
+    if (!defaultBranch) {
+      return { ok: false, code: "NO_DEFAULT_BRANCH" };
+    }
+    return { ok: true, branchId: defaultBranch };
+  }
+
+  if (ELEVATED_ROLES.has(role)) {
+    const queryBranch = c.req.query("branch_id") ?? "";
+    return { ok: true, branchId: queryBranch };
+  }
+
+  // Rol desconocido (no debería llegar acá porque authMiddleware ya valida
+  // contra VALID_ROLES) — fallback seguro: sin acceso a ninguna sucursal.
+  return { ok: true, branchId: "" };
+}
+
+// Middleware Hono: corre DESPUÉS de authMiddleware() y ANTES de las rutas.
+// Setea c.set('branchId', ...) para que cualquier ruta lo pueda leer con
+// c.get('branchId'). Si el rol es operativo y no tiene default_branch,
+// corta la cadena con 403 en vez de dejar pasar un branchId vacío.
+export function resolveBranchScope() {
+  return createMiddleware<{ Bindings: Env; Variables: Variables }>(async (c, next) => {
+    const result = resolveBranchScopeValue(c);
+    if (!result.ok) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: "NO_DEFAULT_BRANCH",
+            message: "Tu usuario no tiene una sucursal por defecto asignada",
+          },
+        },
+        403,
+      );
+    }
+    c.set("branchId", result.branchId);
     await next();
   });
 }

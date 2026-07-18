@@ -106,6 +106,24 @@ export interface DiscountConfig {
   activeDiscountSystem: 'none' | 'offers' | 'promotions';
 }
 
+export interface CategorySetting {
+  id: string;
+  name: string;
+  icon: string;
+  sortOrder: number;
+}
+
+export interface InstallmentConfig {
+  id: string;
+  label: string;
+  /** Cantidad de cuotas */
+  installments: number;
+  /** Recargo porcentual sobre el total */
+  surchargePercent: number;
+  /** Método de pago asociado: 'qr' o 'tarjeta' */
+  paymentMethodId: string;
+}
+
 export interface PosSettings {
   defaultPaymentMethod: PaymentMethodId;
   defaultViewMode: 'visual' | 'list';
@@ -126,9 +144,11 @@ export interface AppSettings {
   discountConfig: DiscountConfig;
   pos: PosSettings;
   printer: PrinterSettings;
+  categories: CategorySetting[];
+  installments: InstallmentConfig[];
 }
 
-type ObjectSections = Omit<AppSettings, 'gatewayCredentials' | 'priceLists' | 'promotions' | 'paymentMethods' | 'discountConfig'>;
+type ObjectSections = Omit<AppSettings, 'gatewayCredentials' | 'priceLists' | 'promotions' | 'paymentMethods' | 'discountConfig' | 'categories' | 'installments'>;
 
 const SETTINGS_KEY = 'erp_settings';
 
@@ -170,8 +190,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   paymentMethods: [
     { id: 'efectivo',       label: 'Efectivo',           icon: 'Banknote', enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: true },
-    { id: 'qr',             label: 'QR / Transferencia', icon: 'QrCode',   enabled: true, adjustmentType: 'recargo', adjustmentPercent: 15, acumulaDescuentos: true },
-    { id: 'tarjeta',        label: 'Tarjeta',            icon: '💳',       enabled: true, adjustmentType: 'recargo', adjustmentPercent: 15, acumulaDescuentos: false },
+    { id: 'qr',             label: 'QR / Débito',        icon: 'QrCode',   enabled: true, adjustmentType: 'recargo', adjustmentPercent: 15, acumulaDescuentos: true },
+    { id: 'tarjeta',        label: 'Tarjeta Crédito',    icon: '💳',       enabled: true, adjustmentType: 'recargo', adjustmentPercent: 15, acumulaDescuentos: false },
     { id: 'transferencia',  label: 'Transferencia',      icon: '🏦',       enabled: true, adjustmentType: 'none', adjustmentPercent: 0, acumulaDescuentos: false },
   ],
   discountConfig: {
@@ -190,6 +210,14 @@ const DEFAULT_SETTINGS: AppSettings = {
     bridgeUrl: 'http://localhost:9100',
     autoPrint: false,
   },
+  categories: [
+    { id: 'panes', name: 'Panes Artesanales', icon: '🥖', sortOrder: 1 },
+    { id: 'facturas', name: 'Facturas / Dulces', icon: '🥐', sortOrder: 2 },
+    { id: 'pasteleria', name: 'Pastelería y Tortas', icon: '🍰', sortOrder: 3 },
+    { id: 'bebidas', name: 'Cafetería y Bebidas', icon: '☕', sortOrder: 4 },
+    { id: 'salados', name: 'Salados y Sándwiches', icon: '🥪', sortOrder: 5 },
+  ],
+  installments: [],
 };
 
 function migratePaymentMethods(stored: unknown): PaymentMethodConfig[] {
@@ -245,6 +273,25 @@ function migratePaymentMethods(stored: unknown): PaymentMethodConfig[] {
   return upgraded;
 }
 
+/**
+ * Multi-branch transfers (fase 3): `settings.business.branchId` DEJA de ser la
+ * fuente de verdad de "en qué sucursal estoy operando". Esa fuente de verdad
+ * ahora es `activeBranchId` de AppContext (derivado de default_branch del login,
+ * o elegido por el selector para admin/owner/supervisor). Este valor solo debe
+ * usarse como FALLBACK — durante la carga inicial, antes de que el login
+ * resuelva default_branch, o si el usuario nunca tuvo branches[] (backend viejo).
+ *
+ * Uso esperado en el resto del código:
+ *   const branchId = activeBranchId ?? resolveFallbackBranchId();
+ *
+ * No se elimina `business.branchId` del schema de settings porque sigue
+ * existiendo como configuración editable en SettingsView (nombre/CUIT/etc. de
+ * la sucursal) — solo cambia su rol como fuente de scoping operativo.
+ */
+export function resolveFallbackBranchId(): string {
+  return getSettings().business.branchId;
+}
+
 export function getSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -277,6 +324,8 @@ export function getSettings(): AppSettings {
       })(),
       pos: { ...DEFAULT_SETTINGS.pos, ...(parsed.pos ?? {}) },
       printer: { ...DEFAULT_SETTINGS.printer, ...(parsed.printer ?? {}) },
+      categories: parsed.categories ?? [...DEFAULT_SETTINGS.categories],
+      installments: parsed.installments ?? [...DEFAULT_SETTINGS.installments],
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -381,5 +430,31 @@ export function useSettings() {
     });
   }
 
-  return { settings, updateSection, setGatewayCredentials, setPriceLists, setPromotions, setPaymentMethods, setDiscountConfig };
+  function setCategories(categories: CategorySetting[]): void {
+    setSettings(prev => {
+      const updated: AppSettings = { ...prev, categories };
+      try {
+        persistSettings(updated);
+      } catch (e) {
+        console.error('[settings] QuotaExceededError:', e);
+        return prev;
+      }
+      return updated;
+    });
+  }
+
+  function setInstallments(installments: InstallmentConfig[]): void {
+    setSettings(prev => {
+      const updated: AppSettings = { ...prev, installments };
+      try {
+        persistSettings(updated);
+      } catch (e) {
+        console.error('[settings] QuotaExceededError:', e);
+        return prev;
+      }
+      return updated;
+    });
+  }
+
+  return { settings, updateSection, setGatewayCredentials, setPriceLists, setPromotions, setPaymentMethods, setDiscountConfig, setCategories, setInstallments };
 }

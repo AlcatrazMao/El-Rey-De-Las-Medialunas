@@ -8,6 +8,7 @@ import * as React from 'react'
 import { useState } from 'react';
 
 import { useApp } from '../AppContext';
+import { resolveFallbackBranchId } from '../hooks/useSettings';
 
 import { AccountingWidget } from './dashboard/AccountingWidget';
 import { InventoryWidget } from './dashboard/InventoryWidget';
@@ -15,6 +16,7 @@ import { PresentationsWidget } from './dashboard/PresentationsWidget';
 import { RecentSalesTable } from './dashboard/RecentSalesTable';
 import { SalesSummaryCard } from './dashboard/SalesSummaryCard';
 import { StockAlertList } from './dashboard/StockAlertList';
+import { TransferRecommendationsBanner } from './dashboard/TransferRecommendationsBanner';
 
 export const Dashboard: React.FC = () => {
   const {
@@ -25,8 +27,19 @@ export const Dashboard: React.FC = () => {
     activeUser,
     updateUserWidgets,
     batches = [],
-    addSystemNotification
+    addSystemNotification,
+    activeBranchId,
+    setActiveTab,
   } = useApp();
+
+  // Multi-branch transfers (fase 3): roles elevados ven además un atajo al
+  // panel de traslados agregado (mismo TransfersView, sin duplicar UI).
+  const role = (activeUser?.role ?? '') as string;
+  const isElevated = role === 'admin' || role === 'owner' || role === 'supervisor';
+  // activeBranchId es la fuente de verdad (AppContext); si todavía no se
+  // resolvió (carrera con el login, o backend viejo sin branches[]), caemos
+  // al branchId de settings SOLO como fallback — ver useSettings.ts.
+  const effectiveBranchId = activeBranchId ?? resolveFallbackBranchId();
 
   // FIX A3: lotes activos que vencen en las próximas 24h — alerta crítica
   // para que el admin retire/promocione antes de que el cron los expire.
@@ -205,6 +218,20 @@ export const Dashboard: React.FC = () => {
             ))}
           </ul>
         </div>
+      )}
+
+      {/* Multi-branch transfers (fase 3): recomendaciones de traslado + atajo
+          al panel agregado para roles elevados. Se degrada a null si no hay
+          activeBranchId resuelto o no hay sugerencias — no ocupa espacio. */}
+      <TransferRecommendationsBanner branchId={effectiveBranchId} />
+      {isElevated && (
+        <button
+          onClick={() => setActiveTab('transfers')}
+          className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 rounded-2xl border border-cyan-200 dark:border-cyan-900/40 bg-cyan-50/50 dark:bg-cyan-950/10 text-cyan-800 dark:text-cyan-300 text-xs font-bold hover:bg-cyan-100/60 dark:hover:bg-cyan-950/20 transition-colors"
+        >
+          Ver traslados entre todas las sucursales
+          <span aria-hidden>→</span>
+        </button>
       )}
 
       {/* DYNAMIC WIDGETS DISPLAY (based on user custom preferred array!) */}

@@ -7,8 +7,11 @@ export const ROLES = {
   CASHIER: "cashier" as Role,
   PRODUCTION: "production" as Role,
   WAREHOUSE: "warehouse" as Role,
+  DRIVER: "driver" as Role,
 } as const;
 
+// Mapeo EN (código interno) -> ES (label de UI). "driver" se muestra como
+// "Repartidor" en toda la UI en español.
 export const ROLE_LABELS: Record<Role, string> = {
   owner: "Dueño",
   admin: "Administrador",
@@ -16,6 +19,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   cashier: "Cajero",
   production: "Producción",
   warehouse: "Depósito",
+  driver: "Repartidor",
 };
 
 export const ROLE_HIERARCHY: Record<Role, number> = {
@@ -25,6 +29,7 @@ export const ROLE_HIERARCHY: Record<Role, number> = {
   cashier: 3,
   production: 2,
   warehouse: 1,
+  driver: 1,
 };
 
 export function canManageRole(userRole: Role | undefined, targetRole: Role): boolean {

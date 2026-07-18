@@ -23,6 +23,8 @@ import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
+import type { DocumentType } from '../hooks/useDocumentSettings';
+import { useDocumentSettings } from '../hooks/useDocumentSettings';
 import { useSettings } from '../hooks/useSettings';
 import type { IDBOffer } from '../lib/idb';
 import { offerStore } from '../lib/idb';
@@ -53,7 +55,25 @@ interface SaleTab {
   customerDoc: string;
   selectedCustomerId: string | null;
   fiscalType: 'consumidor_final' | 'exento' | 'responsable_inscripto' | 'monotributista';
+  /** Tipo de comprobante a emitir (change "Document Types"). Default 'ticket'. */
+  documentType: DocumentType;
 }
+
+/** Tipos que exigen CUIT del cliente cargado antes de poder emitirse (DT server-side, sales.ts). */
+const FISCAL_INVOICE_TYPES: DocumentType[] = ['factura_a', 'factura_b', 'factura_c'];
+
+const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+  ticket: 'Ticket',
+  factura_a: 'Factura A',
+  factura_b: 'Factura B',
+  factura_c: 'Factura C',
+  nota_credito: 'Nota de Crédito',
+  remito: 'Remito',
+  presupuesto: 'Presupuesto',
+};
+
+/** Leyenda obligatoria (DT-14) — SOLO para factura_a/b/c, nunca para el resto. */
+const FISCAL_DISCLAIMER = 'SIN VALOR FISCAL — CAE PENDIENTE';
 
 export const POSView: React.FC = () => {
   const {
@@ -69,6 +89,14 @@ export const POSView: React.FC = () => {
   } = useApp();
 
   const { settings: posSettings } = useSettings();
+  const { data: documentSettings } = useDocumentSettings();
+
+  // DT-13: tipos habilitados en la sucursal activa. Si el fetch todavía no
+  // resolvió o falló (sin red), `documentSettings` queda vacío — en ese caso
+  // tratamos como "solo ticket habilitado" para NUNCA bloquear la venta.
+  const enabledDocumentTypes = documentSettings.filter(d => d.enabled).map(d => d.document_type);
+  const availableDocumentTypes: DocumentType[] = enabledDocumentTypes.length > 0 ? enabledDocumentTypes : ['ticket'];
+  const showDocumentTypeSelector = availableDocumentTypes.length > 1;
 
   const activeDiscountSystem = posSettings.discountConfig?.activeDiscountSystem ?? 'none';
   const offersEnabled = activeDiscountSystem === 'offers';
@@ -97,6 +125,7 @@ export const POSView: React.FC = () => {
     customerDoc: '',
     selectedCustomerId: null,
     fiscalType: 'consumidor_final' as const,
+    documentType: 'ticket' as const,
   }]);
   const [activeTabId, setActiveTabId] = useState('tab_1');
 
@@ -110,6 +139,7 @@ export const POSView: React.FC = () => {
   const customerDoc = activeTab.customerDoc;
   const selectedCustomerId = activeTab.selectedCustomerId;
   const fiscalType = activeTab.fiscalType;
+  const documentType = activeTab.documentType;
 
   // Helper
   const updateActiveTab = (patch: Partial<SaleTab>) => {
@@ -130,6 +160,18 @@ export const POSView: React.FC = () => {
   const setCustomerDoc = (d: string) => updateActiveTab({ customerDoc: d });
   const setSelectedCustomerId = (id: string | null) => updateActiveTab({ selectedCustomerId: id });
   const setFiscalType = (ft: SaleTab['fiscalType']) => updateActiveTab({ fiscalType: ft });
+  const setDocumentType = (dt: DocumentType) => updateActiveTab({ documentType: dt });
+
+  // DT-13: si el tipo seleccionado del tab activo deja de estar habilitado
+  // (deshabilitado desde Configuración, o el tab se creó antes de que
+  // documentSettings resolviera), lo corregimos automáticamente al primero
+  // disponible — nunca dejar seleccionado un tipo que ya no se puede emitir.
+  useEffect(() => {
+    if (!availableDocumentTypes.includes(activeTab.documentType)) {
+      updateActiveTab({ documentType: availableDocumentTypes[0] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo reacciona a cambios de tipos disponibles/tab activo; updateActiveTab es estable por closure de setTabs
+  }, [availableDocumentTypes.join(','), activeTabId]);
 
   // Tab management
   const tabCounter = useRef(2);
@@ -147,6 +189,7 @@ export const POSView: React.FC = () => {
       customerDoc: '',
       selectedCustomerId: null,
       fiscalType: 'consumidor_final' as const,
+      documentType: availableDocumentTypes[0] ?? ('ticket' as const),
     }]);
     setActiveTabId(id);
   };
@@ -235,6 +278,24 @@ export const POSView: React.FC = () => {
     return id;
   };
   useEffect(() => () => { pendingTimeoutsRef.current.forEach(clearTimeout); }, []);
+
+  // Bug fix (review): `latestInvoice` es un snapshot local tomado en el momento
+  // de `addSale` — cuando `documentNumber` todavía es `undefined` (offline-first:
+  // el número REAL correlativo llega async de `syncSaleToD1`, ver AppContext.addSale).
+  // AppContext reconcilia `sales` solo cuando el backend confirma, pero eso NO
+  // actualiza este snapshot local por sí solo (ver nota en AppContext.tsx junto al
+  // callback de syncSaleToD1). Sin este efecto, el modal/cartel de "pendiente de
+  // confirmación" queda pegado para siempre aunque el número real ya haya llegado,
+  // y el cajero no tendría forma de saber que ya puede reimprimir el comprobante
+  // definitivo. Solo pisamos `documentNumber`/`documentType`: el resto de los campos
+  // del snapshot (items, montos, etc.) no cambia en la reconciliación.
+  useEffect(() => {
+    if (!latestInvoice || latestInvoice.documentNumber !== undefined) return;
+    const reconciled = sales.find(s => s.id === latestInvoice.id);
+    if (reconciled && reconciled.documentNumber !== undefined) {
+      setLatestInvoice(prev => prev ? { ...prev, documentNumber: reconciled.documentNumber, documentType: reconciled.documentType } : prev);
+    }
+  }, [sales, latestInvoice]);
 
   // Mount guard: si el componente se desmonta durante un flujo asíncrono
   // (delays del pago, scanner demo) evitamos efectos secundarios como
@@ -995,6 +1056,16 @@ export const POSView: React.FC = () => {
   const cartTotal = Math.max(0, parseFloat((afterPriceList + paymentAdjustmentAmount - promoDiscountAmountFinal).toFixed(2)));
   const cartTax = parseFloat((cartTotal - cartTotal / (1 + cartIvaRate)).toFixed(2));
 
+  // DT-7/2.7 (backend, sales.ts): Factura A/B/C exige un cliente con CUIT
+  // cargado (`customers.document_type='cuit'` server-side). El frontend NO
+  // tiene ese campo distinguido en el objeto `Customer` local (solo `tax_id`
+  // genérico / `customerDoc` en el tab) — este guard es best-effort: bloquea
+  // si no hay ningún documento cargado. La validación AUTORITATIVA sigue
+  // siendo el 400 del backend (ver sales.ts línea ~310), que puede rechazar
+  // igual si el documento cargado no es realmente un CUIT.
+  const documentTypeNeedsCuit = FISCAL_INVOICE_TYPES.includes(documentType);
+  const cuitMissingForInvoice = documentTypeNeedsCuit && !customerDoc.trim();
+
   // Non-default config indicator (mobile panel pulse)
   const hasNonDefaults =
     paymentMethod !== 'efectivo' ||
@@ -1055,6 +1126,19 @@ export const POSView: React.FC = () => {
       return;
     }
 
+    // DT-7/3.7: bloqueamos la confirmación (no solo deshabilitamos la opción)
+    // si se seleccionó Factura A/B/C sin CUIT cargado — el backend igual lo
+    // rechazaría con 400, pero cortar acá evita el viaje de red y el mensaje
+    // es más claro para el cajero.
+    if (cuitMissingForInvoice) {
+      addSystemNotification(
+        '⚠️ Falta CUIT del cliente',
+        `${DOCUMENT_TYPE_LABELS[documentType]} requiere un cliente con CUIT cargado. Cargalo en el campo de cliente o cambiá el tipo de comprobante.`,
+        'warning',
+      );
+      return;
+    }
+
     // Snapshot cart before delays — prevents race condition if user modifies cart during processing
     const cartSnapshot = cart.map(item => ({
       productId: item.product.id,
@@ -1109,6 +1193,7 @@ export const POSView: React.FC = () => {
           idempotencyKey,
           observaciones || undefined,
           paraLlevar ? 'llevar' : 'aqui',
+          documentType,
         );
 
         setIsProcessingPayment(false);
@@ -1129,6 +1214,7 @@ export const POSView: React.FC = () => {
             customerDoc: '',
             selectedCustomerId: null,
             selectedDiscount: 0,
+            documentType: availableDocumentTypes[0] ?? 'ticket',
           });
           setCustomerSearch('');
           setCuilSearch('');
@@ -1408,58 +1494,40 @@ export const POSView: React.FC = () => {
           {hasNonDefaults && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
         </button>
 
-        {/* Footer 2 columnas: totales izq | campos + COBRAR der */}
+        {/* Footer 2 columnas: campos + COBRAR izq | totales der */}
         <div className="shrink-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 rounded-b-2xl flex items-stretch">
 
-          {/* ── IZQUIERDA: resumen de importes ── */}
-          <div className="hidden md:flex px-3 py-2 flex-col justify-center gap-0.5 text-[11px] border-r border-gray-100 dark:border-zinc-800 shrink-0 min-w-[170px]">
-            <div className="flex items-center gap-2 text-gray-400">
-              <span className="w-16 shrink-0">Subtotal</span>
-              <span className="font-semibold text-gray-600 dark:text-zinc-300">{formatCurrency(cartSubtotal)}</span>
-            </div>
-            <div className={`flex items-center gap-2 font-bold ${effectiveDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-zinc-700'}`}>
-              <span className="w-16 shrink-0">Desc.{effectiveDiscount > 0 ? ` ${effectiveDiscount}%` : ''}</span>
-              <span>-{formatCurrency(discountAmount)}</span>
-            </div>
-            {activePriceList && priceListAdjustmentAmount !== 0 && (
-              <div className={`flex items-center gap-2 font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                <span className="w-16 shrink-0 truncate">{activePriceList.name}</span>
-                <span>{priceListDiscountPercent > 0 ? `-${formatCurrency(priceListAdjustmentAmount)}` : `+${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
-              </div>
-            )}
-            {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
-              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold">
-                <span className="w-16 shrink-0">Recargo {adjustmentPercent}%</span>
-                <span>+{formatCurrency(paymentAdjustmentAmount)}</span>
-              </div>
-            )}
-            {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
-              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
-                <span className="w-16 shrink-0">Desc.pago {adjustmentPercent}%</span>
-                <span>-{formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
-              </div>
-            )}
-            {applicablePromo && promoDiscountAmountFinal > 0 && (
-              <div className="flex items-center gap-2 font-bold text-emerald-600 dark:text-emerald-400">
-                <span className="w-16 shrink-0 truncate text-[10px]">{applicablePromo.name}</span>
-                <span>-{formatCurrency(promoDiscountAmountFinal)}</span>
-              </div>
-            )}
-            <div className="flex items-center gap-2 text-gray-300 dark:text-zinc-600">
-              <span className="w-16 shrink-0">IVA {(cartIvaRate * 100).toFixed(0)}%</span>
-              <span>{formatCurrency(cartTax)}</span>
-            </div>
-            <div className="flex items-center gap-2 font-black text-gray-900 dark:text-white text-[13px] mt-0.5 pt-0.5 border-t border-gray-200 dark:border-zinc-700">
-              <span className="w-16 shrink-0 text-[9px] uppercase tracking-wider text-gray-400">Total</span>
-              <span>{formatCurrency(cartTotal)}</span>
-            </div>
-          </div>
-
-          {/* ── DERECHA: campos + COBRAR ── */}
+          {/* ── IZQUIERDA: campos + COBRAR ── */}
           <div className="flex-1 min-w-0 px-2 py-2 flex flex-col gap-1.5 justify-center relative">
 
-            {/* Fila 1: Tipo | Pago | Lista de precios */}
+            {/* Fila 1: Comprobante (botones) | Tipo | Pago | Lista de precios */}
             <div className="hidden md:flex items-center gap-1.5">
+              {showDocumentTypeSelector && (
+                <div className="flex items-center gap-0.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-0.5 py-0.5">
+                  {availableDocumentTypes.map(dt => {
+                    const isActive = documentType === dt;
+                    const isFiscal = dt === 'factura_a' || dt === 'factura_b' || dt === 'factura_c';
+                    return (
+                      <button
+                        key={dt}
+                        onClick={() => setDocumentType(dt)}
+                        className={`px-2 py-1 text-[10px] font-bold rounded-md cursor-pointer transition-colors whitespace-nowrap ${
+                          isActive
+                            ? isFiscal
+                              ? 'bg-emerald-500 text-white'
+                              : dt === 'nota_credito'
+                                ? 'bg-red-500 text-white'
+                                : 'bg-amber-500 text-white'
+                            : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800'
+                        }`}
+                        title={dt.replace(/_/g, ' ').toUpperCase()}
+                      >
+                        {DOCUMENT_TYPE_LABELS[dt]}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <select
                 value={fiscalType}
                 onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
@@ -1514,6 +1582,12 @@ export const POSView: React.FC = () => {
                 </>
               )}
             </div>
+
+            {cuitMissingForInvoice && (
+              <p className="hidden md:block text-[10px] font-bold text-red-600 dark:text-red-400 -mt-0.5">
+                ⚠️ {DOCUMENT_TYPE_LABELS[documentType]} requiere CUIT del cliente cargado.
+              </p>
+            )}
 
             {/* Fila 2: Cliente | CUIL (desktop) | Descuento */}
             <div className="hidden md:flex items-center gap-1.5">
@@ -1645,9 +1719,10 @@ export const POSView: React.FC = () => {
             <button
               id="btn-pos-checkout"
               onClick={handlePayment}
-              disabled={cart.length === 0 || isProcessingPayment}
+              disabled={cart.length === 0 || isProcessingPayment || cuitMissingForInvoice}
+              title={cuitMissingForInvoice ? `${DOCUMENT_TYPE_LABELS[documentType]} requiere CUIT del cliente cargado.` : undefined}
               className={`w-full py-2 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
-                cart.length === 0
+                cart.length === 0 || cuitMissingForInvoice
                   ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
                   : 'bg-[#D97706] hover:bg-[#B45309] text-white border-b-4 border-[#92400E]'
               }`}
@@ -1675,6 +1750,50 @@ export const POSView: React.FC = () => {
             {selectedDiscount > 0 && !acumulaDescuentos && (
               <p className="text-[9px] text-gray-400 italic">Desc. no acumula con este método</p>
             )}
+          </div>
+
+          {/* ── DERECHA: resumen de importes alineado con totales del carrito ── */}
+          <div className="hidden md:flex px-4 py-2 flex-col justify-center gap-0.5 text-[13px] border-l border-gray-100 dark:border-zinc-800 shrink-0 min-w-[200px] text-right">
+            <div className="flex items-center justify-end gap-3 text-gray-400">
+              <span>Subtotal</span>
+              <span className="font-semibold text-gray-600 dark:text-zinc-300 min-w-[80px] text-right">{formatCurrency(cartSubtotal)}</span>
+            </div>
+            <div className={`flex items-center justify-end gap-3 font-bold ${effectiveDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-zinc-700'}`}>
+              <span>Desc.{effectiveDiscount > 0 ? ` ${effectiveDiscount}%` : ''}</span>
+              <span className="min-w-[80px] text-right">-{formatCurrency(discountAmount)}</span>
+            </div>
+            {activePriceList && priceListAdjustmentAmount !== 0 && (
+              <div className={`flex items-center justify-end gap-3 font-bold ${priceListDiscountPercent > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                <span className="truncate">{activePriceList.name}</span>
+                <span className="min-w-[80px] text-right">{priceListDiscountPercent > 0 ? `-${formatCurrency(priceListAdjustmentAmount)}` : `+${formatCurrency(Math.abs(priceListAdjustmentAmount))}`}</span>
+              </div>
+            )}
+            {adjustmentType === 'recargo' && adjustmentPercent > 0 && (
+              <div className="flex items-center justify-end gap-3 text-amber-600 dark:text-amber-400 font-bold">
+                <span>Recargo {adjustmentPercent}%</span>
+                <span className="min-w-[80px] text-right">+{formatCurrency(paymentAdjustmentAmount)}</span>
+              </div>
+            )}
+            {adjustmentType === 'descuento' && adjustmentPercent > 0 && (
+              <div className="flex items-center justify-end gap-3 text-emerald-600 dark:text-emerald-400 font-bold">
+                <span>Desc.pago {adjustmentPercent}%</span>
+                <span className="min-w-[80px] text-right">-{formatCurrency(Math.abs(paymentAdjustmentAmount))}</span>
+              </div>
+            )}
+            {applicablePromo && promoDiscountAmountFinal > 0 && (
+              <div className="flex items-center justify-end gap-3 font-bold text-emerald-600 dark:text-emerald-400">
+                <span className="truncate text-[12px]">{applicablePromo.name}</span>
+                <span className="min-w-[80px] text-right">-{formatCurrency(promoDiscountAmountFinal)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-3 text-gray-300 dark:text-zinc-600">
+              <span>IVA {(cartIvaRate * 100).toFixed(0)}%</span>
+              <span className="min-w-[80px] text-right">{formatCurrency(cartTax)}</span>
+            </div>
+            <div className="flex items-center justify-end gap-3 font-black text-gray-900 dark:text-white text-[15px] mt-0.5 pt-0.5 border-t border-gray-200 dark:border-zinc-700">
+              <span className="text-[10px] uppercase tracking-wider text-gray-400">Total</span>
+              <span className="min-w-[80px] text-right">{formatCurrency(cartTotal)}</span>
+            </div>
           </div>
         </div>
 
@@ -1720,7 +1839,11 @@ export const POSView: React.FC = () => {
                 {latestInvoice.paymentStatus === 'completed' ? '¡Operación Exitosa!' : '¡Transacción Declinada!'}
               </h3>
               <p className="text-[10px] text-white/80 mt-1 uppercase tracking-widest">
-                Comp: {latestInvoice.invoiceNumber}
+                {DOCUMENT_TYPE_LABELS[latestInvoice.documentType ?? 'ticket']}
+                {' '}
+                {/* documentNumber llega async del backend (offline-first, ver AppContext.addSale) —
+                    mientras no confirme, mostramos un estado explícito en vez de inventar un número. */}
+                N° {latestInvoice.documentNumber ?? 'pendiente de confirmación...'}
               </p>
             </div>
 
@@ -1732,8 +1855,17 @@ export const POSView: React.FC = () => {
                 <p className="text-[9px] text-gray-400 mt-1">Sincronizado vía Nube ERP</p>
               </div>
 
+              {/* DT-14: leyenda fiscal obligatoria en pantalla — SOLO factura_a/b/c */}
+              {FISCAL_INVOICE_TYPES.includes(latestInvoice.documentType ?? 'ticket') && (
+                <div className="mt-2 text-center bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 rounded-lg py-1.5 px-2">
+                  <p className="text-[10px] font-extrabold text-red-700 dark:text-red-400 uppercase tracking-wide">
+                    {FISCAL_DISCLAIMER}
+                  </p>
+                </div>
+              )}
+
               <div className="border-b border-dashed border-gray-300 dark:border-zinc-800 my-3" />
-              
+
               <div className="space-y-1">
                 <p>Fecha: {new Date(latestInvoice.date).toLocaleString('es-AR')}</p>
                 <p>Operador: {latestInvoice.operatorName}</p>
@@ -1785,6 +1917,21 @@ export const POSView: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Aviso: si autoPrint ya disparó la impresión y el número REAL (documentNumber)
+                todavía no había confirmado en ese momento, el ticket que salió por la
+                impresora pudo llevar "pendiente de confirmación" en vez del número fiscal.
+                Avisamos al cajero que puede reimprimir con los botones de abajo. Este cartel
+                desaparece solo apenas la reconciliación llega (ver useEffect que sincroniza
+                latestInvoice con `sales` más arriba). */}
+            {posSettings.printer.autoPrint && latestInvoice.documentNumber === undefined && (
+              <div className="mx-4 mb-2 bg-amber-100 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-lg py-2 px-3 text-center">
+                <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">
+                  El comprobante impreso puede tener el número provisorio. Cuando se confirme el número
+                  real, volvé a imprimir con los botones de abajo.
+                </p>
+              </div>
+            )}
 
             {/* Bottom print control triggers */}
             <div className="p-4 bg-gray-50 dark:bg-zinc-950 flex items-center gap-2 border-t border-gray-100 dark:border-zinc-800">
@@ -2294,6 +2441,41 @@ export const POSView: React.FC = () => {
         {/* Scroll content */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
 
+          {/* Tipo de comprobante (DT-13: solo si hay >1 habilitado) */}
+          {showDocumentTypeSelector && (
+            <div>
+              <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Tipo de comprobante</label>
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {availableDocumentTypes.map(dt => {
+                  const isActive = documentType === dt;
+                  const isFiscal = dt === 'factura_a' || dt === 'factura_b' || dt === 'factura_c';
+                  return (
+                    <button
+                      key={dt}
+                      onClick={() => setDocumentType(dt)}
+                      className={`px-3 py-2 text-xs font-bold rounded-xl cursor-pointer transition-colors ${
+                        isActive
+                          ? isFiscal
+                            ? 'bg-emerald-500 text-white'
+                            : dt === 'nota_credito'
+                              ? 'bg-red-500 text-white'
+                              : 'bg-amber-500 text-white'
+                          : 'bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 text-gray-600 dark:text-zinc-400 hover:border-amber-300'
+                      }`}
+                    >
+                      {DOCUMENT_TYPE_LABELS[dt]}
+                    </button>
+                  );
+                })}
+              </div>
+              {cuitMissingForInvoice && (
+                <p className="mt-1 text-xs font-bold text-red-600 dark:text-red-400">
+                  ⚠️ Requiere CUIT del cliente cargado.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Tipo de cliente */}
           <div>
             <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Tipo de cliente</label>
@@ -2520,9 +2702,9 @@ export const POSView: React.FC = () => {
         <div className="px-4 py-3 border-t border-gray-100 dark:border-zinc-800 shrink-0">
           <button
             onClick={() => { setShowConfigPanel(false); handlePayment(); }}
-            disabled={cart.length === 0 || isProcessingPayment}
+            disabled={cart.length === 0 || isProcessingPayment || cuitMissingForInvoice}
             className={`w-full py-3 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all ${
-              cart.length === 0
+              cart.length === 0 || cuitMissingForInvoice
                 ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 cursor-not-allowed'
                 : 'bg-[#D97706] hover:bg-[#B45309] text-white border-b-4 border-[#92400E]'
             }`}

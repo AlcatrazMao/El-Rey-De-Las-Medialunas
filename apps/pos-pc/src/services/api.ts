@@ -9,6 +9,24 @@ export const API_URL = import.meta.env.VITE_API_URL || "https://el-rey-api-produ
 let client: ReturnType<typeof createApiClient> | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
 
+// Multi-branch transfers (fase 3): sucursal "activa" que el operador está usando
+// ahora mismo. AppContext/useUsers la actualiza cuando cambia el usuario logueado
+// o cuando un rol elevado (admin/owner/supervisor) usa el selector de sucursal.
+// Vive como singleton de módulo (mismo patrón que `client`/`refreshInFlight`)
+// porque fetchWithAuth no tiene acceso al React tree — es la forma más simple
+// de que cualquier request saliente pueda leer el valor actual sin prop-drilling.
+let activeBranchId: string | null = null;
+
+/** Actualiza la sucursal activa que se manda en el header X-Branch-Id de cada request. */
+export function setActiveBranchId(branchId: string | null): void {
+  activeBranchId = branchId;
+}
+
+/** Sucursal activa actual (o null si todavía no se resolvió desde el login). */
+export function getActiveBranchId(): string | null {
+  return activeBranchId;
+}
+
 function handleLogout(): void {
   sessionStorage.removeItem("access_token");
   localStorage.removeItem("refresh_token");
@@ -115,6 +133,11 @@ export async function fetchWithAuth(input: string, init: RequestInit = {}): Prom
   const buildHeaders = (token: string | null): HeadersInit => {
     const headers = new Headers(init.headers || {});
     if (token) headers.set("Authorization", `Bearer ${token}`);
+    // X-Branch-Id: le dice al backend qué sucursal está operando este request.
+    // Para roles operativos el backend igual fuerza su default_branch del token
+    // (el header es más relevante para admin/owner/supervisor con selector),
+    // pero lo mandamos siempre que lo tengamos resuelto.
+    if (activeBranchId) headers.set("X-Branch-Id", activeBranchId);
     return headers;
   };
 

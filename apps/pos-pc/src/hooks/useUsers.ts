@@ -10,14 +10,24 @@ import { safeSetItem, safeParseLocalStorage } from '../utils/safeStorage';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
+// Roles que pueden operar sobre más de una sucursal a la vez (ven el selector).
+// El resto de los roles queda fijo en su default_branch — ni el selector se
+// muestra ni activeBranchId se puede mover, aunque branches[] tenga más de una
+// entrada (no debería, pero no confiamos en eso del lado del cliente).
+const MULTI_BRANCH_ROLES = new Set(['admin', 'owner', 'supervisor']);
+
 interface UseUsersParams {
   firebaseUser: FirebaseUser;
   firestoreRole?: string | null;
   serverPanels?: string[] | null;
+  /** Sucursales a las que el usuario tiene acceso (login response, fase 1/2 backend). */
+  branches?: string[] | null;
+  /** Sucursal primaria del usuario (login response, fase 1/2 backend). */
+  defaultBranch?: string | null;
   notify: NotifyFn;
 }
 
-export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: UseUsersParams) {
+export function useUsers({ firebaseUser, firestoreRole, serverPanels, branches, defaultBranch, notify }: UseUsersParams) {
   // Memoizado para que el array no cambie de identidad en cada render — antes
   // disparaba el warning react-hooks/exhaustive-deps en el useMemo de abajo.
   const defaultPanels = useMemo<string[]>(
@@ -83,6 +93,26 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
   });
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
 
+  // ── Multi-branch transfers (fase 3): activeBranchId ─────────────────────
+  // Fuente de verdad de "qué sucursal está operando el usuario ahora". Se
+  // deriva de default_branch (login) y, para roles elevados, puede moverse
+  // dentro de branches[] vía el selector. Para el resto de los roles queda
+  // fijo — no hay setter expuesto en la UI aunque el estado técnicamente
+  // pudiera cambiar (defensivo: setActiveBranchId valida el rol igual).
+  const [activeBranchIdState, setActiveBranchIdState] = useState<string | null>(defaultBranch ?? null);
+
+  // Si el login todavía no había resuelto default_branch cuando este hook montó
+  // (carrera con el fetch de App.tsx) o cambia (logout/login de otro usuario),
+  // sincronizamos. No pisamos una selección manual ya hecha por un rol elevado
+  // salvo que default_branch cambie a un valor distinto (nuevo login).
+  const lastDefaultBranchRef = useRef<string | null | undefined>(defaultBranch);
+  useEffect(() => {
+    if (defaultBranch !== lastDefaultBranchRef.current) {
+      lastDefaultBranchRef.current = defaultBranch;
+      setActiveBranchIdState(defaultBranch ?? null);
+    }
+  }, [defaultBranch]);
+
   const invoiceSeqRef = useRef<number>(
     (() => {
       const raw = localStorage.getItem('pan_erp_invoice_seq');
@@ -103,6 +133,27 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
     users && users.length > 0 && activeUserId
       ? users.find(u => u.id === activeUserId) || firebaseMappedUser
       : firebaseMappedUser;
+
+  // canSelectBranch se recalcula acá (no arriba, junto al useState de
+  // activeBranchIdState) porque depende de activeUser.role — la MISMA fuente
+  // que el resto de la UI usa para decidir qué rol está operando ahora mismo
+  // (ver App.tsx isPOSMode/getNavItemsByRole). Usar firestoreRole crudo podría
+  // desalinearse si alguna vez el sistema de "sesiones locales" cambia de
+  // usuario activo sin pasar por un nuevo login de Firebase.
+  const canSelectBranchForActiveUser = MULTI_BRANCH_ROLES.has(activeUser.role as string);
+
+  /** Sucursales disponibles para el selector (vacío para roles sin acceso multi-sucursal). */
+  const availableBranches = useMemo<string[]>(
+    () => (canSelectBranchForActiveUser ? (branches ?? []) : []),
+    [canSelectBranchForActiveUser, branches],
+  );
+
+  /** Cambia la sucursal activa. No-op para roles sin selector o sucursales fuera de su membresía. */
+  const setActiveBranchId = (branchId: string) => {
+    if (!canSelectBranchForActiveUser) return;
+    if (branches && !branches.includes(branchId)) return;
+    setActiveBranchIdState(branchId);
+  };
 
   const setActiveUserRole = (role: UserRole) => {
     const found = users.find(u => u.role === role);
@@ -163,5 +214,10 @@ export function useUsers({ firebaseUser, firestoreRole, serverPanels, notify }: 
     setActiveUserRole,
     logout,
     updateUserWidgets,
+    // Multi-branch transfers (fase 3)
+    activeBranchId: activeBranchIdState,
+    setActiveBranchId,
+    canSelectBranch: canSelectBranchForActiveUser,
+    availableBranches,
   };
 }

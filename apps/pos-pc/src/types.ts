@@ -32,15 +32,19 @@ export interface Product {
   cost: number;
   stock: number;
   minStock: number;
-  image: string; // Emoji or Lucide icon key
-  code: string; // Barcode simulation
+  image: string;
+  code: string;
   ingredients: ProductIngredient[];
-  elaborationDate?: string; // YYYY-MM-DD format
-  durabilityDays?: number; // expiry days
-  groups?: ProductGroup[]; // grupos de venta por presentación (hasta 3)
-  isRawMaterial?: boolean; // materia prima / insumo (products.is_raw_material en D1)
-  isProducible?: boolean; // se puede elaborar/producir (products.is_producible en D1)
-  unit?: 'unit' | 'kg' | 'g' | 'l' | 'ml' | 'dozen' | 'pack'; // unidad de medida (products.unit CHECK en D1)
+  elaborationDate?: string;
+  durabilityDays?: number;
+  groups?: ProductGroup[];
+  isRawMaterial?: boolean;
+  isProducible?: boolean;
+  unit?: 'unit' | 'kg' | 'g' | 'l' | 'ml' | 'dozen' | 'pack';
+  supplier?: string;
+  taxRate?: number;
+  barcode?: string;
+  attributes?: string;
 }
 
 export interface SaleItem {
@@ -56,7 +60,29 @@ export interface SaleItem {
 
 export interface Sale {
   id: string;
+  /**
+   * Legacy: rótulo local calculado antes del change "Document Types". Se
+   * mantiene por compat de UI/exportUtils mientras se termina de migrar todo
+   * el frontend a `documentNumber`/`documentType` (el número REAL, correlativo
+   * por tipo y sucursal, que devuelve el backend). NO usar para mostrar el
+   * número de comprobante — usar `documentNumber`.
+   */
   invoiceNumber: string;
+  /**
+   * Tipo de comprobante emitido (change "Document Types"). Default 'ticket'
+   * si no se especifica al llamar `addSale`.
+   */
+  documentType?: 'ticket' | 'factura_a' | 'factura_b' | 'factura_c' | 'nota_credito' | 'remito' | 'presupuesto';
+  /**
+   * Número correlativo POR TIPO Y SUCURSAL (`document_sequences`, ver
+   * `workers/api/src/lib/document-sequences.ts::nextSequence`). Es el número
+   * real a mostrar/imprimir — NO confundir con `sale_number` (contador legacy
+   * global de `sales`) ni con `invoiceNumber` (rótulo local pre-existente).
+   * `undefined` hasta que la respuesta del servidor confirma la venta
+   * (arquitectura offline-first: la venta se muestra localmente antes de que
+   * la red responda) — ver `AppContext.addSale` y `syncSaleToD1`.
+   */
+  documentNumber?: string | number;
   date: string;
   items: SaleItem[];
   /** Lo que efectivamente se cobra al cliente — equivale a `total_final`. */
@@ -268,6 +294,11 @@ export interface RequestMetadata {
   quantity?: number;
   reason?: string;
   branch_id?: string;
+  /** Multi-branch transfers (fase 3): presente cuando esta request type='delivery'
+   *  fue creada automáticamente por el delivery bridge al aprobarse un transfer_order.
+   *  Ver transfer_order_id/destination_branch_id en el contrato del backend. */
+  transfer_order_id?: string;
+  destination_branch_id?: string;
 }
 
 export interface ERPRequest {
@@ -312,6 +343,54 @@ export interface RequestActivity {
   action: string;
   note?: string;
   created_at: string;
+}
+
+// ── MULTI-BRANCH TRANSFERS (fase 3) ───────────────────────────────────────
+// Contrato acordado con el backend (transfers.ts, /api/v2/transfers) — ver
+// sdd/multi-branch-transfers/design en Engram para el detalle de la máquina
+// de estados y la transaccionalidad de stock.
+
+export type TransferOrderStatus =
+  | 'pending' | 'approved' | 'rejected'
+  | 'in_transit' | 'received' | 'completed';
+
+export interface TransferOrderItem {
+  id: string;
+  transfer_order_id: string;
+  product_id: string;
+  product_name?: string; // join, si el backend lo incluye
+  quantity: number;
+  received_quantity?: number;
+}
+
+export interface TransferOrder {
+  id: string;
+  source_branch_id: string;
+  source_branch_name?: string;
+  destination_branch_id: string;
+  destination_branch_name?: string;
+  status: TransferOrderStatus;
+  notes?: string;
+  rejection_reason?: string;
+  admin_note?: string;
+  requested_by?: string;
+  approved_by?: string;
+  shipped_by?: string;
+  received_by?: string;
+  delivery_request_id?: string;
+  items: TransferOrderItem[];
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface TransferRecommendation {
+  product_id: string;
+  product_name: string;
+  from_branch_id: string;
+  from_branch_name?: string;
+  to_branch_id: string;
+  to_branch_name?: string;
+  suggested_qty: number;
 }
 
 

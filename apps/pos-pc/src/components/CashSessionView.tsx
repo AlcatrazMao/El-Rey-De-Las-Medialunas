@@ -60,7 +60,6 @@ export const CashSessionView: React.FC = () => {
   const [closingAmount, setClosingAmount] = useState<number>(0);
   const [closingNote, setClosingNote] = useState<string>(settings.cash.defaultClosingNote);
   const [closeStep, setCloseStep] = useState<1 | 2 | 3>(1);
-  const [closeBillCounts, setCloseBillCounts] = useState<Record<string, number>>({});
   const [closingHistoricalId, setClosingHistoricalId] = useState<string | null>(null);
   const [historicalClosingAmount, setHistoricalClosingAmount] = useState<number>(0);
   const [historicalClosingNote, setHistoricalClosingNote] = useState<string>('');
@@ -99,17 +98,13 @@ export const CashSessionView: React.FC = () => {
 
   const applyBillTotal = () => {
     if (billTotal === 0) return;
-    if (currentCashSession) setClosingAmount(billTotal);
-    else setOpeningAmount(billTotal);
+    if (currentCashSession) {
+      setClosingAmount(billTotal);
+      setCloseStep(3);
+    } else {
+      setOpeningAmount(billTotal);
+    }
   };
-
-  const billCloseTotal = Object.entries(closeBillCounts).reduce(
-    (sum, [den, qty]) => sum + Number(den) * qty,
-    0
-  );
-  const activeDenominaciones = (settings.cash.denominaciones?.length ?? 0) > 0
-    ? settings.cash.denominaciones
-    : [100, 200, 500, 1000, 2000, 10000];
 
   const openHistoricalSession = cashSessionsHistory.find(s => s.status === 'open');
 
@@ -404,43 +399,49 @@ export const CashSessionView: React.FC = () => {
                   </div>
                 )}
 
-                {/* ── PASO 2: Conteo de billetes ── */}
+                {/* ── PASO 2: Conteo de billetes (mismos billetes que el panel derecho) ── */}
                 {closeStep === 2 && (
                   <div className="flex flex-col gap-3">
                     <p className="text-xs text-gray-400 dark:text-zinc-500 text-center">
                       Tocá el billete o usá + para sumarlo al conteo
                     </p>
 
-                    <div className="flex flex-col gap-2">
-                      {activeDenominaciones.map(den => {
-                        const qty = closeBillCounts[String(den)] ?? 0;
-                        const subtotal = qty * den;
+                    <div className="grid grid-cols-2 gap-2">
+                      {denomList.map((v, idx) => {
+                        const { bg, border } = getDenomStyle(v, idx);
+                        const key = String(v);
+                        const qty = billCounts[key] ?? 0;
+                        const subtotal = qty * v;
                         return (
-                          <div key={den} className="flex items-center gap-3 bg-gray-50 dark:bg-zinc-900 rounded-xl px-3 py-2.5">
-                            {/* Botón principal del billete — toca para sumar */}
-                            <button
-                              onClick={() => setCloseBillCounts(prev => ({ ...prev, [String(den)]: (prev[String(den)] ?? 0) + 1 }))}
-                              className="flex-1 text-left"
-                            >
-                              <span className="font-bold text-sm text-gray-900 dark:text-white">
-                                ${den >= 1000 ? `${(den / 1000).toLocaleString('es-AR')}.000` : den}
-                              </span>
-                              {qty > 0 && (
-                                <span className="text-xs text-amber-600 dark:text-amber-400 ml-2">
-                                  × {qty} = {formatCurrency(subtotal)}
-                                </span>
-                              )}
-                            </button>
-                            {/* Controles − cantidad + */}
-                            <div className="flex items-center gap-1.5">
+                          <div
+                            key={v}
+                            className={`rounded-xl border-2 overflow-hidden transition-all cursor-pointer ${border} ${qty > 0 ? 'shadow-md' : 'opacity-75 hover:opacity-100'}`}
+                            onClick={() => setBill(v, qty + 1)}
+                          >
+                            <div className={`${bg} px-2.5 pt-2 pb-1.5`}>
+                              <div className="flex items-center justify-between">
+                                <span className="text-white font-black text-sm tracking-tight">$ {v.toLocaleString('es-AR')}</span>
+                                {subtotal > 0 && (
+                                  <span className="text-white/80 text-[9px] font-black">= {formatCurrency(subtotal)}</span>
+                                )}
+                              </div>
+                              <div className="mt-1 space-y-0.5">
+                                <div className="h-0.5 bg-white/15 rounded-full" />
+                                <div className="h-0.5 bg-white/8 rounded-full w-2/3" />
+                              </div>
+                            </div>
+                            <div className="bg-white dark:bg-zinc-900 flex items-center justify-between px-2 py-1.5 gap-1" onClick={e => e.stopPropagation()}>
                               <button
-                                onClick={() => setCloseBillCounts(prev => ({ ...prev, [String(den)]: Math.max(0, (prev[String(den)] ?? 0) - 1) }))}
-                                className="w-7 h-7 rounded-lg bg-gray-200 dark:bg-zinc-700 text-gray-600 dark:text-zinc-300 font-bold text-sm flex items-center justify-center"
+                                type="button"
+                                onClick={() => setBill(v, qty - 1)}
+                                disabled={qty === 0}
+                                className="w-6 h-6 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-600 dark:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                               >−</button>
-                              <span className="w-7 text-center font-bold text-sm text-gray-900 dark:text-white">{qty}</span>
+                              <span className="w-6 text-center font-bold text-xs text-gray-900 dark:text-white">{qty}</span>
                               <button
-                                onClick={() => setCloseBillCounts(prev => ({ ...prev, [String(den)]: (prev[String(den)] ?? 0) + 1 }))}
-                                className="w-7 h-7 rounded-lg bg-amber-500 text-white font-bold text-sm flex items-center justify-center"
+                                type="button"
+                                onClick={() => setBill(v, qty + 1)}
+                                className="w-6 h-6 flex items-center justify-center rounded-lg bg-amber-500 text-white font-bold text-xs"
                               >+</button>
                             </div>
                           </div>
@@ -450,12 +451,12 @@ export const CashSessionView: React.FC = () => {
 
                     {/* Total contado */}
                     <div className={`flex justify-between items-center px-3 py-2.5 rounded-xl font-black text-base border-2 ${
-                      billCloseTotal === 0
+                      billTotal === 0
                         ? 'border-gray-200 dark:border-zinc-700 text-gray-400'
                         : 'border-amber-400 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400'
                     }`}>
                       <span>Total contado</span>
-                      <span>{formatCurrency(billCloseTotal)}</span>
+                      <span>{formatCurrency(billTotal)}</span>
                     </div>
 
                     <div className="flex gap-2">
@@ -465,8 +466,7 @@ export const CashSessionView: React.FC = () => {
                       >← Atrás</button>
                       <button
                         onClick={() => {
-                          setClosingAmount(billCloseTotal);
-                          setCloseStep(3);
+                          applyBillTotal();
                         }}
                         className="flex-[2] py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors"
                       >
@@ -531,7 +531,7 @@ export const CashSessionView: React.FC = () => {
                           if (closingAmount < 0) return;
                           await closeCashSession(closingAmount, closingNote);
                           setCloseStep(1);
-                          setCloseBillCounts({});
+                          resetBills();
                           setClosingAmount(0);
                           setClosingNote(settings.cash.defaultClosingNote ?? '');
                         }}
@@ -584,7 +584,8 @@ export const CashSessionView: React.FC = () => {
                 return (
                   <div
                     key={v}
-                    className={`rounded-2xl border-2 overflow-hidden transition-all ${border} ${qty > 0 ? 'shadow-lg' : 'opacity-70 hover:opacity-100'}`}
+                    className={`rounded-2xl border-2 overflow-hidden transition-all cursor-pointer ${border} ${qty > 0 ? 'shadow-lg' : 'opacity-70 hover:opacity-100'}`}
+                    onClick={() => setBill(v, qty + 1)}
                   >
                     {/* Frente del billete */}
                     <div className={`${bg} px-3 pt-2.5 pb-2`}>
@@ -600,8 +601,8 @@ export const CashSessionView: React.FC = () => {
                         <div className="h-0.5 bg-white/8 rounded-full w-2/3" />
                       </div>
                     </div>
-                    {/* Controles */}
-                    <div className="bg-white dark:bg-zinc-900 flex items-center justify-between px-2.5 py-2 gap-1">
+                    {/* Controles — stopPropagation evita que el click en botones dispare onClick del card */}
+                    <div className="bg-white dark:bg-zinc-900 flex items-center justify-between px-2.5 py-2 gap-1" onClick={e => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={() => setBill(v, qty - 1)}

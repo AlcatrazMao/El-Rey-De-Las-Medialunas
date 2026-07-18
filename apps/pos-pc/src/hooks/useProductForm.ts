@@ -1,7 +1,7 @@
 import type * as React from 'react';
 import { useCallback, useRef, useState } from 'react';
 
-import type { CategoryType } from '../types';
+import type { CategoryType, Product } from '../types';
 
 // Payload exacto que espera AppContext.addProduct — duplicado intencional
 // para no acoplar el hook a la firma completa de Product (sin id/code).
@@ -17,6 +17,7 @@ export interface NewProductPayload {
   minStock: number;
   image: string;
   code?: string;
+  unit?: Product['unit'];
   ingredients: { ingredientId: string; quantity: number }[];
 }
 
@@ -27,8 +28,7 @@ export interface ProductFormDefaults {
   cost?: number;
   stock?: number;
   minStock?: number;
-  image?: string;
-  code?: string;
+  unit?: Product['unit'];
 }
 
 const FALLBACK_DEFAULTS = {
@@ -64,6 +64,7 @@ export function useProductForm(
   const [minStock, setMinStock] = useState(initial.minStock);
   const [image, setImage] = useState(initial.image);
   const [code, setCode] = useState(initial.code);
+  const [unit, setUnit] = useState(initial.unit ?? 'unit');
   const [recipeIngredients, setRecipeIngredients] = useState<{ ingredientId: string; quantity: number }[]>([]);
 
   // Ref que siempre apunta al último `initial`. El callback `reset` lee de la
@@ -82,6 +83,7 @@ export function useProductForm(
     setMinStock(i.minStock);
     setImage(i.image);
     setCode(i.code);
+    setUnit(i.unit ?? 'unit');
     setRecipeIngredients([]);
   }, []);
 
@@ -112,18 +114,19 @@ export function useProductForm(
       minStock: Number(minStock),
       image,
       code: code.trim() || undefined,
+      unit: unit || undefined,
       ingredients: recipeIngredients,
     });
     reset();
-  }, [name, category, price, cost, stock, minStock, image, code, recipeIngredients, onSubmit, reset]);
+  }, [name, category, price, cost, stock, minStock, image, code, unit, recipeIngredients, onSubmit, reset]);
 
   return {
     fields: {
-      name, category, price, cost, stock, minStock, image, code,
+      name, category, price, cost, stock, minStock, image, code, unit,
       recipeIngredients,
     },
     setters: {
-      setName, setCategory, setPrice, setCost, setStock, setMinStock, setImage, setCode,
+      setName, setCategory, setPrice, setCost, setStock, setMinStock, setImage, setCode, setUnit,
     },
     recipe: {
       items: recipeIngredients,

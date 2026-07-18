@@ -21,6 +21,11 @@ export interface SalePayload {
   idempotency_key: string;
   branch_id: string;
   customer_id: string | null;
+  /**
+   * Tipo de comprobante a emitir (change "Document Types"). Opcional: el
+   * backend default-ea a 'ticket' si no viene. Ver `workers/api/src/routes/sales.ts`.
+   */
+  document_type?: string;
   // Campos canónicos (fuente de verdad del POS)
   subtotal_bruto: number;
   discount_total: number;
@@ -173,6 +178,7 @@ export function buildSalePayload(sale: Sale, ivaRate: number): SalePayload {
     idempotency_key: sale.idempotencyKey,
     branch_id: branchId,
     customer_id: sale.customerId ?? null,
+    document_type: sale.documentType,
     // Los 3 campos canónicos
     subtotal_bruto: sale.subtotal_bruto,
     discount_total: sale.discount_total,
@@ -196,7 +202,29 @@ export function buildSalePayload(sale: Sale, ivaRate: number): SalePayload {
   };
 }
 
-export async function syncSaleToD1(sale: Sale): Promise<void> {
+/**
+ * Subconjunto de la respuesta real de `POST /api/v1/sales` que nos interesa
+ * tras el change "Document Types": el backend YA devuelve `document_type` y
+ * `document_number` (ver `workers/api/src/routes/sales.ts`), pero el tipo
+ * compartido `Sale` en `packages/shared/src/types/models.ts` todavía no fue
+ * actualizado para declararlos (gap de tipos entre paquetes, no de runtime;
+ * fuera del scope de este change tocar `packages/shared`). Se declara acá
+ * localmente para no perder esos campos con un cast a `unknown`.
+ */
+export interface SaleCreateResult {
+  document_type?: string;
+  document_number?: string | number;
+}
+
+/**
+ * Sincroniza la venta con D1 y devuelve el resultado del servidor — en
+ * particular `document_type`/`document_number` (numeración correlativa REAL
+ * por tipo y sucursal, ver `document_sequences`), que el caller (AppContext.addSale)
+ * usa para reconciliar la venta local (que se crea sin número, ver nota en
+ * `AppContext.tsx`) una vez que la respuesta llega. `undefined` si falló y
+ * quedó encolada — el caller debe tolerar la venta sin `document_number` aún.
+ */
+export async function syncSaleToD1(sale: Sale): Promise<SaleCreateResult | undefined> {
   const ivaRate = getSettings().fiscal.ivaRate;
   const payload = buildSalePayload(sale, ivaRate);
 
@@ -204,7 +232,8 @@ export async function syncSaleToD1(sale: Sale): Promise<void> {
     // SalePayload es un superset de CreateSaleRequest: tiene todos los campos
     // requeridos (branch_id, items, payments) más campos de trazabilidad del POS.
     // El tipo es compatible estructuralmente — no necesitamos cast.
-    await getApi().sales.create(payload);
+    const created = await getApi().sales.create(payload);
+    return created as unknown as SaleCreateResult;
   } catch (err) {
     // Extraemos response del error si el api-client lo expone (típicamente
     // como propiedad `response` en HttpError-like).
@@ -595,6 +624,7 @@ export async function syncProductUpdateToD1(id: string, changes: {
   isRawMaterial?: boolean;
   isProducible?: boolean;
   unit?: Product['unit'];
+  taxRate?: number;
 }): Promise<void> {
   const payload: UpdateProductRequest = {};
   if (changes.name !== undefined) payload.name = changes.name;
@@ -605,6 +635,8 @@ export async function syncProductUpdateToD1(id: string, changes: {
   if (changes.isRawMaterial !== undefined) payload.is_raw_material = changes.isRawMaterial;
   if (changes.isProducible !== undefined) payload.is_producible = changes.isProducible;
   if (changes.unit !== undefined) payload.unit = changes.unit;
+  // supplier es local-only (no existe en backend Product), no se sincroniza
+  if (changes.taxRate !== undefined) payload.tax_rate = changes.taxRate;
 
   if (changes.category !== undefined) {
     const branchId = getSettings().business.branchId;

@@ -1,4 +1,4 @@
-export type Role = "owner" | "admin" | "supervisor" | "cashier" | "production" | "warehouse";
+export type Role = "owner" | "admin" | "supervisor" | "cashier" | "production" | "warehouse" | "driver";
 
 export type MovementType =
   | "purchase_in"

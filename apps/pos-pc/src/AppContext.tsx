@@ -24,6 +24,7 @@ import {
   INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS,
 } from './initialData';
+import { API_URL, fetchWithAuth, setActiveBranchId as setApiActiveBranchId } from './services/api';
 import { syncSaleToD1, buildSalePayload, updateSupplyRequestStatusInD1, syncStockMovementToD1, syncBatchToD1 } from './services/d1-sync';
 import type {
   Ingredient, Product, ProductGroup, Sale, Expense, User, PushNotification, PaymentGateway,
@@ -47,13 +48,13 @@ interface AppContextType {
   setActiveUserRole: (role: UserRole) => void;
   setActiveTab: (tab: string) => void;
   setBatches: React.Dispatch<React.SetStateAction<ProductBatch[]>>;
-  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent?: number, priceListDiscountPercent?: number, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar') => { success: boolean; invoice?: Sale; error?: { code: string; message: string } };
+  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent?: number, priceListDiscountPercent?: number, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar', documentType?: Sale['documentType']) => { success: boolean; invoice?: Sale; error?: { code: string; message: string } };
   addExpense: (expense: Omit<Expense, 'id' | 'date'>) => void;
   addIngredient: (ingredient: Omit<Ingredient, 'id'>) => void;
   updateIngredient: (id: string, changes: Partial<Pick<Ingredient, 'name' | 'unit' | 'unitCost' | 'minStock'>>) => void;
   updateIngredientStock: (id: string, newStock: number) => void;
   addProduct: (product: Omit<Product, 'id' | 'code'>) => void;
-  updateProduct: (id: string, changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image' | 'isRawMaterial' | 'isProducible' | 'unit'>>) => void;
+  updateProduct: (id: string, changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image' | 'isRawMaterial' | 'isProducible' | 'unit' | 'supplier' | 'taxRate' | 'attributes'>>) => void;
   updateProductStock: (id: string, newStock: number) => void;
   updateProductGroups: (id: string, groups: ProductGroup[]) => void;
   toggleGateway: (id: string) => void;
@@ -77,6 +78,11 @@ interface AppContextType {
   syncStatus: SyncStatus;
   retryError: (errorId: number) => Promise<void>;
   retryAllNetwork: () => Promise<void>;
+  // Multi-branch transfers (fase 3): sucursal activa + selector para roles elevados.
+  activeBranchId: string | null;
+  setActiveBranchId: (branchId: string) => void;
+  canSelectBranch: boolean;
+  availableBranches: string[];
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -92,15 +98,50 @@ export const AppProvider: React.FC<{
   firebaseUser: FirebaseUser;
   firestoreRole?: string | null;
   serverPanels?: string[] | null;
+  /** Sucursales a las que el usuario tiene acceso (login response, fase 1/2 backend). */
+  branches?: string[] | null;
+  /** Sucursal primaria del usuario (login response, fase 1/2 backend). */
+  defaultBranch?: string | null;
   syncStatus: SyncStatus;
   retryError: (errorId: number) => Promise<void>;
   retryAllNetwork: () => Promise<void>;
-}> = ({ children, firebaseUser, firestoreRole, serverPanels, syncStatus, retryError, retryAllNetwork }) => {
+}> = ({ children, firebaseUser, firestoreRole, serverPanels, branches, defaultBranch, syncStatus, retryError, retryAllNetwork }) => {
   const notif = useNotifications();
   const inv = useInventory(notif.addSystemNotification);
   const cust = useCustomers(notif.addSystemNotification);
   const exp = useExpenses(notif.addSystemNotification);
-  const usr = useUsers({ firebaseUser, firestoreRole, serverPanels, notify: notif.addSystemNotification });
+  const usr = useUsers({ firebaseUser, firestoreRole, serverPanels, branches, defaultBranch, notify: notif.addSystemNotification });
+
+  // Multi-branch transfers (fase 3): cada vez que activeBranchId cambia (login
+  // resuelve default_branch, o un rol elevado usa el selector), lo empujamos al
+  // singleton de services/api.ts para que fetchWithAuth mande X-Branch-Id en
+  // TODOS los requests salientes sin tener que prop-drillear el valor hasta
+  // cada hook que llama fetchWithAuth.
+  useEffect(() => {
+    setApiActiveBranchId(usr.activeBranchId);
+  }, [usr.activeBranchId]);
+
+  // Document Types (change): bootstrap one-shot de la secuencia de 'ticket' en
+  // document_sequences con el último valor conocido del contador LEGACY
+  // (pan_erp_invoice_seq / invoiceSeqRef, que useUsers ya no incrementa desde
+  // este change — ver addSale). El endpoint es MAX-monotónico y repetible
+  // (POST /api/v2/document-sequences/bootstrap), así que no hace falta un flag
+  // "ya corrió" persistido: alcanza con un ref para no spamear el request en
+  // cada render. Se dispara apenas activeBranchId se resuelve (login) porque
+  // el bootstrap es por-sucursal.
+  const bootstrapDoneRef = useRef(false);
+  useEffect(() => {
+    if (!usr.activeBranchId || bootstrapDoneRef.current) return;
+    bootstrapDoneRef.current = true;
+    fetchWithAuth(`${API_URL}/api/v2/document-sequences/bootstrap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_type: 'ticket', last_number: usr.invoiceSeqRef.current }),
+    }).catch(() => {
+      // Sin red / error de servidor: no bloqueamos el login por esto. Como el
+      // bootstrap es idempotente, un intento futuro (próximo login) lo corrige.
+    });
+  }, [usr.activeBranchId, usr.invoiceSeqRef]);
   const bch = useBatches({ notify: notif.addSystemNotification, products: inv.products });
   const cash = useCashSession({
     notify: notif.addSystemNotification,
@@ -135,6 +176,19 @@ export const AppProvider: React.FC<{
     );
     if (newlyCompleted.length === 0) return;
     newlyCompleted.forEach((r) => refetchedWasteRef.current.add(r.id));
+    // Descuento OPTIMISTA local del lote afectado: el refetch de abajo llega
+    // recién en el próximo ciclo (o tarda el round-trip), y mientras tanto el
+    // BatchPanel mostraría el stock viejo (sobreestimado). batch_id/quantity
+    // viajan en metadata (ya parseado a objeto por el backend, ver requests.ts
+    // parseMetadata). Si la merma no está ligada a un lote específico (sin
+    // batch_id), no hacemos nada acá — el refresh de abajo alcanza.
+    newlyCompleted.forEach((r) => {
+      const batchId = r.metadata?.batch_id;
+      const quantity = r.metadata?.quantity;
+      if (batchId && typeof quantity === 'number') {
+        bch.applyOptimisticWithdrawal(batchId, quantity);
+      }
+    });
     // Al completarse una merma el backend descontó atómicamente producto Y lote:
     // refrescamos ambos desde D1 para reflejar el valor persistido sin esperar al
     // próximo poll (antes solo se refrescaba el producto, el lote quedaba stale).
@@ -154,7 +208,7 @@ export const AppProvider: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only effect; hook refs are stable
   }, []);
 
-  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar') => {
+  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar', documentType: Sale['documentType'] = 'ticket') => {
     // Fix 2: prevent double-click / rapid-scanner from creating duplicate invoices.
     // The lock is synchronous: set before any async work, cleared in a finally-equivalent
     // position after all side-effects complete (or on early-exit).
@@ -290,11 +344,20 @@ export const AppProvider: React.FC<{
 
     const dateToday = new Date();
 
-    // Bug 7 fix: compute the NEXT sequence number but don't commit it yet —
-    // the increment and localStorage write happen just before the success return.
-    const nextSeq = usr.invoiceSeqRef.current + 1;
-    const sequenceStr = String(nextSeq).padStart(7, '0');
-    const invoiceNumber = `FC-A-001-${sequenceStr}`;
+    // NOTA (change "Document Types"): el número de comprobante YA NO se
+    // calcula acá — antes `invoiceSeqRef`/`pan_erp_invoice_seq` generaban un
+    // número local con el rótulo fijo (y engañoso) "FC-A-001-XXXXXXX" sin
+    // importar el tipo real de venta. Ahora la numeración correlativa real
+    // (por tipo Y sucursal) la calcula el backend (`document_sequences` vía
+    // `nextSequence()`) y viaja en la respuesta de POST /api/v1/sales como
+    // `document_number` — ver `syncSaleToD1`/`SaleCreateResult` en
+    // services/d1-sync.ts. Como el sync es fire-and-forget (offline-first: la
+    // venta se muestra/imprime localmente antes de que la red responda),
+    // `documentNumber` arranca `undefined` acá y se reconcilia más abajo, en
+    // el callback de `syncSaleToD1`, apenas el servidor confirma. `invoiceNumber`
+    // se mantiene solo como rótulo local legacy para compat de UI/exportUtils
+    // mientras dure la migración — NUNCA debe mostrarse como "el número" real.
+    const invoiceNumber = `PENDIENTE-${finalIdempotencyKey.slice(0, 8).toUpperCase()}`;
 
     const seller = sellerId ? usr.users.find(u => u.id === sellerId) : null;
     const operatorName = seller ? seller.name : usr.activeUser.name;
@@ -303,6 +366,7 @@ export const AppProvider: React.FC<{
     const newSaleInstance: Sale = {
       id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       invoiceNumber,
+      documentType,
       date: dateToday.toISOString(),
       items: saleLineItems,
       // Source of truth contable — los 3 campos canónicos
@@ -385,14 +449,30 @@ export const AppProvider: React.FC<{
 
     sal.setSales(prev => [newSaleInstance, ...prev]);
 
-    notif.addSystemNotification('💸 Nueva Venta Registrada', `Factura ${invoiceNumber} generada con éxito por ${formatCurrency(newSaleInstance.total)}`, 'success');
+    // El número REAL (document_number) todavía no existe en este punto (llega
+    // async del backend, ver nota más arriba) — la notificación/nota interna
+    // usan el tipo de comprobante en vez de inventar o mostrar un número.
+    notif.addSystemNotification('💸 Nueva Venta Registrada', `Venta (${documentType}) generada con éxito por ${formatCurrency(newSaleInstance.total)}`, 'success');
     addAutoNote(`💸 Venta ${invoiceNumber}`, `Total: ${formatCurrency(newSaleInstance.total)}\nItems: ${saleLineItems.length}\nPago: ${paymentMethod}`, 'ventas', 'low');
 
     // ── SYNC UNIFICADO ──────────────────────────────────────────────────────
     // Un solo path al backend con los 3 campos canónicos + idempotency_key.
     // Si falla (red caída, backend rechaza), encolamos en Dexie para reintento
     // y avisamos al cajero sin bloquear.
-    syncSaleToD1(newSaleInstance).catch(async (err: unknown) => {
+    syncSaleToD1(newSaleInstance).then((created) => {
+      // Reconciliación (change "Document Types"): el número REAL de comprobante
+      // (correlativo por tipo+sucursal) recién existe una vez que el backend
+      // confirma — acá lo volcamos sobre la venta ya mostrada/impresa. Si el
+      // caller (POSView) todavía tiene abierto el modal de confirmación con
+      // la venta vieja en state local, no se actualiza solo — POSView debe
+      // leer `documentNumber` desde `sales`/re-sincronizar si lo necesita para
+      // reimprimir. `created` puede venir undefined si syncSaleToD1 encoló por
+      // red (ver su firma) — nada que reconciliar todavía en ese caso.
+      if (!created) return;
+      sal.setSales(prev => prev.map(s => s.id === newSaleInstance.id
+        ? { ...s, documentNumber: created.document_number ?? s.documentNumber, documentType: (created.document_type as Sale['documentType']) ?? s.documentType }
+        : s));
+    }).catch(async (err: unknown) => {
       if (import.meta.env.DEV) console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);
       // Marcamos la venta como no sincronizada para reflejarlo en UI/historial.
       sal.setSales(prev => prev.map(s => s.id === newSaleInstance.id ? { ...s, syncFailed: true } : s));
@@ -430,10 +510,6 @@ export const AppProvider: React.FC<{
       notif.addSystemNotification('⚠️ Alerta de Inventario', alertMessage, 'warning');
       addAutoNote('⚠️ Stock bajo', alertMessage, 'inventario', 'high');
     });
-
-    // Bug 7 fix: commit invoice sequence only after all side-effects succeed
-    usr.invoiceSeqRef.current = nextSeq;
-    try { localStorage.setItem('pan_erp_invoice_seq', String(nextSeq)); } catch { /* storage full */ }
 
     return { success: true, invoice: newSaleInstance };
 
@@ -575,6 +651,8 @@ export const AppProvider: React.FC<{
     loadMoreSessions: cash.loadMoreSessions, hasMoreSessions: cash.hasMoreSessions,
     isCheckingRemoteSession: cash.isCheckingRemoteSession,
     syncStatus, retryError, retryAllNetwork,
+    activeBranchId: usr.activeBranchId, setActiveBranchId: usr.setActiveBranchId,
+    canSelectBranch: usr.canSelectBranch, availableBranches: usr.availableBranches,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hook return refs (addSale, addBatch, etc) are stable per-render of their owning hooks; tracking state slices is sufficient
   }), [
     inv.ingredients, inv.products, inv.gateways,
@@ -587,6 +665,7 @@ export const AppProvider: React.FC<{
     cash.currentCashSession, cash.cashSessionsHistory, cash.hasMoreSessions, cash.isCheckingRemoteSession,
     cust.customers,
     syncStatus, retryError, retryAllNetwork,
+    usr.activeBranchId, usr.setActiveBranchId, usr.canSelectBranch, usr.availableBranches,
   ]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };

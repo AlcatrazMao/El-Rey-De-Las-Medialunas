@@ -383,10 +383,24 @@ export function useBatches({ notify, products }: UseBatchesParams) {
     }
   };
 
+  /**
+   * Descuento OPTIMISTA local del stock de un lote, sin tocar D1. Se usa desde
+   * AppContext apenas una merma pasa a `completed`, para que el BatchPanel no
+   * muestre la cantidad vieja mientras esperamos el próximo poll de 60s de
+   * refreshBatchesFromD1 (que va a pisar este valor con el real de D1). Clamp a
+   * 0 por si la merma ya fue reflejada por otra vía (evita stock negativo).
+   */
+  const applyOptimisticWithdrawal = useCallback((batchId: string, quantity: number) => {
+    setBatches((prev) =>
+      prev.map((b) => (b.id === batchId ? { ...b, stock: Math.max(0, b.stock - quantity) } : b)),
+    );
+  }, []);
+
   return {
     batches,
     setBatches,
     requestBatchWithdrawal,
     refreshBatchesFromD1,
+    applyOptimisticWithdrawal,
   };
 }

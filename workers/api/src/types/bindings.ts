@@ -26,4 +26,10 @@ export interface Variables {
   validatedBody?: unknown;
   validatedQuery?: unknown;
   validatedParams?: unknown;
+  // Claims de sucursal firmados en el JWT (ver routes/auth.ts issueTokens).
+  // Poblados por authMiddleware; usados por resolveBranchScope para decidir
+  // qué branchId aplica según el rol (operativo -> default_branch forzado;
+  // elevado -> query param validado o modo agregado).
+  userBranches?: string[];
+  userDefaultBranch?: string | null;
 }

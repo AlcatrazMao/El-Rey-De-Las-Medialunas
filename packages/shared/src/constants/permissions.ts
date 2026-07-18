@@ -126,6 +126,27 @@ export const PERMISSIONS: PermissionMatrix = {
     sync: [],
     settings: [],
   },
+  // driver (repartidor): rol operativo de despacho de traslados entre
+  // sucursales. Solo necesita ver los traslados asignados y marcar su
+  // progreso (ej. in_transit -> received), sin visibilidad de productos,
+  // finanzas ni otros módulos administrativos.
+  driver: {
+    sales: [],
+    products: [],
+    categories: [],
+    inventory: [],
+    cash: [],
+    customers: [],
+    production: [],
+    purchases: [],
+    transfers: ["read", "update"],
+    reports: [],
+    audit: [],
+    users: [],
+    branches: ["read"],
+    sync: [],
+    settings: [],
+  },
 };
 
 export function hasPermission(

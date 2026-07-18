@@ -197,6 +197,9 @@ export const InventoryView: React.FC = () => {
   // addProduct/updateProduct según el modo.
   const [showProductModal, setShowProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [prodSupplier, setProdSupplier] = useState('');
+  const [prodTaxRate, setProdTaxRate] = useState(0);
+  const [prodAttributes, setProdAttributes] = useState('');
 
   const productFormDefaults = useMemo(() => (
     editingProduct
@@ -213,6 +216,15 @@ export const InventoryView: React.FC = () => {
       : {}
   ), [editingProduct]);
 
+  // Sync advanced fields when editing product changes
+  useEffect(() => {
+    if (editingProduct) {
+      setProdSupplier(editingProduct.supplier ?? '');
+      setProdTaxRate(editingProduct.taxRate ?? 0);
+      setProdAttributes(editingProduct.attributes ?? '');
+    }
+  }, [editingProduct]);
+
   const productForm = useProductForm((payload) => {
     if (editingProduct) {
       updateProduct(editingProduct.id, {
@@ -223,6 +235,10 @@ export const InventoryView: React.FC = () => {
         minStock: payload.minStock,
         image: payload.image,
         code: payload.code,
+        unit: payload.unit,
+        supplier: prodSupplier || undefined,
+        taxRate: prodTaxRate > 0 ? prodTaxRate : undefined,
+        attributes: prodAttributes || undefined,
       });
     } else {
       addProduct(payload);
@@ -1443,7 +1459,7 @@ export const InventoryView: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Categoría</label>
                 <select
@@ -1457,6 +1473,24 @@ export const InventoryView: React.FC = () => {
                   <option value="pasteleria">Pastelería y Tortas</option>
                   <option value="bebidas">Cafetaría y Bebidas</option>
                   <option value="salados">Salados y Sándwiches</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Unidad de Medida</label>
+                <select
+                  id="modal-prod-unit"
+                  value={productForm.fields.unit}
+                  onChange={(e) => productForm.setters.setUnit(e.target.value as Product['unit'])}
+                  className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
+                >
+                  <option value="unit">Unidad</option>
+                  <option value="kg">Kilogramo (kg)</option>
+                  <option value="g">Gramo (g)</option>
+                  <option value="l">Litro (l)</option>
+                  <option value="ml">Mililitro (ml)</option>
+                  <option value="dozen">Docena</option>
+                  <option value="pack">Pack</option>
                 </select>
               </div>
 
@@ -1544,6 +1578,48 @@ export const InventoryView: React.FC = () => {
                 />
               </div>
             </div>
+
+            {/* Advanced fields */}
+            <details className="group">
+              <summary className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-amber-600 select-none py-1">
+                Campos avanzados
+              </summary>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Proveedor</label>
+                  <input
+                    type="text"
+                    value={prodSupplier}
+                    onChange={e => setProdSupplier(e.target.value)}
+                    placeholder="Nombre del proveedor"
+                    className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Tasa de IVA %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="99"
+                    step="0.01"
+                    value={prodTaxRate}
+                    onChange={e => setProdTaxRate(Number(e.target.value))}
+                    placeholder="0 = Heredar de config. fiscal"
+                    className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
+                  />
+                </div>
+                <div className="space-y-1 col-span-2">
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Atributos / Variantes (JSON)</label>
+                  <input
+                    type="text"
+                    value={prodAttributes}
+                    onChange={e => setProdAttributes(e.target.value)}
+                    placeholder='Ej: {"color":"rojo","tamaño":"grande"}'
+                    className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100 font-mono"
+                  />
+                </div>
+              </div>
+            </details>
 
             {/* INTERACTIVE FORMULA CREATOR SECTION */}
             <div className="pt-2 border-t border-gray-100 dark:border-zinc-800 space-y-2">

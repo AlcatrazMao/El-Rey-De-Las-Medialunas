@@ -212,8 +212,16 @@ requestsRouter.get("/", async (c) => {
   const statusFilter = c.req.query("status");
   const assignedRoleFilter = c.req.query("assigned_role");
   const typeFilter = c.req.query("type");
-  const branchIdFilter = c.req.query("branch_id");
   const isPermanentFilter = c.req.query("is_permanent");
+
+  // SECURITY: scoping por sucursal, mismo criterio que products.ts/inventory.ts.
+  // No-admin (roles operativos): se ignora cualquier ?branch_id= que venga en
+  // la URL y se fuerza c.get('branchId') (seteado por resolveBranchScope a
+  // partir de token.default_branch) — cierra el vector de que un cajero/etc.
+  // liste solicitudes de otra sucursal con solo cambiar el query param.
+  // admin/owner/supervisor: pueden pasar ?branch_id= para filtrar una sucursal
+  // puntual, o dejarlo vacío para ver agregado (todas las sucursales).
+  const branchIdFilter = isAdmin ? c.req.query("branch_id") : c.get("branchId");
 
   const rawLimit = parseInt(c.req.query("limit") ?? String(DEFAULT_LIMIT), 10);
   const rawOffset = parseInt(c.req.query("offset") ?? "0", 10);

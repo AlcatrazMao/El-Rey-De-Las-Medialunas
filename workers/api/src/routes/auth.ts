@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import type { Env, Variables } from "../types/bindings";
+import { resolveUser } from "../lib/resolve-user";
 import { signJWT } from "../utils/jwt";
 
 export const authRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -65,6 +66,8 @@ interface RefreshSession {
   role: string;
   email: string;
   issuedAt: number;
+  branches: string[];
+  default_branch: string | null;
 }
 
 async function verifyFirebaseIdToken(idToken: string, env: Env): Promise<{ uid: string; email?: string } | null> {
@@ -117,14 +120,23 @@ async function verifyFirebaseIdToken(idToken: string, env: Env): Promise<{ uid: 
 
 async function issueTokens(
   env: Env,
-  user: { id: string; email: string; role: string },
+  user: {
+    id: string;
+    email: string;
+    role: string;
+    branches: string[];
+    default_branch: string | null;
+  },
 ): Promise<{ access_token: string; refresh_token: string; expires_in: number; token_type: "Bearer" }> {
   const nowSec = Math.floor(Date.now() / 1000);
+  // Contrato del payload JWT: {sub, role, email, branches, default_branch, iat, exp}
   const accessToken = await signJWT(
     {
       sub: user.id,
       role: user.role,
       email: user.email,
+      branches: user.branches,
+      default_branch: user.default_branch,
       iat: nowSec,
       exp: nowSec + ACCESS_TOKEN_TTL_SECONDS,
     },
@@ -137,6 +149,8 @@ async function issueTokens(
     role: user.role,
     email: user.email,
     issuedAt: nowSec,
+    branches: user.branches,
+    default_branch: user.default_branch,
   };
 
   await env.SESSIONS.put(`rt:${refreshToken}`, JSON.stringify(session), {
@@ -223,7 +237,20 @@ authRoutes.post("/login", async (c) => {
       console.warn('[auth] audit_log insert failed on login:', err);
     }
 
-    const tokens = await issueTokens(c.env, { id: user.id, email: user.email, role: user.role });
+    // Resolvemos branches[] / default_branch en el momento de emitir tokens
+    // (no se cachea junto al user: user_branches puede cambiar sin que el
+    // caché de perfil se invalide, así que siempre se lee fresco de DB).
+    const resolved = await resolveUser(c.env.DB, user.id);
+    const branchIds = resolved?.branches.map((b) => b.branch_id) ?? [];
+    const defaultBranch = resolved?.default_branch ?? null;
+
+    const tokens = await issueTokens(c.env, {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      branches: branchIds,
+      default_branch: defaultBranch,
+    });
 
     // `parseCustomPanels` acepta string (DB) o string[] (caché legacy) y
     // siempre devuelve string[] | null — elimina la inconsistencia.
@@ -269,8 +296,20 @@ authRoutes.post("/refresh", async (c) => {
     // rotado no puede reutilizarse aunque el cliente tarde en recibir el nuevo.
     await c.env.SESSIONS.put(`revoked:${refresh_token}`, '1', { expirationTtl: revokedTtlSeconds() });
 
-    // Now issue new tokens
-    const tokens = await issueTokens(c.env, { id: stored.userId, email: stored.email, role: stored.role });
+    // Now issue new tokens. Re-resolvemos branches/default_branch de DB (en
+    // vez de confiar ciegamente en lo guardado en `stored`) para reflejar
+    // cambios de asignación de sucursal que hayan ocurrido desde el login.
+    const resolved = await resolveUser(c.env.DB, stored.userId);
+    const branchIds = resolved?.branches.map((b) => b.branch_id) ?? stored.branches ?? [];
+    const defaultBranch = resolved?.default_branch ?? stored.default_branch ?? null;
+
+    const tokens = await issueTokens(c.env, {
+      id: stored.userId,
+      email: stored.email,
+      role: stored.role,
+      branches: branchIds,
+      default_branch: defaultBranch,
+    });
 
     return c.json({ success: true, data: { tokens } });
   } catch (err: unknown) {

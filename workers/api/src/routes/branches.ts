@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { DOCUMENT_TYPES } from "../lib/document-sequences";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
@@ -89,25 +90,55 @@ branchRoutes.post("/", async (c) => {
   const id = genId();
   const now = nowSqliteTs();
 
-  await db
-    .prepare(
-      `INSERT INTO branches (id, name, code, address, phone, email, timezone, opening_time, closing_time, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      id,
-      body.name.trim(),
-      body.code.trim().toUpperCase(),
-      body.address ?? null,
-      body.phone ?? null,
-      body.email ?? null,
-      body.timezone ?? "America/Argentina/Buenos_Aires",
-      body.opening_time ?? "06:00",
-      body.closing_time ?? "22:00",
-      now,
-      now
-    )
-    .run();
+  // CONSISTENCY (SDD document-types, migración 0023): toda sucursal necesita
+  // una fila en document_sequences y otra en document_type_settings por cada
+  // uno de los 7 tipos de comprobante. La migración 0023 sembró esto para las
+  // sucursales que ya existían en ese momento (INSERT OR IGNORE ... CROSS JOIN
+  // sobre branches), pero una sucursal creada DESPUÉS de esa migración nunca
+  // recibía esas 14 filas: sin fila en document_type_settings, sales.ts
+  // rechaza CUALQUIER venta (incluso 'ticket', que debería estar habilitado
+  // por defecto) con 409 DOCUMENT_TYPE_DISABLED, y nextSequence() en
+  // document-sequences.ts tira si no encuentra fila en document_sequences.
+  // Sembramos las 14 filas en el mismo db.batch que crea la sucursal para que
+  // sea atómico: o se crea la sucursal totalmente lista para operar, o no se
+  // crea nada (evita dejarla a medio configurar si un paso posterior fallara).
+  // Mismo criterio que 0023: 'ticket' habilitado, los otros 6 deshabilitados.
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO branches (id, name, code, address, phone, email, timezone, opening_time, closing_time, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        id,
+        body.name.trim(),
+        body.code.trim().toUpperCase(),
+        body.address ?? null,
+        body.phone ?? null,
+        body.email ?? null,
+        body.timezone ?? "America/Argentina/Buenos_Aires",
+        body.opening_time ?? "06:00",
+        body.closing_time ?? "22:00",
+        now,
+        now
+      ),
+    ...DOCUMENT_TYPES.map((documentType) =>
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO document_sequences (branch_id, document_type, last_number, updated_at)
+           VALUES (?, ?, 0, ?)`
+        )
+        .bind(id, documentType, now)
+    ),
+    ...DOCUMENT_TYPES.map((documentType) =>
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO document_type_settings (branch_id, document_type, enabled, updated_at, updated_by)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .bind(id, documentType, documentType === "ticket" ? 1 : 0, now, userId || null)
+    ),
+  ]);
 
   return c.json({ success: true, data: { id } }, 201);
 });

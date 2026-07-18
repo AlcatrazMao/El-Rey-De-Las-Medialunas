@@ -10,6 +10,17 @@ export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 export const MAX_SALE_NUMBER_RETRIES = 15;
 
+// Subconjunto de DOCUMENT_TYPES que puede emitirse como parte de una venta
+// (sales.document_type CHECK, migración 0023). nota_credito/remito/presupuesto
+// viven en tablas propias y tienen sus propias rutas (credit-notes.ts,
+// remitos.ts, budgets.ts) — no pasan por acá.
+const DOCUMENT_TYPES_SALES = ["ticket", "factura_a", "factura_b", "factura_c"] as const;
+type SalesDocumentType = (typeof DOCUMENT_TYPES_SALES)[number];
+
+function isSalesDocumentType(value: unknown): value is SalesDocumentType {
+  return typeof value === "string" && (DOCUMENT_TYPES_SALES as readonly string[]).includes(value);
+}
+
 /**
  * Tolerancia máxima en ARS entre subtotal_bruto − discount_total − total_final.
  * Bajada de 1 ARS a 0.05 ARS para detectar errores de redondeo reales del cliente
@@ -141,6 +152,10 @@ salesRoutes.post("/", async (c) => {
     id?: string;
     client_id?: string;
     idempotency_key?: string;
+    // SECURITY: aceptado por compat con clientes viejos, pero IGNORADO — la
+    // sucursal real siempre sale de c.get("branchId") (resuelto por el
+    // middleware resolveBranchScope), nunca de este campo. Ver comentario
+    // en la asignación de `branchId` más abajo.
     branch_id?: string;
     customer_id?: string;
     items: {
@@ -166,13 +181,40 @@ salesRoutes.post("/", async (c) => {
     subtotal?: number;
     tax_total?: number;
     total?: number;
+    // Document Types (Comprobantes) — default 'ticket' por compatibilidad con
+    // clientes viejos que todavía no mandan este campo.
+    document_type?: string;
   }>();
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  // SECURITY: el branch_id NUNCA se deriva del body — un cliente podría mandar
+  // el branch_id de una sucursal ajena y la venta (+ descuento de inventory +
+  // stock_movements) quedaría grabada ahí. c.get("branchId") ya fue resuelto
+  // y validado por el middleware resolveBranchScope (auth.ts), enganchado
+  // global en app.ts: para roles operativos fuerza token.default_branch
+  // (ignora cualquier otro valor); para roles elevados permite override
+  // validado por membership. Mismo patrón que credit-notes/remitos/budgets.
+  const branchId = c.get("branchId") || DEFAULT_BRANCH_ID;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const now = nowSqliteTs();
+
+  // ── Document Types (Comprobantes) ──────────────────────────────────────
+  // DT-6: solo 4 de los 7 tipos globales se emiten como venta. Default
+  // 'ticket' si no viene, por compatibilidad con clientes viejos.
+  if (body.document_type !== undefined && !isSalesDocumentType(body.document_type)) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "VALIDATION_ERROR",
+          message: `document_type inválido. Valores permitidos: ${DOCUMENT_TYPES_SALES.join(", ")}`,
+        },
+      },
+      400,
+    );
+  }
+  const documentType: SalesDocumentType = body.document_type === undefined ? "ticket" : body.document_type;
 
   // ── Idempotencia ────────────────────────────────────────────────────────
   // Si llega un idempotency_key y ya existe una venta con ese key, devolver la
@@ -184,9 +226,9 @@ salesRoutes.post("/", async (c) => {
 
   if (idempotencyKey) {
     const existing = await db
-      .prepare("SELECT id, sale_number, branch_id, created_at FROM sales WHERE idempotency_key = ? LIMIT 1")
+      .prepare("SELECT id, sale_number, branch_id, created_at, document_type FROM sales WHERE idempotency_key = ? LIMIT 1")
       .bind(idempotencyKey)
-      .first<{ id: string; sale_number: number; branch_id: string; created_at: string }>();
+      .first<{ id: string; sale_number: number; branch_id: string; created_at: string; document_type: string }>();
     if (existing) {
       return c.json({
         success: true,
@@ -195,6 +237,7 @@ salesRoutes.post("/", async (c) => {
           sale_number: existing.sale_number,
           branch_id: existing.branch_id,
           created_at: existing.created_at,
+          document_type: existing.document_type,
           idempotent_replay: true,
         },
       }, 200);
@@ -241,6 +284,47 @@ salesRoutes.post("/", async (c) => {
     }
     if (!Number.isFinite(Number(p.amount)) || Number(p.amount) < 0 || Number(p.amount) > MAX_UNIT_PRICE) {
       return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: 'payment.amount debe ser un número finito >= 0' } }, 400);
+    }
+  }
+
+  // ── Document Types (Comprobantes): habilitación + CUIT (DT-7, DT-11) ────
+  // Validamos ANTES de calcular totales/numeración para no gastar cómputo ni
+  // numeración en un intento que de todos modos va a ser rechazado.
+  const settingRow = await db
+    .prepare(`SELECT enabled FROM document_type_settings WHERE branch_id = ? AND document_type = ?`)
+    .bind(branchId, documentType)
+    .first<{ enabled: number }>();
+  if (!settingRow || settingRow.enabled !== 1) {
+    return c.json(
+      {
+        success: false,
+        error: { code: "DOCUMENT_TYPE_DISABLED", message: `El tipo de comprobante '${documentType}' no está habilitado en esta sucursal` },
+      },
+      409,
+    );
+  }
+
+  // DT-7: Factura A/B/C requiere customer con document_type='cuit' y
+  // document_number no vacío. Se valida server-side, no solo en la UI.
+  if (documentType === "factura_a" || documentType === "factura_b" || documentType === "factura_c") {
+    if (!body.customer_id) {
+      return c.json(
+        { success: false, error: { code: "VALIDATION_ERROR", message: "Factura A/B/C requiere un cliente con CUIT" } },
+        400,
+      );
+    }
+    const customer = await db
+      .prepare(`SELECT document_type, document_number FROM customers WHERE id = ? LIMIT 1`)
+      .bind(body.customer_id)
+      .first<{ document_type: string | null; document_number: string | null }>();
+    if (!customer || customer.document_type !== "cuit" || !customer.document_number?.trim()) {
+      return c.json(
+        {
+          success: false,
+          error: { code: "VALIDATION_ERROR", message: "Factura A/B/C requiere un cliente con document_type='cuit' y document_number cargado" },
+        },
+        400,
+      );
     }
   }
 
@@ -361,13 +445,63 @@ salesRoutes.post("/", async (c) => {
     );
   }
 
+  // ── Document Types (Comprobantes): número de comprobante (DT-1..DT-3) ───
+  // DESVIACIÓN DOCUMENTADA vs plan original: `sales.sale_number` (con su
+  // UNIQUE(branch_id, sale_number) de la migración 0008) es un contador
+  // legacy GLOBAL de la tabla `sales`, compartido por todos los document_type
+  // (no distingue tipo). Reemplazarlo por nextSequence(branchId, documentType)
+  // haría que dos ventas de TIPOS DISTINTOS (ej. un ticket #1 y una
+  // factura_a #1) pidan el mismo número y violen ese UNIQUE — la migración
+  // 0023 (Fase 1, ya cerrada) no tocó ese constraint ni agregó una columna
+  // separada para esto, y no corresponde a esta fase crear una migración
+  // correctiva de schema. Por eso:
+  //   - `sale_number` sigue siendo el contador interno global de `sales`
+  //     (retry-loop MAX+1 sin cambios, líneas de abajo).
+  //   - `document_number` es un campo NUEVO, derivado de
+  //     `document_sequences(branch_id, document_type)` — este es el número
+  //     correlativo por tipo que exige DT-1/DT-2/DT-5, el que se
+  //     imprime/muestra como identificador real del comprobante.
+  //
+  // FISCAL: el incremento de document_sequences NO se ejecuta como sentencia
+  // suelta antes del db.batch() de la venta (lo que hacía nextSequence() acá
+  // originalmente) — si el batch de la venta fallaba después (FK, UNIQUE de
+  // sale_number agotando reintentos, etc.) ese número quedaba consumido para
+  // siempre sin comprobante real asociado: un hueco permanente en la
+  // numeración, inaceptable para Factura A/B/C (AFIP exige correlatividad sin
+  // huecos). Ahora el UPDATE...RETURNING de document_sequences es la PRIMERA
+  // sentencia del mismo db.batch() que el INSERT de la venta — D1 ejecuta
+  // batch() como una única transacción atómica (todo o nada) y de forma
+  // secuencial, así que si el resto del batch falla, el incremento de
+  // document_sequences se revierte junto con todo lo demás.
+  // Solo se incrementa UNA vez por request (fuera del retry-loop de abajo):
+  // los reintentos son por colisión de `sale_number` (contador legacy
+  // distinto), no por document_number, así que no correspondería re-incrementar
+  // la secuencia en cada intento — se arma la sentencia una sola vez y se
+  // reutiliza en cada iteración del batch.
+  const sequenceUpdate = db
+    .prepare(
+      `UPDATE document_sequences
+         SET last_number = last_number + 1, updated_at = ?
+       WHERE branch_id = ? AND document_type = ?
+       RETURNING last_number`,
+    )
+    .bind(now, branchId, documentType);
+
   // Retry loop para colisiones del índice UNIQUE (branch_id, sale_number).
   // Bajo concurrencia dos requests pueden leer el mismo MAX+1; el segundo
   // INSERT falla por el UNIQUE de migración 0008. Reintentamos hasta
   // MAX_SALE_NUMBER_RETRIES veces recalculando MAX+1, con backoff lineal
   // de 10ms por intento para reducir la probabilidad de colisión bajo carga.
+  //
+  // IMPORTANTE: como sequenceUpdate ahora vive DENTRO del db.batch() de la
+  // venta, un reintento por colisión de sale_number re-ejecutaría también el
+  // incremento de document_sequences (el batch entero se revirtió al fallar,
+  // así que no hay doble incremento real — cada intento fallido revierte su
+  // propio UPDATE junto con el resto). Solo el intento que efectivamente
+  // commitea dispara UN incremento neto.
   let attempts = 0;
   let inserted = false;
+  let documentNumber = 0;
 
   while (attempts < MAX_SALE_NUMBER_RETRIES && !inserted) {
     if (attempts > 0) {
@@ -383,8 +517,8 @@ salesRoutes.post("/", async (c) => {
 
     const saleInsert = db
       .prepare(
-        `INSERT INTO sales (id, client_id, idempotency_key, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?, ?)`
+        `INSERT INTO sales (id, client_id, idempotency_key, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at, document_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?, ?, ?)`
       )
       .bind(
         saleId,
@@ -399,11 +533,38 @@ salesRoutes.post("/", async (c) => {
         taxTotal,
         total,
         body.notes ?? null,
-        now
+        now,
+        documentType
       );
 
+    // Auto-seed: si document_sequences no tiene fila para esta combinación,
+    // la sembramos CON ANTELACIÓN al batch para no quemar numeración ni
+    // insertar la venta sin su secuencia correspondiente.
+    const existingSeq = await db
+      .prepare("SELECT 1 FROM document_sequences WHERE branch_id = ? AND document_type = ? LIMIT 1")
+      .bind(branchId, documentType)
+      .first<{ 1: number }>();
+    if (!existingSeq) {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO document_sequences (branch_id, document_type, last_number, created_at, updated_at)
+           VALUES (?, ?, 0, ?, ?)`,
+        )
+        .bind(branchId, documentType, now, now)
+        .run();
+    }
+
     try {
-      await db.batch([saleInsert, ...itemStatements, ...paymentStatements]);
+      const batchResults = await db.batch([sequenceUpdate, saleInsert, ...itemStatements, ...paymentStatements]);
+      const sequenceResult = batchResults[0] as D1Result<{ last_number: number }>;
+      const sequenceRow = sequenceResult.results?.[0];
+
+      if (!sequenceRow) {
+        throw new Error(
+          `document_sequences no tiene seed para branch_id=${branchId} document_type=${documentType} — revisar migración 0023`,
+        );
+      }
+      documentNumber = sequenceRow.last_number;
       inserted = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -447,13 +608,32 @@ salesRoutes.post("/", async (c) => {
   }
 
   if (!inserted) {
+    // NOTA: a diferencia de la versión anterior, acá NO queda un hueco en
+    // document_sequences — el UPDATE de la secuencia vive dentro del mismo
+    // db.batch() que falló en cada intento, así que D1 revirtió también ese
+    // incremento junto con el resto (todo-o-nada). Agotar
+    // MAX_SALE_NUMBER_RETRIES reintentos de sale_number sigue siendo un fallo
+    // catastrófico (500), pero ya no consume numeración fiscal sin comprobante.
     return c.json(
       { success: false, error: { code: "SALE_NUMBER_CONFLICT", message: "No se pudo generar número de venta único tras varios reintentos" } },
       500,
     );
   }
 
-  return c.json({ success: true, data: { id: saleId, sale_number: saleNumber, branch_id: branchId, created_at: now } }, 201);
+  return c.json(
+    {
+      success: true,
+      data: {
+        id: saleId,
+        sale_number: saleNumber,
+        branch_id: branchId,
+        created_at: now,
+        document_type: documentType,
+        document_number: documentNumber,
+      },
+    },
+    201,
+  );
 });
 
 // POST /:id/void

@@ -1,6 +1,6 @@
 import {
   ClipboardList, Clock, CheckCircle2, X, Play, Undo2,
-  AlertTriangle, MapPin,
+  AlertTriangle, MapPin, ArrowLeftRight,
   Loader2, RefreshCw, Inbox, Plus,
 } from 'lucide-react';
 import React, { useState, useMemo, useCallback } from 'react';
@@ -371,6 +371,18 @@ const RequestCard: React.FC<{
           {isOptional && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
               Opcional · {formatRoleLabel(request.assigned_role)}
+            </span>
+          )}
+          {/* Puente traslado→chofer (multi-branch transfers, fase 3): esta
+              entrega no es a un cliente, la generó el backend automáticamente
+              al aprobarse un transfer_order entre sucursales (ver metadata en
+              types.ts / delivery bridge del backend). */}
+          {request.type === 'delivery' && request.metadata?.transfer_order_id && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
+              title={`Traslado interno #${request.metadata.transfer_order_id}`}
+            >
+              <ArrowLeftRight className="h-3 w-3" /> Traslado interno
             </span>
           )}
         </div>

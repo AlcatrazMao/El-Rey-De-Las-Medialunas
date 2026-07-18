@@ -5,7 +5,15 @@ import { cors } from 'hono/cors';
 import { loadConfig } from './config';
 import { printViaThermal } from './drivers/escpos-usb';
 import { printViaWindowsSpooler } from './drivers/windows-spooler';
-import type { PrintRequestBody, PrintResponseBody } from './types';
+import type { PrintRequestBody, PrintResponseBody, TicketStyle } from './types';
+
+const VALID_TICKET_STYLES: ReadonlySet<TicketStyle> = new Set([
+  'receipt',
+  'invoice',
+  'remito',
+  'presupuesto',
+  'nota_credito',
+]);
 
 const config = loadConfig();
 
@@ -62,7 +70,10 @@ function validateBody(body: PrintRequestBody | undefined): string | null {
   if (!body || typeof body !== 'object') return 'Body vacío o inválido.';
   if (!body.sale || typeof body.sale !== 'object') return 'Falta "sale" en el body.';
   if (!Array.isArray(body.sale.items)) return '"sale.items" debe ser un array.';
-  if (body.style !== 'receipt' && body.style !== 'invoice') return '"style" debe ser "receipt" o "invoice".';
+  if (!VALID_TICKET_STYLES.has(body.style as TicketStyle)) {
+    return '"style" debe ser "receipt", "invoice", "remito", "presupuesto" o "nota_credito".';
+  }
+  if (!body.sale.document_type) return 'Falta "sale.document_type" en el body.';
   return null;
 }
 

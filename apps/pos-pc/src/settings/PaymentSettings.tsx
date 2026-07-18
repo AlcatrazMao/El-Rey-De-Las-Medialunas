@@ -1,4 +1,4 @@
-import { CreditCard, CheckCircle, Circle, Plus, Trash2 } from 'lucide-react';
+import { CreditCard, DollarSign, CheckCircle, Circle, Plus, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { useState } from 'react';
 
@@ -9,7 +9,13 @@ import type {
   PaymentMethodConfig,
   PaymentAdjustmentType,
   DiscountConfig,
+  InstallmentConfig,
 } from '../hooks/useSettings';
+
+const PAYMENT_METHOD_OPTIONS = [
+  { id: 'tarjeta', label: 'Tarjeta Crédito' },
+  { id: 'qr', label: 'QR / Débito' },
+];
 
 interface Props {
   settings: AppSettings;
@@ -17,6 +23,8 @@ interface Props {
   onSaved: () => void;
   setPaymentMethods: (paymentMethods: PaymentMethodConfig[]) => void;
   setDiscountConfig: (discountConfig: DiscountConfig) => void;
+  installments?: InstallmentConfig[];
+  onSaveInstallments?: (installments: InstallmentConfig[]) => void;
 }
 
 const CORE_IDS = ['efectivo', 'qr', 'tarjeta', 'transferencia'];
@@ -27,7 +35,7 @@ const GATEWAY_META: Record<string, { name: string; logo: string; chargeFee: numb
   gate_paypal: { name: 'PayPal Express', logo: '🌐', chargeFee: 3.9 },
 };
 
-export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, setPaymentMethods, setDiscountConfig }) => {
+export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, setPaymentMethods, setDiscountConfig, installments: installmentsProp, onSaveInstallments }) => {
   const { gateways } = useApp();
 
   const [credentials, setCredentials] = useState<Record<string, string>>(() => {
@@ -43,6 +51,20 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
   const [allowDiscountsOnOffers, setAllowDiscountsOnOffers] = useState(() => settings.discountConfig?.allowDiscountsOnOffers ?? false);
   const [activeDiscountSystem, setActiveDiscountSystem] = useState<'none' | 'offers' | 'promotions'>(() => settings.discountConfig?.activeDiscountSystem ?? 'none');
   const [newPercent, setNewPercent] = useState('');
+
+  const [installments, setInstallments] = useState<InstallmentConfig[]>(() => installmentsProp ?? []);
+  const [showInstallmentForm, setShowInstallmentForm] = useState(false);
+  const [newInstallment, setNewInstallment] = useState<{
+    label: string;
+    installments: number;
+    surchargePercent: number;
+    paymentMethodId: string;
+  }>({
+    label: '',
+    installments: 1,
+    surchargePercent: 0,
+    paymentMethodId: 'tarjeta',
+  });
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newMethod, setNewMethod] = useState<{ label: string; icon: string; adjustmentType: PaymentAdjustmentType; adjustmentPercent: number; acumulaDescuentos: boolean }>({
@@ -467,6 +489,169 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
         </div>
       </div>
 
+      {/* ── Cuotas / Financiación ── */}
+      <div className="border-t border-gray-100 dark:border-zinc-800 pt-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <DollarSign className="h-4 w-4 text-amber-500" />
+          <h4 className="text-xs font-extrabold text-gray-700 dark:text-zinc-200 uppercase tracking-wider">Cuotas / Financiación</h4>
+        </div>
+        <p className="text-[10px] text-gray-500 dark:text-zinc-400 leading-relaxed">
+          Configurá opciones de cuotas para pagos con QR/Débito o Tarjeta Crédito.
+          Cada opción define cantidad de cuotas y recargo aplicado.
+        </p>
+
+        <div className="space-y-2">
+          {installments.length === 0 && (
+            <div className="text-center py-6 text-gray-400 text-xs font-bold">
+              Sin cuotas configuradas. Agregá la primera opción abajo.
+            </div>
+          )}
+          {installments.map((item) => {
+            const pmLabel = PAYMENT_METHOD_OPTIONS.find(p => p.id === item.paymentMethodId)?.label ?? item.paymentMethodId;
+            return (
+              <div key={item.id} className="bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-700 rounded-2xl p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <input
+                      type="text"
+                      value={item.label}
+                      onChange={e => setInstallments(prev => prev.map(i => i.id === item.id ? { ...i, label: e.target.value } : i))}
+                      className="w-full text-xs font-extrabold bg-transparent border-b border-transparent hover:border-gray-300 focus:border-amber-500 outline-none text-gray-800 dark:text-zinc-100"
+                    />
+                    <span className="text-[10px] text-gray-400">{pmLabel}</span>
+                  </div>
+                  <button
+                    onClick={() => setInstallments(prev => prev.filter(i => i.id !== item.id))}
+                    className="p-1 text-gray-400 hover:text-red-500 cursor-pointer shrink-0"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">Cuotas</label>
+                    <input
+                      type="number" min="1" max="60"
+                      value={item.installments}
+                      onChange={e => setInstallments(prev => prev.map(i => i.id === item.id ? { ...i, installments: Math.max(1, parseInt(e.target.value) || 1) } : i))}
+                      className="w-full text-xs font-bold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 focus:outline-none focus:border-amber-500 text-gray-850 dark:text-zinc-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">Recargo %</label>
+                    <input
+                      type="number" min="0" max="99.99" step="0.01"
+                      value={item.surchargePercent}
+                      onChange={e => setInstallments(prev => prev.map(i => i.id === item.id ? { ...i, surchargePercent: parseFloat(e.target.value) || 0 } : i))}
+                      className="w-full text-xs font-bold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 focus:outline-none focus:border-amber-500 text-gray-850 dark:text-zinc-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">Aplica a</label>
+                    <select
+                      value={item.paymentMethodId}
+                      onChange={e => setInstallments(prev => prev.map(i => i.id === item.id ? { ...i, paymentMethodId: e.target.value } : i))}
+                      className="w-full text-xs font-bold bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 focus:outline-none focus:border-amber-500 text-gray-850 dark:text-zinc-100"
+                    >
+                      {PAYMENT_METHOD_OPTIONS.map(pm => (
+                        <option key={pm.id} value={pm.id}>{pm.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {!showInstallmentForm ? (
+          <button
+            type="button"
+            onClick={() => setShowInstallmentForm(true)}
+            className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:border-amber-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-2xl text-xs font-bold transition-colors cursor-pointer w-full justify-center"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Agregar opción de cuotas
+          </button>
+        ) : (
+          <div className="bg-amber-50 dark:bg-amber-950/10 border border-amber-200 dark:border-amber-800/40 rounded-2xl p-3 space-y-2">
+            <p className="text-xs font-extrabold text-amber-700 dark:text-amber-400">Nueva cuota</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">Label</label>
+                <input
+                  type="text"
+                  value={newInstallment.label}
+                  onChange={e => setNewInstallment(p => ({ ...p, label: e.target.value }))}
+                  placeholder="3 cuotas sin interés"
+                  className="w-full text-xs bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg p-2 focus:outline-none focus:border-amber-500 text-gray-850 dark:text-zinc-100"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">Aplica a</label>
+                <select
+                  value={newInstallment.paymentMethodId}
+                  onChange={e => setNewInstallment(p => ({ ...p, paymentMethodId: e.target.value }))}
+                  className="w-full text-xs bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg p-2 focus:outline-none focus:border-amber-500 text-gray-850 dark:text-zinc-100"
+                >
+                  {PAYMENT_METHOD_OPTIONS.map(pm => (
+                    <option key={pm.id} value={pm.id}>{pm.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">Cuotas</label>
+                <input
+                  type="number" min="1" max="60"
+                  value={newInstallment.installments}
+                  onChange={e => setNewInstallment(p => ({ ...p, installments: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  className="w-full text-xs bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg p-2 focus:outline-none focus:border-amber-500 text-gray-850 dark:text-zinc-100"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">Recargo %</label>
+                <input
+                  type="number" min="0" max="99.99" step="0.01"
+                  value={newInstallment.surchargePercent}
+                  onChange={e => setNewInstallment(p => ({ ...p, surchargePercent: parseFloat(e.target.value) || 0 }))}
+                  className="w-full text-xs bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg p-2 focus:outline-none focus:border-amber-500 text-gray-850 dark:text-zinc-100"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (newInstallment.installments < 1) return;
+                  const id = `inst_${Date.now()}`;
+                  setInstallments(prev => [...prev, {
+                    id,
+                    label: newInstallment.label || `${newInstallment.installments} cuota${newInstallment.installments > 1 ? 's' : ''}`,
+                    installments: newInstallment.installments,
+                    surchargePercent: newInstallment.surchargePercent,
+                    paymentMethodId: newInstallment.paymentMethodId,
+                  }]);
+                  setNewInstallment({ label: '', installments: 1, surchargePercent: 0, paymentMethodId: 'tarjeta' });
+                  setShowInstallmentForm(false);
+                }}
+                className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl cursor-pointer"
+              >
+                Agregar
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInstallmentForm(false)}
+                className="px-3 py-2 text-gray-500 dark:text-zinc-400 hover:text-gray-700 text-xs font-bold cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="pt-2">
         <button
           type="button"
@@ -474,7 +659,8 @@ export const PaymentSettings: React.FC<Props> = ({ settings, onUpdate, onSaved, 
             e.preventDefault();
             handleSubmit(e as unknown as React.FormEvent);
             handleSavePaymentConfig();
-            onSaved(); // llamado UNA sola vez
+            if (onSaveInstallments) onSaveInstallments(installments);
+            onSaved();
           }}
           className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
         >

@@ -73,15 +73,16 @@ export const CartItemList: React.FC<CartItemListProps> = ({
           </p>
         </button>
       ) : (
-        <div className="divide-y divide-gray-100 dark:divide-zinc-800 space-y-2 mb-4">
+        <div className="divide-y divide-gray-100 dark:divide-zinc-800 mb-4">
           {cart.map((item, lineIdx) => {
             const lineKey = `${item.product.id}::${item.presentation ?? ''}::${lineIdx}`;
             const lineSubtotal = item.unitPrice * item.quantity;
             const offerForLine = offersByProductId.get(item.product.id);
             return (
-              <div key={lineKey} className="pt-2 flex items-center justify-between gap-3 min-w-0">
+              <div key={lineKey} className="py-2 flex items-center gap-3 min-w-0">
+                {/* Nombre + badges — ocupa espacio flexible a la izquierda */}
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <p className="font-bold text-gray-800 dark:text-zinc-100 truncate text-sm md:text-xs">
+                  <p className="font-bold text-gray-800 dark:text-zinc-100 truncate text-sm md:text-base">
                     {item.product.name}
                     {item.presentation && (
                       <span className="ml-1.5 inline-block bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider">
@@ -94,9 +95,28 @@ export const CartItemList: React.FC<CartItemListProps> = ({
                       </span>
                     )}
                   </p>
-                  <p className="text-xs md:text-[10px] text-amber-600 dark:text-amber-500 font-semibold truncate">
-                    {formatCurrency(item.unitPrice)} c/u · Sub: {formatCurrency(lineSubtotal)}
-                  </p>
+                </div>
+
+                {/* Desktop: datos en UNA fila a la derecha — cantidad, precio, subtotal */}
+                <div className="hidden md:flex items-center gap-4 shrink-0">
+                  <div className="text-right">
+                    <span className="text-xs text-gray-400 block">Cant.</span>
+                    <span className="text-sm font-bold font-mono text-gray-800 dark:text-zinc-100">{item.quantity}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs text-gray-400 block">Precio</span>
+                    <span className="text-sm font-bold font-mono text-amber-600 dark:text-amber-400">{formatCurrency(item.unitPrice)}</span>
+                  </div>
+                  <div className="text-right min-w-[80px]">
+                    <span className="text-xs text-gray-400 block">Subtotal</span>
+                    <span className="text-sm font-bold font-mono text-gray-900 dark:text-white">{formatCurrency(lineSubtotal)}</span>
+                  </div>
+                </div>
+
+                {/* Mobile: compacto como antes */}
+                <div className="md:hidden flex flex-col items-end shrink-0">
+                  <span className="text-xs font-bold font-mono text-amber-600">{formatCurrency(item.unitPrice)} c/u</span>
+                  <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Sub: {formatCurrency(lineSubtotal)}</span>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
   LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag, MoreHorizontal, ChefHat,
-  ClipboardList, Truck
+  ClipboardList, Truck, ArrowLeftRight, FileText
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect } from 'react';
@@ -17,6 +17,7 @@ import { CashSessionView } from './components/CashSessionView';
 import { CustomersView } from './components/CustomersView';
 import { Dashboard } from './components/Dashboard';
 import { DeliveryView } from './components/DeliveryView';
+import { DocumentsView } from './components/documents/DocumentsView';
 import { IntegrationsView } from './components/IntegrationsView';
 import { InventoryView } from './components/InventoryView';
 import { KitchenView } from './components/KitchenView';
@@ -33,6 +34,8 @@ import { SettingsView } from './components/SettingsView';
 import { StickyNotesView } from './components/StickyNotesView';
 import { SyncErrorConsole } from './components/SyncErrorConsole';
 import { SyncLed } from './components/SyncLed';
+import { BranchSelector } from './components/transfers/BranchSelector';
+import { TransfersView } from './components/transfers/TransfersView';
 import { auth } from './config/firebase';
 import { useSyncEngine } from './hooks/useSyncEngine';
 import { useVersionCheck } from './hooks/useVersionCheck';
@@ -177,6 +180,8 @@ function ERPLayout() {
           : <RequestsView />;
       }
       case 'delivery': return <DeliveryView />;
+      case 'transfers': return <TransfersView />;
+      case 'documents': return <DocumentsView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <Dashboard />;
@@ -194,6 +199,7 @@ function ERPLayout() {
           { id: 'pos', label: 'Vender', icon: <ShoppingCart className="h-4 w-4" /> },
           { id: 'caja', label: 'Caja', icon: <Wallet className="h-4 w-4" /> },
           { id: 'history', label: 'Historial', icon: <ReceiptText className="h-4 w-4" /> },
+          { id: 'documents', label: 'Comprobantes', icon: <FileText className="h-4 w-4 text-amber-500" /> },
           { id: 'merma_requests', label: 'Mermas', icon: <X className="h-4 w-4 text-red-500" /> },
           { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> }
         ];
@@ -204,6 +210,7 @@ function ERPLayout() {
           { id: 'supply_requests', label: 'Suministros', icon: <TrendingUp className="h-4 w-4 text-emerald-500" /> },
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
           { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
+          { id: 'transfers', label: 'Traslados', icon: <ArrowLeftRight className="h-4 w-4 text-cyan-500" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> }
         ];
       case 'cocinero':
@@ -227,7 +234,9 @@ function ERPLayout() {
           { id: 'accounting', label: 'Egresos', icon: <HandCoins className="h-4 w-4" /> },
           { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },
           { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> },
+          { id: 'documents', label: 'Comprobantes', icon: <FileText className="h-4 w-4 text-amber-500" /> },
           { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
+          { id: 'transfers', label: 'Traslados', icon: <ArrowLeftRight className="h-4 w-4 text-cyan-500" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> },
           { id: 'admin_users', label: 'Usuarios', icon: <Users className="h-4 w-4" /> },
           { id: 'settings', label: 'Configuración', icon: <Settings className="h-4 w-4" /> }
@@ -380,6 +389,7 @@ function ERPLayout() {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              <BranchSelector />
               <SyncLed status={syncStatus} onClick={isAdmin ? () => setActiveTab('sync_console') : undefined} />
               <NotificationCenter />
               <div className="relative">
@@ -435,6 +445,12 @@ export default function App() {
   const [firestoreRole, setFirestoreRole] = useState<string | null>(null);
   const [fsCheckDone, setFsCheckDone] = useState(false);
   const [serverPanels, setServerPanels] = useState<string[] | null>(null);
+  // Multi-branch transfers (fase 3): sucursales a las que el usuario tiene acceso
+  // + su sucursal primaria, ambas firmadas por el backend en la respuesta de login.
+  // Null hasta que el login responda; AppProvider/useUsers cae al branchId de
+  // settings como fallback mientras tanto (migración suave, ver useSettings.ts).
+  const [branches, setBranches] = useState<string[] | null>(null);
+  const [defaultBranch, setDefaultBranch] = useState<string | null>(null);
 
   // Step 1: Firebase Auth
   useEffect(() => {
@@ -458,10 +474,12 @@ export default function App() {
 
     const CACHE_KEY = `auth_cache_${firebaseUser.uid}`;
 
-    const applyCache = (cached: { role: string; panels: string[] | null }) => {
+    const applyCache = (cached: { role: string; panels: string[] | null; branches?: string[] | null; defaultBranch?: string | null }) => {
       if (cancelled) return;
       setFirestoreRole(cached.role);
       setServerPanels(cached.panels);
+      setBranches(cached.branches ?? null);
+      setDefaultBranch(cached.defaultBranch ?? null);
       setFsCheckDone(true);
       setAuthLoading(false);
     };
@@ -484,10 +502,17 @@ export default function App() {
           }
           const role = data.data.user.role || null;
           const panels = data.data.user.custom_panels ?? null;
-          localStorage.setItem(CACHE_KEY, JSON.stringify({ role, panels }));
+          // branches[]/default_branch: firmados por el backend (fase 1/2 de este
+          // mismo change, en curso en paralelo). Tolerante a su ausencia — un
+          // usuario logueado con un backend viejo simplemente no trae el campo.
+          const userBranches: string[] | null = Array.isArray(data.data.user.branches) ? data.data.user.branches : null;
+          const userDefaultBranch: string | null = typeof data.data.user.default_branch === 'string' ? data.data.user.default_branch : null;
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ role, panels, branches: userBranches, defaultBranch: userDefaultBranch }));
           if (!cancelled) {
             setFirestoreRole(role);
             setServerPanels(panels);
+            setBranches(userBranches);
+            setDefaultBranch(userDefaultBranch);
             setFsCheckDone(true);
             setAuthLoading(false);
           }
@@ -541,7 +566,7 @@ export default function App() {
   }
 
   return (
-    <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole} serverPanels={serverPanels} syncStatus={syncStatus} retryError={retryError} retryAllNetwork={retryAllNetwork}>
+    <AppProvider firebaseUser={firebaseUser} firestoreRole={firestoreRole} serverPanels={serverPanels} branches={branches} defaultBranch={defaultBranch} syncStatus={syncStatus} retryError={retryError} retryAllNetwork={retryAllNetwork}>
       <UpdateBanner />
       <NetworkStatusBar isOnline={isOnline} isSyncing={isSyncing} lastSync={lastSync} onSyncNow={triggerSync} />
       <ERPLayout />

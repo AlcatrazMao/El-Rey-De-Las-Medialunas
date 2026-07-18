@@ -145,7 +145,7 @@ export function useInventory(notify: NotifyFn) {
    */
   const updateProduct = (
     id: string,
-    changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image' | 'isRawMaterial' | 'isProducible' | 'unit'>>
+    changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image' | 'isRawMaterial' | 'isProducible' | 'unit' | 'taxRate' | 'attributes'>>
   ) => {
     const previous = productsRef.current.find(prod => prod.id === id);
     if (!previous) return;
@@ -163,6 +163,7 @@ export function useInventory(notify: NotifyFn) {
       isRawMaterial: changes.isRawMaterial,
       isProducible: changes.isProducible,
       unit: changes.unit,
+      taxRate: changes.taxRate,
     }).catch(() => {
       // El cambio ya vive en el estado local (offline-first), pero el backend
       // no lo recibió. Sin cola de reintento para updates (fuera de alcance v1):
