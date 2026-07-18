@@ -449,6 +449,16 @@ export const AppProvider: React.FC<{
 
     sal.setSales(prev => [newSaleInstance, ...prev]);
 
+    // ── ACTUALIZAR expectedAmount ─────────────────────────────────────────────
+    // Cada venta en efectivo incrementa el expectedAmount de la sesión activa
+    // para que el cierre muestre la caja total esperada correcta.
+    if (paymentMethod === 'efectivo' && cash.currentCashSession) {
+      cash.setCurrentCashSession({
+        ...cash.currentCashSession,
+        expectedAmount: cash.currentCashSession.expectedAmount + totalFinal,
+      });
+    }
+
     // El número REAL (document_number) todavía no existe en este punto (llega
     // async del backend, ver nota más arriba) — la notificación/nota interna
     // usan el tipo de comprobante en vez de inventar o mostrar un número.

@@ -85,6 +85,17 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
       .then(sessions => {
         const remoteOpen = sessions.find(s => s.status === 'open');
         if (!remoteOpen) return;
+
+        // No restaurar sesiones de días anteriores (hora ARG) — el auto-cierre
+        // (efecto abajo) ya las cerró localmente. Si el sync a D1 falló, la
+        // sesión remota sigue 'open' y restaurarla reabriría un loop infinito.
+        const ARG_OFFSET_MS = 3 * 60 * 60 * 1000;
+        const nowArg = new Date(Date.now() - ARG_OFFSET_MS);
+        const todayArg = nowArg.toISOString().split('T')[0];
+        const openedArg = new Date(new Date(remoteOpen.openedAt).getTime() - ARG_OFFSET_MS);
+        const openedDayArg = openedArg.toISOString().split('T')[0];
+        if (openedDayArg < todayArg) return;
+
         setCurrentCashSession(remoteOpen);
         notify(
           '🏦 Caja abierta en otro dispositivo',
