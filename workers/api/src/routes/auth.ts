@@ -15,6 +15,22 @@ export function revokedTtlSeconds(): number {
   return 1800;
 }
 
+// Roles válidos del sistema. Debe coincidir con el CHECK de `users.role`
+// (migrations/0022) y con VALID_ROLES en workers/api/src/middleware/auth.ts.
+export const VALID_ROLES = [
+  "owner",
+  "admin",
+  "supervisor",
+  "cashier",
+  "production",
+  "warehouse",
+  "driver",
+] as const;
+
+export function isValidRole(role: unknown): role is (typeof VALID_ROLES)[number] {
+  return typeof role === "string" && (VALID_ROLES as readonly string[]).includes(role);
+}
+
 // Hashea el email en minúsculas con SHA-256 y retorna el hex digest.
 // Exportada para tests unitarios.
 export async function hashEmail(email: string): Promise<string> {
@@ -70,14 +86,14 @@ interface RefreshSession {
   default_branch: string | null;
 }
 
-async function verifyFirebaseIdToken(idToken: string, env: Env): Promise<{ uid: string; email?: string } | null> {
+async function verifyFirebaseIdToken(idToken: string, env: Env): Promise<{ uid: string; email?: string; name?: string; role?: string } | null> {
   const parts = idToken.split(".");
   if (parts.length !== 3) return null;
 
   const encodedPayload = parts[1];
   if (!encodedPayload) return null;
 
-  let payload: { user_id?: string; uid?: string; sub?: string; email?: string; exp?: number };
+  let payload: { user_id?: string; uid?: string; sub?: string; email?: string; name?: string; role?: string; exp?: number };
   try {
     payload = JSON.parse(atob(encodedPayload.replace(/-/g, "+").replace(/_/g, "/")));
   } catch {
@@ -115,7 +131,15 @@ async function verifyFirebaseIdToken(idToken: string, env: Env): Promise<{ uid: 
   const fbUser = data.users?.[0];
   if (!fbUser?.localId || fbUser.disabled) return null;
 
-  return { uid: fbUser.localId, email: fbUser.email };
+  // `role` es un custom claim setado por admin-users vía `customAttributes`
+  // (`{"role": "admin"}`) y viene firmado dentro del ID token verificado por
+  // Google. `name` es el displayName estándar del token.
+  return {
+    uid: fbUser.localId,
+    email: fbUser.email,
+    name: typeof payload.name === "string" ? payload.name : undefined,
+    role: typeof payload.role === "string" ? payload.role : undefined,
+  };
 }
 
 async function issueTokens(
@@ -209,7 +233,52 @@ authRoutes.post("/login", async (c) => {
       ).bind(uid).first<UserRow>();
 
       if (!user) {
-        return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+        // AUTO-PROVISIONING: el usuario está verificado en Firebase pero no
+        // tiene fila en D1 (ej. creado desde la consola de Firebase o no
+        // sincronizado por admin-users). Lo provisionamos acá para que pueda
+        // operar sin pasos manuales de DB.
+        //
+        // SECURITY: el rol NO viene del body del cliente — sale del custom
+        // claim `role` del ID token verificado por Google (el mismo claim que
+        // admin-users escribe vía customAttributes). Si el claim falta o no es
+        // uno de los roles válidos, rechazamos: NO defaultéamos a un rol (eso
+        // abriría auto-registro de un atacante como usuario del POS).
+        if (!isValidRole(verified.role)) {
+          return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+        }
+
+        const role = verified.role;
+        const email = verified.email ?? "";
+        const name = verified.name?.trim() || email || "Usuario";
+
+        try {
+          // id = firebase_uid = uid, igual que admin-users (id interno == uid
+          // de Firebase), para mantener consistente el `sub` del JWT.
+          await c.env.DB.prepare(
+            "INSERT INTO users (id, firebase_uid, email, name, role, is_active) VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(firebase_uid) DO NOTHING",
+          ).bind(uid, uid, email, name, role).run();
+
+          // Aseguramos membresía a una sucursal (default = primera activa),
+          // igual que el backfill de migrations/0022. Sin esto, roles
+          // operativos quedarían sin default_branch y no podrían operar.
+          await c.env.DB.prepare(
+            `INSERT INTO user_branches (user_id, branch_id, is_default)
+             SELECT ?, (SELECT b.id FROM branches b WHERE b.deleted_at IS NULL ORDER BY b.created_at LIMIT 1), 1
+             WHERE NOT EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id = ?)`,
+          ).bind(uid, uid).run();
+
+          user = {
+            id: uid,
+            firebase_uid: uid,
+            email,
+            name,
+            role,
+            custom_panels: null,
+          };
+        } catch (err) {
+          console.error('[auth] self-provisioning failed:', err);
+          return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
+        }
       }
 
       try {
