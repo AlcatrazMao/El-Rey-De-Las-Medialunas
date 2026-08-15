@@ -99,16 +99,27 @@ interface BudgetApiResponse {
   };
 }
 
+export interface CreateCreditNoteItemInput {
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  batch_id?: string;
+}
+
 export interface CreateCreditNotePayload {
-  sale_id: string;
+  // Modo A: referenciando una venta existente.
+  sale_id?: string;
+  // Modo B: devolución standalone desde el carrito (revierte stock + caja).
+  cash_session_id?: string;
+  items?: CreateCreditNoteItemInput[];
   reason: string;
-  amount: number;
+  amount?: number;
 }
 
 export interface CreditNoteResult {
   id: string;
   document_number: number;
-  sale_id: string;
+  sale_id: string | null;
   reason: string;
   amount: number;
   created_at: string;
@@ -119,7 +130,7 @@ interface CreditNoteApiResponse {
   data: {
     id: string;
     branch_id: string;
-    sale_id: string;
+    sale_id: string | null;
     sale_number: number;
     reason: string;
     amount: number;

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, ReceiptText,
   HandCoins, Globe, X, TrendingUp, Wallet, Menu,
   LogOut, User as UserIcon, Users, PlusCircle, Check, StickyNote, Settings, Tag, MoreHorizontal, ChefHat,
-  ClipboardList, Truck, ArrowLeftRight, FileText
+  ClipboardList, Truck, ArrowLeftRight
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect } from 'react';
@@ -17,7 +17,6 @@ import { CashSessionView } from './components/CashSessionView';
 import { CustomersView } from './components/CustomersView';
 import { Dashboard } from './components/Dashboard';
 import { DeliveryView } from './components/DeliveryView';
-import { DocumentsView } from './components/documents/DocumentsView';
 import { IntegrationsView } from './components/IntegrationsView';
 import { InventoryView } from './components/InventoryView';
 import { KitchenView } from './components/KitchenView';
@@ -181,7 +180,6 @@ function ERPLayout() {
       }
       case 'delivery': return <DeliveryView />;
       case 'transfers': return <TransfersView />;
-      case 'documents': return <DocumentsView />;
       default:
         if (activeUser.role === 'cajero') return <POSView />;
         if (activeUser.role === 'panadero') return <Dashboard />;
@@ -199,7 +197,6 @@ function ERPLayout() {
           { id: 'pos', label: 'Vender', icon: <ShoppingCart className="h-4 w-4" /> },
           { id: 'caja', label: 'Caja', icon: <Wallet className="h-4 w-4" /> },
           { id: 'history', label: 'Historial', icon: <ReceiptText className="h-4 w-4" /> },
-          { id: 'documents', label: 'Comprobantes', icon: <FileText className="h-4 w-4 text-amber-500" /> },
           { id: 'merma_requests', label: 'Mermas', icon: <X className="h-4 w-4 text-red-500" /> },
           { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> }
         ];
@@ -234,7 +231,6 @@ function ERPLayout() {
           { id: 'accounting', label: 'Egresos', icon: <HandCoins className="h-4 w-4" /> },
           { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },
           { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> },
-          { id: 'documents', label: 'Comprobantes', icon: <FileText className="h-4 w-4 text-amber-500" /> },
           { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
           { id: 'transfers', label: 'Traslados', icon: <ArrowLeftRight className="h-4 w-4 text-cyan-500" /> },
           { id: 'notes', label: 'Notas', icon: <StickyNote className="h-4 w-4" /> },

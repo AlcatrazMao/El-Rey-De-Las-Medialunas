@@ -18,11 +18,15 @@ import {
   Settings,
   Download,
   CheckCircle2,
+  FileText,
+  Truck,
+  Receipt,
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
+import { useDocuments } from '../hooks/useDocuments';
 import type { DocumentType } from '../hooks/useDocumentSettings';
 import { useDocumentSettings } from '../hooks/useDocumentSettings';
 import { useSettings } from '../hooks/useSettings';
@@ -30,10 +34,13 @@ import type { IDBOffer } from '../lib/idb';
 import { offerStore } from '../lib/idb';
 import { API_URL, fetchWithAuth } from '../services/api';
 import type { CategoryType, Product, ProductGroup, Sale } from '../types';
-import { downloadTicketHtml, printTicketOrInvoice } from '../utils/exportUtils';
+import { downloadTicketHtml, printDocument, printTicketOrInvoice } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
 import { calcularPrecioUnitarioGrupo } from '../utils/productGroups';
 
+import { CreateBudgetModal } from './documents/CreateBudgetModal';
+import { CreateCreditNoteModal } from './documents/CreateCreditNoteModal';
+import { CreateRemitoModal } from './documents/CreateRemitoModal';
 import { GroupSelectorModal } from './GroupSelectorModal';
 import { CartItemList } from './pos/CartItemList';
 
@@ -62,6 +69,15 @@ interface SaleTab {
 /** Tipos que exigen CUIT del cliente cargado antes de poder emitirse (DT server-side, sales.ts). */
 const FISCAL_INVOICE_TYPES: DocumentType[] = ['factura_a', 'factura_b', 'factura_c'];
 
+/**
+ * Tipos que se emiten DESDE el carrito como venta (afectan stock/caja).
+ * Remito/Presupuesto/Nota de crédito NO son ventas: se emiten como acciones
+ * separadas del carrito (botones), con su propia semántica — no pasan por
+ * `addSale`. Por eso el selector "Tipo de comprobante" del carrito se acota
+ * a estos 4.
+ */
+const SALE_DOCUMENT_TYPES: DocumentType[] = ['ticket', 'factura_a', 'factura_b', 'factura_c'];
+
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   ticket: 'Ticket',
   factura_a: 'Factura A',
@@ -86,16 +102,27 @@ export const POSView: React.FC = () => {
     customers,
     addCustomer,
     sales,
+    activeUser,
   } = useApp();
 
   const { settings: posSettings } = useSettings();
   const { data: documentSettings } = useDocumentSettings();
+  const { createRemito, createBudget, createCreditNote } = useDocuments();
+
+  // Emisión de comprobantes no-venta (Remito/Presupuesto/Nota de crédito) desde
+  // el carrito: se abren como modales por encima del POS, reusando los mismos
+  // modales que antes vivían en el panel "Comprobantes" (eliminado del nav).
+  const [openDocumentModal, setOpenDocumentModal] = useState<'remito' | 'presupuesto' | 'nota_credito' | null>(null);
+  const [documentMenuOpen, setDocumentMenuOpen] = useState(false);
 
   // DT-13: tipos habilitados en la sucursal activa. Si el fetch todavía no
   // resolvió o falló (sin red), `documentSettings` queda vacío — en ese caso
   // tratamos como "solo ticket habilitado" para NUNCA bloquear la venta.
+  // Solo los tipos de VENTA participan del selector del carrito; remito,
+  // presupuesto y nota de crédito se emiten por acción separada.
   const enabledDocumentTypes = documentSettings.filter(d => d.enabled).map(d => d.document_type);
-  const availableDocumentTypes: DocumentType[] = enabledDocumentTypes.length > 0 ? enabledDocumentTypes : ['ticket'];
+  const enabledSaleDocumentTypes = enabledDocumentTypes.filter(dt => SALE_DOCUMENT_TYPES.includes(dt));
+  const availableDocumentTypes: DocumentType[] = enabledSaleDocumentTypes.length > 0 ? enabledSaleDocumentTypes : ['ticket'];
   const showDocumentTypeSelector = availableDocumentTypes.length > 1;
 
   const activeDiscountSystem = posSettings.discountConfig?.activeDiscountSystem ?? 'none';
@@ -1376,6 +1403,47 @@ export const POSView: React.FC = () => {
               </button>
             </div>
 
+            {/* Comprobantes no-venta: remito / presupuesto / nota de crédito */}
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setDocumentMenuOpen(v => !v)}
+                className={`shrink-0 p-2 sm:px-2.5 sm:py-1.5 rounded-full sm:rounded-lg border text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                  documentMenuOpen
+                    ? 'border-amber-400 bg-amber-500 text-black dark:text-black'
+                    : 'border-amber-400 bg-amber-500 text-white sm:border-amber-200 dark:sm:border-zinc-700 sm:bg-amber-50 sm:hover:bg-amber-100 dark:sm:bg-amber-950/20 dark:sm:hover:bg-amber-950/40 sm:text-amber-700 dark:sm:text-amber-400'
+                }`}
+                title="Emitir comprobante (remito, presupuesto, nota de crédito)"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Comprobantes</span>
+              </button>
+              {documentMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setDocumentMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl overflow-hidden">
+                    <button
+                      onClick={() => { setOpenDocumentModal('remito'); setDocumentMenuOpen(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                    >
+                      <Truck className="h-4 w-4 text-amber-500" /> Remito
+                    </button>
+                    <button
+                      onClick={() => { setOpenDocumentModal('presupuesto'); setDocumentMenuOpen(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                    >
+                      <FileText className="h-4 w-4 text-amber-500" /> Presupuesto
+                    </button>
+                    <button
+                      onClick={() => { setOpenDocumentModal('nota_credito'); setDocumentMenuOpen(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                    >
+                      <Receipt className="h-4 w-4 text-red-500" /> Nota de crédito
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             <span className="hidden sm:block text-[9px] bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold px-2 py-1 rounded-full whitespace-nowrap">
               Auto-Gen
             </span>
@@ -2283,6 +2351,63 @@ export const POSView: React.FC = () => {
             if (quickSearchGroupRef.current) { quickSearchGroupRef.current = false; refocusQuickSearch(); }
           }}
           onClose={() => { setGroupSelectorProduct(null); quickSearchGroupRef.current = false; }}
+        />
+      )}
+
+      {/* COMPROBANTES NO-VENTA: modales de emisión desde el carrito */}
+      {openDocumentModal === 'remito' && (
+        <CreateRemitoModal
+          onClose={() => setOpenDocumentModal(null)}
+          onCreate={createRemito}
+          onCreated={(result, printItems, customerName) => {
+            setOpenDocumentModal(null);
+            addSystemNotification('Remito creado', `Remito #${result.document_number} generado con éxito.`, 'success');
+            void printDocument('remito', {
+              documentNumber: result.document_number,
+              items: printItems,
+              operatorName: activeUser.name,
+              customerName,
+            });
+          }}
+        />
+      )}
+
+      {openDocumentModal === 'presupuesto' && (
+        <CreateBudgetModal
+          onClose={() => setOpenDocumentModal(null)}
+          onCreate={createBudget}
+          onCreated={(result, printItems, customerName) => {
+            setOpenDocumentModal(null);
+            addSystemNotification('Presupuesto creado', `Presupuesto #${result.document_number} generado con éxito.`, 'success');
+            void printDocument('presupuesto', {
+              documentNumber: result.document_number,
+              items: printItems,
+              operatorName: activeUser.name,
+              customerName,
+              total: result.total,
+              subtotal: result.subtotal,
+              validUntil: result.valid_until,
+            });
+          }}
+        />
+      )}
+
+      {openDocumentModal === 'nota_credito' && (
+        <CreateCreditNoteModal
+          onClose={() => setOpenDocumentModal(null)}
+          onCreate={createCreditNote}
+          onCreated={(result, originalDocumentNumber, printItems) => {
+            setOpenDocumentModal(null);
+            addSystemNotification('Nota de crédito creada', `Nota de crédito #${result.document_number} generada con éxito.`, 'success');
+            void printDocument('nota_credito', {
+              documentNumber: result.document_number,
+              items: printItems ?? [],
+              operatorName: activeUser.name,
+              total: result.amount,
+              creditNoteReason: result.reason,
+              originalDocumentNumber: originalDocumentNumber ?? undefined,
+            });
+          }}
         />
       )}
 

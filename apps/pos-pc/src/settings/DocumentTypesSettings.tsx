@@ -1,9 +1,11 @@
-import { FileText, Loader2 } from 'lucide-react';
+import { FileText, Loader2, Type } from 'lucide-react';
 import * as React from 'react';
 import { useState } from 'react';
 
 import type { DocumentType } from '../hooks/useDocumentSettings';
 import { useDocumentSettings } from '../hooks/useDocumentSettings';
+
+import { DocumentCustomizationEditor } from './DocumentCustomizationEditor';
 
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   ticket: 'Ticket',
@@ -96,6 +98,18 @@ export const DocumentTypesSettings: React.FC = () => {
           ))}
         </div>
       )}
+
+      <div className="border-t border-gray-100 dark:border-zinc-800 pt-4 mt-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Type className="h-4 w-4 text-amber-500" />
+          <h4 className="text-sm font-extrabold text-gray-800 dark:text-zinc-50">Personalización de comprobantes</h4>
+        </div>
+        <p className="text-[10px] text-gray-400 mb-3">
+          Personalizá título, encabezado/pie y visibilidad de campos por tipo de comprobante.
+          Podés definir un formato global o pisarlo por sucursal. El visualizador muestra una vista previa en vivo.
+        </p>
+        <DocumentCustomizationEditor />
+      </div>
     </div>
   );
 };

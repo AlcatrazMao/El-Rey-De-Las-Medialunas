@@ -22,11 +22,38 @@ const errBody = (code: string, message: string) => ({
   error: { code, message },
 });
 
-const createCreditNoteSchema = z.object({
-  sale_id: z.string().min(1),
-  reason: z.string().trim().min(1).max(500),
-  amount: z.number().finite().positive(),
-});
+const createCreditNoteSchema = z
+  .object({
+    // Modo A (referenciando venta): sale_id + amount. DT-7 original.
+    sale_id: z.string().min(1).optional(),
+    reason: z.string().trim().min(1).max(500),
+    amount: z.number().finite().positive().optional(),
+    // Modo B (devolución standalone desde carrito): items + cash_session_id.
+    cash_session_id: z.string().min(1).optional(),
+    items: z
+      .array(
+        z.object({
+          product_id: z.string().min(1),
+          quantity: z.number().finite().positive(),
+          unit_price: z.number().finite().min(0),
+          batch_id: z.string().optional(),
+        }),
+      )
+      .optional(),
+  })
+  .superRefine((v, ctx) => {
+    const isStandalone = !v.sale_id;
+    if (isStandalone) {
+      if (!v.items || v.items.length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items"], message: "items es requerido para una nota de crédito sin venta referenciada" });
+      }
+      if (!v.cash_session_id) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cash_session_id"], message: "cash_session_id es requerido para descontar de la caja" });
+      }
+    } else if (!v.amount) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["amount"], message: "amount es requerido al referenciar una venta" });
+    }
+  });
 
 creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c) => {
   const db = c.env.DB;
@@ -40,21 +67,51 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
   const user = await resolveUser(db, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
-  const { sale_id: saleId, reason, amount } = c.get("validatedBody") as z.infer<typeof createCreditNoteSchema>;
-
-  // DT-7: la venta debe existir y pertenecer a la misma sucursal — nunca se
-  // crea una nota de crédito sin venta real, ni cross-branch.
-  const sale = await db
-    .prepare(`SELECT id, sale_number FROM sales WHERE id = ? AND branch_id = ? LIMIT 1`)
-    .bind(saleId, branchId)
-    .first<{ id: string; sale_number: number }>();
-
-  if (!sale) {
-    return c.json(errBody("VALIDATION_ERROR", "sale_id no corresponde a una venta válida de esta sucursal"), 400);
-  }
+  const { sale_id: saleId, reason, amount, cash_session_id: cashSessionId, items } = c.get("validatedBody") as z.infer<typeof createCreditNoteSchema>;
 
   const id = genId();
   const now = nowSqliteTs();
+
+  let resolvedAmount: number;
+  let itemsToReturn: Array<{ product_id: string; quantity: number; unit_price: number; batch_id?: string }> = [];
+
+  if (saleId) {
+    // Modo A: referenciando una venta — sin reversión de stock/caja (la venta
+    // original ya impactó stock/caja al momento de emitirse; la nota solo deja
+    // constancia del ajuste). DT-7: la venta debe existir en esta sucursal.
+    const sale = await db
+      .prepare(`SELECT id, sale_number FROM sales WHERE id = ? AND branch_id = ? LIMIT 1`)
+      .bind(saleId, branchId)
+      .first<{ id: string; sale_number: number }>();
+
+    if (!sale) {
+      return c.json(errBody("VALIDATION_ERROR", "sale_id no corresponde a una venta válida de esta sucursal"), 400);
+    }
+    resolvedAmount = amount!;
+  } else {
+    // Modo B: devolución standalone desde el carrito. El monto se CALCULA acá
+    // (suma cantidad×precio) — nunca se confía en un `amount` del cliente.
+    // Valida sesión de caja abierta para poder descontar el egreso.
+    const session = await db
+      .prepare("SELECT id, status FROM cash_sessions WHERE id = ? LIMIT 1")
+      .bind(cashSessionId!)
+      .first<{ id: string; status: string }>();
+
+    if (!session) {
+      return c.json(errBody("NOT_FOUND", "Sesión de caja no encontrada"), 404);
+    }
+    if (session.status !== "open") {
+      return c.json(errBody("CONFLICT", "La sesión de caja no está abierta"), 409);
+    }
+
+    itemsToReturn = items!;
+    resolvedAmount = parseFloat(
+      itemsToReturn.reduce((acc, it) => acc + it.quantity * it.unit_price, 0).toFixed(2),
+    );
+    if (!(resolvedAmount > 0)) {
+      return c.json(errBody("VALIDATION_ERROR", "El total de la devolución debe ser mayor a 0"), 400);
+    }
+  }
 
   // FISCAL: el incremento de document_sequences se fusiona como PRIMERA
   // sentencia del mismo db.batch() que el INSERT de la nota de crédito —
@@ -83,9 +140,57 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
       `INSERT INTO credit_notes (id, branch_id, sale_id, user_id, sale_number, reason, amount, created_at)
        VALUES (?, ?, ?, ?, (SELECT last_number FROM document_sequences WHERE branch_id = ? AND document_type = ?), ?, ?, ?)`,
     )
-    .bind(id, branchId, saleId, userId, branchId, "nota_credito", reason, amount, now);
+    .bind(id, branchId, saleId ?? null, userId, branchId, "nota_credito", reason, resolvedAmount, now);
 
-  const batchResults = await db.batch([sequenceUpdate, creditNoteInsert]);
+  const batchStmts = [sequenceUpdate, creditNoteInsert];
+
+  // Modo B: reversión de stock (return_in + inventory + batch) y egreso de caja.
+  if (itemsToReturn.length > 0) {
+    for (const item of itemsToReturn) {
+      batchStmts.push(
+        db
+          .prepare(
+            `INSERT INTO credit_note_items (id, credit_note_id, product_id, quantity, unit_price, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(genId(), id, item.product_id, item.quantity, item.unit_price, now),
+      );
+      batchStmts.push(
+        db
+          .prepare(
+            `INSERT INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
+             VALUES (?, ?, ?, 'return_in', ?, 'Nota de crédito', ?, ?)`,
+          )
+          .bind(genId(), item.product_id, branchId, item.quantity, userId, now),
+      );
+      batchStmts.push(
+        db
+          .prepare(
+            `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+             WHERE product_id = ? AND branch_id = ?`,
+          )
+          .bind(item.quantity, now, item.product_id, branchId),
+      );
+      if (item.batch_id) {
+        batchStmts.push(
+          db
+            .prepare(`UPDATE inventory_batches SET remaining_quantity = remaining_quantity + ? WHERE id = ?`)
+            .bind(item.quantity, item.batch_id),
+        );
+      }
+    }
+
+    batchStmts.push(
+      db
+        .prepare(
+          `INSERT INTO cash_movements (id, cash_session_id, user_id, type, amount, description, category, created_at)
+           VALUES (?, ?, ?, 'expense', ?, ?, 'nota_credito', ?)`,
+        )
+        .bind(genId(), cashSessionId!, userId, resolvedAmount, `Nota de crédito: ${reason}`.slice(0, 200), now),
+    );
+  }
+
+  const batchResults = await db.batch(batchStmts);
   const sequenceResult = batchResults[0] as D1Result<{ last_number: number }>;
   const sequenceRow = sequenceResult.results?.[0];
   if (!sequenceRow) {
@@ -101,10 +206,10 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
       data: {
         id,
         branch_id: branchId,
-        sale_id: saleId,
+        sale_id: saleId ?? null,
         sale_number: creditNoteNumber,
         reason,
-        amount,
+        amount: resolvedAmount,
         created_at: now,
       },
     },
