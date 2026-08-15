@@ -13,10 +13,11 @@ interface BudgetLineDraft {
   unit_price: number;
 }
 
-function defaultValidUntil(): string {
-  // Preview a 15 días — el operador puede ajustar. Formato YYYY-MM-DD (input date).
+function defaultValidUntil(days = 15): string {
+  // Default a `days` días — personalizable vía `presupuesto_valid_days`
+  // (Configuración → Comprobantes). Formato YYYY-MM-DD (input date).
   const d = new Date();
-  d.setDate(d.getDate() + 15);
+  d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
@@ -25,11 +26,13 @@ export const CreateBudgetModal: React.FC<{
   onCreate: (payload: { customer_id?: string; items: BudgetItemInput[]; valid_until: string }) => Promise<{ ok: boolean; data?: BudgetResult; error?: string }>;
   /** `printItems`: detalle resuelto (nombre real de producto) para poder imprimir sin volver a pegarle al backend. */
   onCreated: (result: BudgetResult, printItems: DocumentPrintItem[], customerName?: string) => void;
-}> = ({ onClose, onCreate, onCreated }) => {
+  /** Días de validez default del presupuesto (presupuesto_valid_days). Default 15. */
+  defaultValidDays?: number;
+}> = ({ onClose, onCreate, onCreated, defaultValidDays }) => {
   const { products = [], customers = [] } = useApp();
 
   const [customerId, setCustomerId] = useState('');
-  const [validUntil, setValidUntil] = useState(defaultValidUntil());
+  const [validUntil, setValidUntil] = useState(defaultValidUntil(defaultValidDays));
   const [items, setItems] = useState<BudgetLineDraft[]>([
     { product_id: products[0]?.id ?? '', quantity: 1, unit_price: products[0]?.price ?? 0 },
   ]);

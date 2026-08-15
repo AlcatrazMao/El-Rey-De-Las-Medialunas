@@ -130,6 +130,10 @@ export const POSView: React.FC = () => {
     };
   };
 
+  // Datos específicos por tipo que se aplican en los modales (no en la impresión).
+  const notaCreditoRequireReason = documentCustomizations.find(x => x.document_type === 'nota_credito')?.resolved.nota_credito_require_reason ?? true;
+  const presupuestoValidDays = documentCustomizations.find(x => x.document_type === 'presupuesto')?.resolved.presupuesto_valid_days ?? undefined;
+
   // Emisión de comprobantes no-venta (Remito/Presupuesto/Nota de crédito) desde
   // el carrito: se abren como modales por encima del POS, reusando los mismos
   // modales que antes vivían en el panel "Comprobantes" (eliminado del nav).
@@ -2398,6 +2402,7 @@ export const POSView: React.FC = () => {
         <CreateBudgetModal
           onClose={() => setOpenDocumentModal(null)}
           onCreate={createBudget}
+          defaultValidDays={presupuestoValidDays}
           onCreated={(result, printItems, customerName) => {
             setOpenDocumentModal(null);
             addSystemNotification('Presupuesto creado', `Presupuesto #${result.document_number} generado con éxito.`, 'success');
@@ -2419,6 +2424,7 @@ export const POSView: React.FC = () => {
         <CreateCreditNoteModal
           onClose={() => setOpenDocumentModal(null)}
           onCreate={createCreditNote}
+          requireReason={notaCreditoRequireReason}
           onCreated={(result, originalDocumentNumber, printItems) => {
             setOpenDocumentModal(null);
             addSystemNotification('Nota de crédito creada', `Nota de crédito #${result.document_number} generada con éxito.`, 'success');

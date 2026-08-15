@@ -39,7 +39,9 @@ export const CreateCreditNoteModal: React.FC<{
   onCreate: (payload: CreateCreditNotePayload) => Promise<{ ok: boolean; data?: CreditNoteResult; error?: string }>;
   /** `originalDocumentNumber`: número de la venta referenciada (modo A) o null (modo B). `printItems`: líneas de la devolución (modo B). */
   onCreated: (result: CreditNoteResult, originalDocumentNumber: string | number | null, printItems?: DocumentPrintItem[]) => void;
-}> = ({ onClose, onCreate, onCreated }) => {
+  /** Si el motivo es obligatorio (default true). Controlado por `nota_credito_require_reason`. */
+  requireReason?: boolean;
+}> = ({ onClose, onCreate, onCreated, requireReason = true }) => {
   const { sales = [], products = [], currentCashSession } = useApp();
 
   const [mode, setMode] = useState<'sale' | 'return'>('sale');
@@ -90,7 +92,7 @@ export const CreateCreditNoteModal: React.FC<{
 
   const submit = async () => {
     setErr(null);
-    if (!reason.trim()) { setErr('Ingresá el motivo de la nota de crédito'); return; }
+    if (requireReason && !reason.trim()) { setErr('Ingresá el motivo de la nota de crédito'); return; }
 
     if (mode === 'sale') {
       if (!selectedSale) { setErr('Buscá y seleccioná la venta original'); return; }
@@ -294,7 +296,7 @@ export const CreateCreditNoteModal: React.FC<{
         )}
 
         <label className="block">
-          <span className="text-xs font-semibold text-gray-700 dark:text-zinc-300">Motivo</span>
+          <span className="text-xs font-semibold text-gray-700 dark:text-zinc-300">Motivo{requireReason ? '' : ' (opcional)'}</span>
           <textarea
             rows={2}
             value={reason}

@@ -26,7 +26,9 @@ const createCreditNoteSchema = z
   .object({
     // Modo A (referenciando venta): sale_id + amount. DT-7 original.
     sale_id: z.string().min(1).optional(),
-    reason: z.string().trim().min(1).max(500),
+    // `reason` es opcional acá: su obligatoriedad se resuelve en el handler
+    // según `nota_credito_require_reason` (personalización por sucursal/global).
+    reason: z.string().trim().max(500).optional(),
     amount: z.number().finite().positive().optional(),
     // Modo B (devolución standalone desde carrito): items + cash_session_id.
     cash_session_id: z.string().min(1).optional(),
@@ -68,6 +70,22 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
   const { sale_id: saleId, reason, amount, cash_session_id: cashSessionId, items } = c.get("validatedBody") as z.infer<typeof createCreditNoteSchema>;
+
+  // Obligatoriedad del motivo: override por sucursal > global > default true
+  // (migración 0025, campo nota_credito_require_reason).
+  const globalReason = await db
+    .prepare("SELECT nota_credito_require_reason FROM document_type_customizations WHERE document_type = 'nota_credito'")
+    .first<{ nota_credito_require_reason: number | null }>();
+  const branchReason = await db
+    .prepare("SELECT nota_credito_require_reason FROM document_type_branch_customizations WHERE branch_id = ? AND document_type = 'nota_credito'")
+    .bind(branchId)
+    .first<{ nota_credito_require_reason: number | null }>();
+  const requireReason = (branchReason?.nota_credito_require_reason ?? globalReason?.nota_credito_require_reason ?? 1) === 1;
+
+  const finalReason = reason?.trim() ?? '';
+  if (requireReason && !finalReason) {
+    return c.json(errBody("VALIDATION_ERROR", "El motivo es obligatorio para esta nota de crédito"), 400);
+  }
 
   const id = genId();
   const now = nowSqliteTs();
@@ -140,7 +158,7 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
       `INSERT INTO credit_notes (id, branch_id, sale_id, user_id, sale_number, reason, amount, created_at)
        VALUES (?, ?, ?, ?, (SELECT last_number FROM document_sequences WHERE branch_id = ? AND document_type = ?), ?, ?, ?)`,
     )
-    .bind(id, branchId, saleId ?? null, userId, branchId, "nota_credito", reason, resolvedAmount, now);
+    .bind(id, branchId, saleId ?? null, userId, branchId, "nota_credito", finalReason, resolvedAmount, now);
 
   const batchStmts = [sequenceUpdate, creditNoteInsert];
 
@@ -186,7 +204,7 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
           `INSERT INTO cash_movements (id, cash_session_id, user_id, type, amount, description, category, created_at)
            VALUES (?, ?, ?, 'expense', ?, ?, 'nota_credito', ?)`,
         )
-        .bind(genId(), cashSessionId!, userId, resolvedAmount, `Nota de crédito: ${reason}`.slice(0, 200), now),
+        .bind(genId(), cashSessionId!, userId, resolvedAmount, (finalReason ? `Nota de crédito: ${finalReason}` : 'Nota de crédito').slice(0, 200), now),
     );
   }
 
@@ -208,7 +226,7 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
         branch_id: branchId,
         sale_id: saleId ?? null,
         sale_number: creditNoteNumber,
-        reason,
+        reason: finalReason,
         amount: resolvedAmount,
         created_at: now,
       },
