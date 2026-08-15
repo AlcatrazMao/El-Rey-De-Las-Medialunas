@@ -26,6 +26,7 @@ import * as React from 'react'
 import { useState, useEffect, useRef } from 'react';
 
 import { useApp } from '../AppContext';
+import { useDocumentCustomizations } from '../hooks/useDocumentCustomizations';
 import { useDocuments } from '../hooks/useDocuments';
 import type { DocumentType } from '../hooks/useDocumentSettings';
 import { useDocumentSettings } from '../hooks/useDocumentSettings';
@@ -34,7 +35,7 @@ import type { IDBOffer } from '../lib/idb';
 import { offerStore } from '../lib/idb';
 import { API_URL, fetchWithAuth } from '../services/api';
 import type { CategoryType, Product, ProductGroup, Sale } from '../types';
-import { downloadTicketHtml, printDocument, printTicketOrInvoice } from '../utils/exportUtils';
+import { downloadTicketHtml, printDocument, printTicketOrInvoice, type PrintCustomization } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
 import { calcularPrecioUnitarioGrupo } from '../utils/productGroups';
 
@@ -108,6 +109,25 @@ export const POSView: React.FC = () => {
   const { settings: posSettings } = useSettings();
   const { data: documentSettings } = useDocumentSettings();
   const { createRemito, createBudget, createCreditNote } = useDocuments();
+  const { data: documentCustomizations } = useDocumentCustomizations();
+
+  // Resuelve la personalización (merge global + sucursal) para un tipo y la
+  // traduce al contrato `PrintCustomization` que consume el print-bridge/HTML.
+  const getCustomization = (dt: DocumentType): PrintCustomization | undefined => {
+    const c = documentCustomizations.find(x => x.document_type === dt);
+    if (!c) return undefined;
+    return {
+      title: c.resolved.title,
+      header_text: c.resolved.header_text,
+      footer_text: c.resolved.footer_text,
+      show_prices: c.resolved.show_prices,
+      show_tax: c.resolved.show_tax,
+      show_customer: c.resolved.show_customer,
+      show_operator: c.resolved.show_operator,
+      show_logo: c.resolved.show_logo,
+      show_qr: c.resolved.show_qr,
+    };
+  };
 
   // Emisión de comprobantes no-venta (Remito/Presupuesto/Nota de crédito) desde
   // el carrito: se abren como modales por encima del POS, reusando los mismos
@@ -1232,7 +1252,7 @@ export const POSView: React.FC = () => {
           // "Auto-imprimir al cerrar venta" en Configuración > Impresora. Si está en
           // false (default), el usuario decide desde los botones del modal.
           if (posSettings.printer.autoPrint) {
-            printTicketOrInvoice(result.invoice, 'receipt');
+            printTicketOrInvoice(result.invoice, 'receipt', getCustomization(documentType));
           }
           // Clear Cart and customer state
           updateActiveTab({
@@ -2005,7 +2025,7 @@ export const POSView: React.FC = () => {
             <div className="p-4 bg-gray-50 dark:bg-zinc-950 flex items-center gap-2 border-t border-gray-100 dark:border-zinc-800">
               <button
                 id="btn-print-receipt"
-                onClick={() => printTicketOrInvoice(latestInvoice, 'receipt')}
+                onClick={() => printTicketOrInvoice(latestInvoice, 'receipt', getCustomization(latestInvoice.documentType ?? 'ticket'))}
                 className="flex-1 py-2 px-3 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-850 hover:bg-gray-100 dark:hover:bg-zinc-800 text-xs font-bold text-gray-750 dark:text-zinc-200 cursor-pointer flex items-center justify-center gap-1.5"
                 title="Genera impresión de ticket en papel de 80mm térmica"
               >
@@ -2014,7 +2034,7 @@ export const POSView: React.FC = () => {
 
               <button
                 id="btn-print-invoice"
-                onClick={() => printTicketOrInvoice(latestInvoice, 'invoice')}
+                onClick={() => printTicketOrInvoice(latestInvoice, 'invoice', getCustomization(latestInvoice.documentType ?? 'ticket'))}
                 className="flex-1 py-2 px-3 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-850 hover:bg-gray-100 dark:hover:bg-zinc-800 text-xs font-bold text-gray-750 dark:text-zinc-200 cursor-pointer flex items-center justify-center gap-1.5"
                 title="Genera factura electrónica formal en formato A4 PDF listo para imprimir o enviar"
               >
@@ -2029,7 +2049,7 @@ export const POSView: React.FC = () => {
               <div className="p-4 pt-0 bg-gray-50 dark:bg-zinc-950 flex items-center gap-2 border-t border-gray-100 dark:border-zinc-800">
                 <button
                   id="btn-invoice-imprimir"
-                  onClick={() => printTicketOrInvoice(latestInvoice, 'receipt')}
+                  onClick={() => printTicketOrInvoice(latestInvoice, 'receipt', getCustomization(latestInvoice.documentType ?? 'ticket'))}
                   className="flex-1 py-2 px-3 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-850 hover:bg-gray-100 dark:hover:bg-zinc-800 text-xs font-bold text-gray-750 dark:text-zinc-200 cursor-pointer flex items-center justify-center gap-1.5"
                   title="Imprime el ticket ahora"
                 >
@@ -2367,6 +2387,7 @@ export const POSView: React.FC = () => {
               items: printItems,
               operatorName: activeUser.name,
               customerName,
+              customization: getCustomization('remito'),
             });
           }}
         />
@@ -2387,6 +2408,7 @@ export const POSView: React.FC = () => {
               total: result.total,
               subtotal: result.subtotal,
               validUntil: result.valid_until,
+              customization: getCustomization('presupuesto'),
             });
           }}
         />
@@ -2406,6 +2428,7 @@ export const POSView: React.FC = () => {
               total: result.amount,
               creditNoteReason: result.reason,
               originalDocumentNumber: originalDocumentNumber ?? undefined,
+              customization: getCustomization('nota_credito'),
             });
           }}
         />

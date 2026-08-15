@@ -81,6 +81,11 @@ export function drawTicketPdf(doc: PDFKit.PDFDocument, sale: PrintSale, style: T
   const isRemito = sale.document_type === 'remito';
   const isPresupuesto = sale.document_type === 'presupuesto';
   const isNotaCredito = sale.document_type === 'nota_credito';
+  const custom = sale.customization;
+  const showPrices = custom?.show_prices !== false;
+  const showTax = custom?.show_tax !== false;
+  const showCustomer = custom?.show_customer !== false;
+  const showOperator = custom?.show_operator !== false;
   const marginX = doc.page.margins.left;
   const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const baseSize = isReceipt ? 8 : 10;
@@ -114,16 +119,22 @@ export function drawTicketPdf(doc: PDFKit.PDFDocument, sale: PrintSale, style: T
   const { datePart, timePart } = splitDateTime(sale.date);
 
   center('El Rey De Las Medialunas', titleSize, true);
-  center(documentTypeLabel(sale.document_type), baseSize + 1, true);
+  center(custom?.title?.trim() || documentTypeLabel(sale.document_type), baseSize + 1, true);
+  if (custom?.header_text?.trim()) {
+    y += 2;
+    center(custom.header_text.trim(), baseSize - 1);
+  }
   y += 4;
   divider();
 
   row('Nro Comp:', String(sale.document_number));
   row('Fecha:', datePart);
-  row('Cajero:', sale.operatorName);
+  if (showOperator) row('Cajero:', sale.operatorName);
   if (timePart) row('Hora:', timePart);
-  row('Cliente:', sale.customerName || 'Consumidor Final');
-  if (sale.customerDoc) row('Doc/CUIT:', sale.customerDoc);
+  if (showCustomer) {
+    row('Cliente:', sale.customerName || 'Consumidor Final');
+    if (sale.customerDoc) row('Doc/CUIT:', sale.customerDoc);
+  }
   if (isNotaCredito && sale.originalDocumentNumber !== undefined) {
     row('Ref. Comprobante:', String(sale.originalDocumentNumber));
   }
@@ -153,28 +164,32 @@ export function drawTicketPdf(doc: PDFKit.PDFDocument, sale: PrintSale, style: T
   } else {
     setFont(true);
     doc.text('Detalle', marginX, y, { width: contentWidth - 70, lineBreak: false });
-    doc.text('Subtotal', marginX + contentWidth - 70, y, { width: 70, align: 'right', lineBreak: false });
+    if (showPrices) {
+      doc.text('Subtotal', marginX + contentWidth - 70, y, { width: 70, align: 'right', lineBreak: false });
+    }
     y += baseSize * 1.4;
     divider();
 
     for (const item of sale.items) {
       const subtotal = item.price * item.quantity;
-      row(`${item.name} x${item.quantity}`, `$${subtotal.toFixed(2)}`);
+      row(`${item.name} x${item.quantity}`, showPrices ? `$${subtotal.toFixed(2)}` : '');
     }
 
     divider();
 
-    const subtotalNeto = sale.total - sale.tax;
-    row('Subtotal Neto:', `$${subtotalNeto.toFixed(2)}`);
-    row('IVA:', `$${sale.tax.toFixed(2)}`);
-    if (sale.discountAmount && sale.discountAmount > 0) {
-      row(`Descuento (-${sale.discountPercent ?? 0}%):`, `-$${sale.discountAmount.toFixed(2)}`);
+    if (showPrices) {
+      const subtotalNeto = sale.total - sale.tax;
+      row('Subtotal Neto:', `$${subtotalNeto.toFixed(2)}`);
+      if (showTax) row('IVA:', `$${sale.tax.toFixed(2)}`);
+      if (sale.discountAmount && sale.discountAmount > 0) {
+        row(`Descuento (-${sale.discountPercent ?? 0}%):`, `-$${sale.discountAmount.toFixed(2)}`);
+      }
+      if (sale.surchargeAmount && sale.surchargeAmount > 0) {
+        row(`Recargo (+${sale.surchargePercent ?? 0}%):`, `+$${sale.surchargeAmount.toFixed(2)}`);
+      }
+      y += 2;
+      row('TOTAL:', `$${sale.total.toFixed(2)}`, true, baseSize + 2);
     }
-    if (sale.surchargeAmount && sale.surchargeAmount > 0) {
-      row(`Recargo (+${sale.surchargePercent ?? 0}%):`, `+$${sale.surchargeAmount.toFixed(2)}`);
-    }
-    y += 2;
-    row('TOTAL:', `$${sale.total.toFixed(2)}`, true, baseSize + 2);
 
     if (isNotaCredito && sale.creditNoteReason) {
       y += 2;
@@ -202,6 +217,11 @@ export function drawTicketPdf(doc: PDFKit.PDFDocument, sale: PrintSale, style: T
   } else {
     center('¡Gracias por su compra!', baseSize - 1);
   }
+
+  if (custom?.footer_text?.trim()) {
+    y += 2;
+    center(custom.footer_text.trim(), baseSize - 1);
+  }
 }
 
 /**
@@ -220,22 +240,30 @@ export function buildThermalTicket(printer: ThermalPrinter, sale: PrintSale, _st
   const isRemito = sale.document_type === 'remito';
   const isPresupuesto = sale.document_type === 'presupuesto';
   const isNotaCredito = sale.document_type === 'nota_credito';
+  const custom = sale.customization;
+  const showPrices = custom?.show_prices !== false;
+  const showTax = custom?.show_tax !== false;
+  const showCustomer = custom?.show_customer !== false;
+  const showOperator = custom?.show_operator !== false;
   const { datePart, timePart } = splitDateTime(sale.date);
 
   printer.alignCenter();
   printer.bold(true);
   printer.println('El Rey De Las Medialunas');
   printer.bold(false);
-  printer.println(documentTypeLabel(sale.document_type));
+  printer.println(custom?.title?.trim() || documentTypeLabel(sale.document_type));
+  if (custom?.header_text?.trim()) printer.println(custom.header_text.trim());
   printer.drawLine();
 
   printer.alignLeft();
   printer.leftRight('Nro Comp:', String(sale.document_number));
   printer.leftRight('Fecha:', datePart);
-  printer.leftRight('Cajero:', sale.operatorName);
+  if (showOperator) printer.leftRight('Cajero:', sale.operatorName);
   if (timePart) printer.leftRight('Hora:', timePart);
-  printer.leftRight('Cliente:', sale.customerName || 'Consumidor Final');
-  if (sale.customerDoc) printer.leftRight('Doc/CUIT:', sale.customerDoc);
+  if (showCustomer) {
+    printer.leftRight('Cliente:', sale.customerName || 'Consumidor Final');
+    if (sale.customerDoc) printer.leftRight('Doc/CUIT:', sale.customerDoc);
+  }
   if (isNotaCredito && sale.originalDocumentNumber !== undefined) {
     printer.leftRight('Ref. Comprobante:', String(sale.originalDocumentNumber));
   }
@@ -256,23 +284,25 @@ export function buildThermalTicket(printer: ThermalPrinter, sale: PrintSale, _st
   } else {
     for (const item of sale.items) {
       const subtotal = item.price * item.quantity;
-      printer.leftRight(`${item.name} x${item.quantity}`, `$${subtotal.toFixed(2)}`);
+      printer.leftRight(`${item.name} x${item.quantity}`, showPrices ? `$${subtotal.toFixed(2)}` : '');
     }
     printer.drawLine();
 
-    const subtotalNeto = sale.total - sale.tax;
-    printer.leftRight('Subtotal Neto:', `$${subtotalNeto.toFixed(2)}`);
-    printer.leftRight('IVA:', `$${sale.tax.toFixed(2)}`);
-    if (sale.discountAmount && sale.discountAmount > 0) {
-      printer.leftRight(`Descuento (-${sale.discountPercent ?? 0}%):`, `-$${sale.discountAmount.toFixed(2)}`);
-    }
-    if (sale.surchargeAmount && sale.surchargeAmount > 0) {
-      printer.leftRight(`Recargo (+${sale.surchargePercent ?? 0}%):`, `+$${sale.surchargeAmount.toFixed(2)}`);
-    }
+    if (showPrices) {
+      const subtotalNeto = sale.total - sale.tax;
+      printer.leftRight('Subtotal Neto:', `$${subtotalNeto.toFixed(2)}`);
+      if (showTax) printer.leftRight('IVA:', `$${sale.tax.toFixed(2)}`);
+      if (sale.discountAmount && sale.discountAmount > 0) {
+        printer.leftRight(`Descuento (-${sale.discountPercent ?? 0}%):`, `-$${sale.discountAmount.toFixed(2)}`);
+      }
+      if (sale.surchargeAmount && sale.surchargeAmount > 0) {
+        printer.leftRight(`Recargo (+${sale.surchargePercent ?? 0}%):`, `+$${sale.surchargeAmount.toFixed(2)}`);
+      }
 
-    printer.bold(true);
-    printer.leftRight('TOTAL:', `$${sale.total.toFixed(2)}`);
-    printer.bold(false);
+      printer.bold(true);
+      printer.leftRight('TOTAL:', `$${sale.total.toFixed(2)}`);
+      printer.bold(false);
+    }
 
     if (isNotaCredito && sale.creditNoteReason) {
       printer.leftRight('Motivo:', sale.creditNoteReason);
@@ -300,5 +330,6 @@ export function buildThermalTicket(printer: ThermalPrinter, sale: PrintSale, _st
   } else {
     printer.println('¡Gracias por su compra!');
   }
+  if (custom?.footer_text?.trim()) printer.println(custom.footer_text.trim());
   printer.cut();
 }

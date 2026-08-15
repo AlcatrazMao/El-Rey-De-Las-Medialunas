@@ -12,6 +12,19 @@ const BRIDGE_TIMEOUT_MS = 1500;
 const FISCAL_DISCLAIMER = 'SIN VALOR FISCAL — CAE PENDIENTE';
 const FISCAL_INVOICE_TYPES: NonNullable<Sale['documentType']>[] = ['factura_a', 'factura_b', 'factura_c'];
 
+/** Copia deliberada del contrato `PrintCustomization` de apps/print-bridge/src/types.ts (migración 0025). */
+export interface PrintCustomization {
+  title?: string | null;
+  header_text?: string | null;
+  footer_text?: string | null;
+  show_prices?: boolean;
+  show_tax?: boolean;
+  show_customer?: boolean;
+  show_operator?: boolean;
+  show_logo?: boolean;
+  show_qr?: boolean;
+}
+
 /**
  * Bug fix (review): el número de comprobante a mostrar/imprimir SIEMPRE debe
  * preferir `documentNumber` (el correlativo real por tipo+sucursal que llega
@@ -44,7 +57,7 @@ function resolveDisplayDocumentNumber(sale: Sale): string {
  * NUNCA `sale_number` ni el rótulo legacy `invoiceNumber`) y `fiscal_disclaimer`
  * (solo seteado para factura_a/b/c, `undefined` para el resto).
  */
-function buildPrintSalePayload(sale: Sale) {
+function buildPrintSalePayload(sale: Sale, customization?: PrintCustomization) {
   const documentType = sale.documentType ?? 'ticket';
   return {
     id: sale.id,
@@ -69,6 +82,7 @@ function buildPrintSalePayload(sale: Sale) {
     // `invoiceNumber` (que parece un número real pero no lo es).
     document_number: resolveDisplayDocumentNumber(sale),
     fiscal_disclaimer: FISCAL_INVOICE_TYPES.includes(documentType) ? FISCAL_DISCLAIMER : undefined,
+    customization,
   };
 }
 
@@ -96,8 +110,8 @@ interface BridgePrintPayload {
  * CORS, respuesta no-OK) para que el caller caiga al fallback de window.print()
  * de forma silenciosa — el bridge es opcional y muchas PCs no lo van a tener instalado.
  */
-async function tryPrintViaBridge(sale: Sale, style: 'receipt' | 'invoice'): Promise<boolean> {
-  return tryPrintPayloadViaBridge(buildPrintSalePayload(sale), style);
+async function tryPrintViaBridge(sale: Sale, style: 'receipt' | 'invoice', customization?: PrintCustomization): Promise<boolean> {
+  return tryPrintPayloadViaBridge(buildPrintSalePayload(sale, customization), style);
 }
 
 /**
@@ -165,6 +179,8 @@ export interface DocumentPrintData {
   originalDocumentNumber?: string | number;
   /** Nota de Crédito: motivo. */
   creditNoteReason?: string;
+  /** Personalización (título/encabezado/pie + visibilidad) aplicada al render. */
+  customization?: PrintCustomization;
 }
 
 /** Arma el `PrintSale` (contrato de apps/print-bridge) para un Remito/Presupuesto/Nota de Crédito. */
@@ -189,6 +205,7 @@ function buildDocumentPrintPayload(style: DocumentPrintStyle, data: DocumentPrin
     valid_until: data.validUntil,
     originalDocumentNumber: data.originalDocumentNumber,
     creditNoteReason: data.creditNoteReason,
+    customization: data.customization,
   };
 }
 
@@ -244,7 +261,12 @@ function buildDocumentHtml(style: DocumentPrintStyle, data: DocumentPrintData): 
   const isRemito = style === 'remito';
   const isPresupuesto = style === 'presupuesto';
   const isNotaCredito = style === 'nota_credito';
-  const label = DOCUMENT_STYLE_LABELS[style];
+  const custom = data.customization;
+  const showCustomer = custom?.show_customer !== false;
+  const showOperator = custom?.show_operator !== false;
+  const label = custom?.title?.trim() || DOCUMENT_STYLE_LABELS[style];
+  const headerText = custom?.header_text?.trim();
+  const footerText = custom?.footer_text?.trim();
   const dateStr = new Date().toLocaleString('es-AR');
 
   const itemsRows = data.items.map(item => `
@@ -283,6 +305,7 @@ function buildDocumentHtml(style: DocumentPrintStyle, data: DocumentPrintData): 
       <div class="text-center">
         <div class="logo-text">🥐 El Rey De Las Medialunas 🥐</div>
         <div style="font-size: 13px; font-weight: bold; margin: 10px 0 5px 0;">${label}</div>
+        ${headerText ? `<div style="font-size: 11px;">${headerText}</div>` : ''}
       </div>
 
       <div class="divider"></div>
@@ -292,13 +315,15 @@ function buildDocumentHtml(style: DocumentPrintStyle, data: DocumentPrintData): 
           <td><strong>Nro Comp:</strong> ${data.documentNumber}</td>
           <td class="text-right"><strong>Fecha:</strong> ${dateStr.split(' ')[0]}</td>
         </tr>
+        ${showOperator ? `
         <tr>
           <td colspan="2"><strong>Operador:</strong> ${data.operatorName}</td>
-        </tr>
+        </tr>` : ''}
+        ${showCustomer ? `
         <tr>
           <td colspan="2"><strong>Cliente:</strong> ${data.customerName || 'Consumidor Final'}</td>
         </tr>
-        ${data.customerDoc ? `<tr><td colspan="2"><strong>Doc/CUIT:</strong> ${data.customerDoc}</td></tr>` : ''}
+        ${data.customerDoc ? `<tr><td colspan="2"><strong>Doc/CUIT:</strong> ${data.customerDoc}</td></tr>` : ''}` : ''}
         ${isNotaCredito && data.originalDocumentNumber !== undefined ? `<tr><td colspan="2"><strong>Ref. Comprobante:</strong> ${data.originalDocumentNumber}</td></tr>` : ''}
         ${isPresupuesto && data.validUntil ? `<tr><td colspan="2"><strong>Válido hasta:</strong> ${data.validUntil}</td></tr>` : ''}
       </table>
@@ -340,6 +365,7 @@ function buildDocumentHtml(style: DocumentPrintStyle, data: DocumentPrintData): 
       <div class="text-center" style="margin-top: 20px; font-size: 11px;">
         ${isPresupuesto ? '<p style="margin: 2px 0;">Este documento NO constituye una venta.</p>' : ''}
         ${isRemito ? '<p style="margin: 2px 0;">Recibí conforme la mercadería detallada.</p><p style="margin: 2px 0; font-weight: bold;">Documento sin valor fiscal ni comercial.</p>' : ''}
+        ${footerText ? `<p style="margin: 4px 0 0 0;">${footerText}</p>` : ''}
         <p style="margin: 10px 0 0 0; font-size: 9px; color: #555;">Sincronizado vía Nube ERP Panadería ${APP_VERSION}</p>
       </div>
     </body>
@@ -425,10 +451,15 @@ export const exportExpensesToCSV = (expenses: Expense[]) => {
  * en el iframe de impresión como en la exportación a archivo .html descargable
  * (ver downloadTicketHtml) sin duplicar el armado del comprobante.
  */
-export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'receipt'): string => {
+export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'receipt', customization?: PrintCustomization): string => {
   const isReceipt = style === 'receipt';
   const ivaRate = getSettings().fiscal.ivaRate;
   const ivaPct = (ivaRate * 100).toFixed(2);
+  const custom = customization;
+  const showPrices = custom?.show_prices !== false;
+  const showTax = custom?.show_tax !== false;
+  const showCustomer = custom?.show_customer !== false;
+  const showOperator = custom?.show_operator !== false;
   // Preferimos el número REAL (documentNumber) sobre el placeholder legacy
   // invoiceNumber — ver resolveDisplayDocumentNumber. Si todavía no llegó,
   // el comprobante impreso deja explícito que es provisorio en vez de mostrar
@@ -446,9 +477,13 @@ export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'rece
   const itemsRows = sale.items.map(item => `
     <tr>
       <td style="padding: 4px 0; text-align: left;">${item.name} x${item.quantity}</td>
-      <td style="padding: 4px 0; text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
+      ${showPrices ? `<td style="padding: 4px 0; text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>` : ''}
     </tr>
   `).join('');
+
+  const customTitle = custom?.title?.trim();
+  const headerText = custom?.header_text?.trim();
+  const footerText = custom?.footer_text?.trim();
 
   return `
     <!DOCTYPE html>
@@ -486,9 +521,10 @@ export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'rece
           <div class="logo-text">🥐 El Rey De Las Medialunas 🥐</div>
           <p style="margin: 2px 0; font-size: 11px;">CUIT: 30-00000000-0 · IVA Resp. Inscripto</p>
           <div style="font-size: ${isReceipt ? '13px' : '18px'}; font-weight: bold; margin: 10px 0 5px 0;">
-            ${isReceipt ? 'TICKET DIGITAL DE COMPRA' : 'FACTURA ELECTRÓNICA CLASE A'}
+            ${customTitle || (isReceipt ? 'TICKET DIGITAL DE COMPRA' : 'FACTURA ELECTRÓNICA CLASE A')}
           </div>
           <div style="font-size: 11px;">DOCUMENTO NO VÁLIDO COMO FACTURA (SIMULACIÓN ERP)</div>
+          ${headerText ? `<div style="font-size: 11px; margin-top: 4px;">${headerText}</div>` : ''}
         </div>
         
         <div class="divider"></div>
@@ -498,14 +534,16 @@ export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'rece
             <td><strong>Nro Comp:</strong> ${displayDocNumber}</td>
             <td class="text-right"><strong>Fecha:</strong> ${dateStr.split(' ')[0]}</td>
           </tr>
+          ${showOperator ? `
           <tr>
             <td><strong>Cajero:</strong> ${sale.operatorName}</td>
             <td class="text-right"><strong>Hora:</strong> ${dateStr.split(' ')[1] || ''}</td>
-          </tr>
+          </tr>` : ''}
+          ${showCustomer ? `
           <tr>
             <td colspan="2"><strong>Cliente:</strong> ${sale.customerName || 'Consumidor Final'}</td>
           </tr>
-          ${sale.customerDoc ? `<tr><td colspan="2"><strong>Doc/CUIT:</strong> ${sale.customerDoc}</td></tr>` : ''}
+          ${sale.customerDoc ? `<tr><td colspan="2"><strong>Doc/CUIT:</strong> ${sale.customerDoc}</td></tr>` : ''}` : ''}
         </table>
         
         <div class="divider"></div>
@@ -514,7 +552,7 @@ export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'rece
           <thead>
             <tr>
               <th style="border-bottom: 1px solid #000; text-align: left; padding-bottom: 4px;">Detalle</th>
-              <th style="border-bottom: 1px solid #000; text-align: right; padding-bottom: 4px;">Subtotal</th>
+              ${showPrices ? '<th style="border-bottom: 1px solid #000; text-align: right; padding-bottom: 4px;">Subtotal</th>' : ''}
             </tr>
           </thead>
           <tbody>
@@ -525,28 +563,31 @@ export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'rece
         <div class="divider"></div>
         
         <table style="margin-top: 10px;">
+          ${showPrices ? `
           <tr>
             <td>Subtotal Neto:</td>
             <td class="text-right">$${(sale.total - sale.tax).toFixed(2)}</td>
-          </tr>
+          </tr>` : ''}
+          ${showPrices && showTax ? `
           <tr>
             <td>IVA (${ivaPct}%):</td>
             <td class="text-right">$${sale.tax.toFixed(2)}</td>
-          </tr>
-          ${sale.discountAmount && sale.discountAmount > 0 ? `
+          </tr>` : ''}
+          ${showPrices && sale.discountAmount && sale.discountAmount > 0 ? `
           <tr>
             <td>Descuento (-${sale.discountPercent ?? 0}%):</td>
             <td class="text-right">- $${sale.discountAmount.toFixed(2)}</td>
           </tr>` : ''}
-          ${sale.surchargeAmount && sale.surchargeAmount > 0 ? `
+          ${showPrices && sale.surchargeAmount && sale.surchargeAmount > 0 ? `
           <tr>
             <td>Recargo (+${sale.surchargePercent ?? 0}%):</td>
             <td class="text-right">+ $${sale.surchargeAmount.toFixed(2)}</td>
           </tr>` : ''}
+          ${showPrices ? `
           <tr class="total-row">
             <td style="padding-top: 8px;">TOTAL:</td>
             <td class="text-right" style="padding-top: 8px;">$${sale.total.toFixed(2)}</td>
-          </tr>
+          </tr>` : ''}
           <tr>
             <td style="font-size: 11px; padding-top: 10px;">Forma de Pago:</td>
             <td class="text-right" style="font-size: 11px; padding-top: 10px; font-weight: bold;">
@@ -565,6 +606,7 @@ export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'rece
         <div class="text-center" style="margin-top: 20px; font-size: 11px;">
           <p style="margin: 2px 0;">¡Muchas gracias por su preferencia!</p>
           <p style="margin: 2px 0; font-weight: bold;">Conserve este comprobante para reclamos.</p>
+          ${footerText ? `<p style="margin: 4px 0 0 0;">${footerText}</p>` : ''}
           <p style="margin: 10px 0 0 0; font-size: 9px; color: #555;">Sincronizado vía Nube ERP Panadería ${APP_VERSION}</p>
         </div>
       </div>
@@ -582,8 +624,8 @@ export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'rece
  * al comportamiento de siempre (iframe + window.print()) — ningún caller necesita saber cuál de
  * los dos caminos se usó.
  */
-export const printTicketOrInvoice = async (sale: Sale, style: 'receipt' | 'invoice' = 'receipt'): Promise<void> => {
-  const printedViaBridge = await tryPrintViaBridge(sale, style);
+export const printTicketOrInvoice = async (sale: Sale, style: 'receipt' | 'invoice' = 'receipt', customization?: PrintCustomization): Promise<void> => {
+  const printedViaBridge = await tryPrintViaBridge(sale, style, customization);
   if (printedViaBridge) return;
 
   const iframe = document.createElement('iframe');
@@ -599,7 +641,7 @@ export const printTicketOrInvoice = async (sale: Sale, style: 'receipt' | 'invoi
   const doc = iframe.contentWindow?.document || iframe.contentDocument;
   if (!doc) return;
 
-  const html = buildTicketHtml(sale, style);
+  const html = buildTicketHtml(sale, style, customization);
 
   doc.open();
   doc.write(html);
@@ -618,8 +660,8 @@ export const printTicketOrInvoice = async (sale: Sale, style: 'receipt' | 'invoi
  * desde el diálogo de impresión nativo. Mismo patrón Blob + URL.createObjectURL + <a download>
  * que downloadCSV.
  */
-export const downloadTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'receipt'): void => {
-  const html = buildTicketHtml(sale, style);
+export const downloadTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'receipt', customization?: PrintCustomization): void => {
+  const html = buildTicketHtml(sale, style, customization);
   const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

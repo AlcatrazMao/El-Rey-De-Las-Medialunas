@@ -14,6 +14,24 @@ export interface PrintSaleItem {
 }
 
 /**
+ * Personalización de comprobante (migración 0025). Subconjunto del contrato
+ * que devuelve `GET /api/v2/document-customizations` y que afecta el render:
+ * título/encabezado/pie + visibilidad de campos. El POS lo adjunta al
+ * `PrintSale` cuando imprime; el bridge lo consume en `ticket-format.ts`.
+ */
+export interface PrintCustomization {
+  title?: string | null;
+  header_text?: string | null;
+  footer_text?: string | null;
+  show_prices?: boolean;
+  show_tax?: boolean;
+  show_customer?: boolean;
+  show_operator?: boolean;
+  show_logo?: boolean;
+  show_qr?: boolean;
+}
+
+/**
  * Los 7 tipos de comprobante emitibles (change "Document Types / Comprobantes").
  * Ver `workers/api/src/routes/sales.ts` (y credit-notes.ts/remitos.ts/budgets.ts)
  * del lado del backend, que es quien decide y envía este valor.
@@ -75,6 +93,8 @@ export interface PrintSale {
   originalDocumentNumber?: string | number;
   /** Motivo de la nota de crédito (solo aplica a `document_type: 'nota_credito'`). */
   creditNoteReason?: string;
+  /** Personalización opcional (título/encabezado/pie + visibilidad de campos). */
+  customization?: PrintCustomization;
 }
 
 export type TicketStyle = 'receipt' | 'invoice' | 'remito' | 'presupuesto' | 'nota_credito';
