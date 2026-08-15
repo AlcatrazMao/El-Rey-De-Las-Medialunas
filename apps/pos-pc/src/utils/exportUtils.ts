@@ -23,6 +23,8 @@ export interface PrintCustomization {
   show_operator?: boolean;
   show_logo?: boolean;
   show_qr?: boolean;
+  /** Leyenda fiscal custom (solo factura_a/b/c); reemplaza el default si está seteada. */
+  factura_fiscal_legend?: string | null;
 }
 
 /**
@@ -81,7 +83,9 @@ function buildPrintSalePayload(sale: Sale, customization?: PrintCustomization) {
     // texto explícitamente provisorio en ese caso, nunca el placeholder
     // `invoiceNumber` (que parece un número real pero no lo es).
     document_number: resolveDisplayDocumentNumber(sale),
-    fiscal_disclaimer: FISCAL_INVOICE_TYPES.includes(documentType) ? FISCAL_DISCLAIMER : undefined,
+    fiscal_disclaimer: FISCAL_INVOICE_TYPES.includes(documentType)
+      ? (customization?.factura_fiscal_legend?.trim() || FISCAL_DISCLAIMER)
+      : undefined,
     customization,
   };
 }

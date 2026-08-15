@@ -126,6 +126,7 @@ export const POSView: React.FC = () => {
       show_operator: c.resolved.show_operator,
       show_logo: c.resolved.show_logo,
       show_qr: c.resolved.show_qr,
+      factura_fiscal_legend: c.resolved.factura_fiscal_legend,
     };
   };
 
