@@ -45,6 +45,17 @@ remitosRoutes.post("/", validate({ body: createRemitoSchema }), async (c) => {
   const user = await resolveUser(db, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
+  // DT-12: el tipo debe estar habilitado en la sucursal activa (mismo patrón
+  // que sales.ts). Sin esto, deshabilitar "Remito" en Configuración no
+  // bloqueaba la emisión.
+  const settingRow = await db
+    .prepare(`SELECT enabled FROM document_type_settings WHERE branch_id = ? AND document_type = ?`)
+    .bind(branchId, "remito")
+    .first<{ enabled: number }>();
+  if (!settingRow || settingRow.enabled !== 1) {
+    return c.json(errBody("DOCUMENT_TYPE_DISABLED", "El tipo de comprobante 'remito' no está habilitado en esta sucursal"), 409);
+  }
+
   const { customer_id: customerId, items, notes } = c.get("validatedBody") as z.infer<typeof createRemitoSchema>;
 
   // Validar que los productos existan (mismo patrón que transfers.ts).

@@ -134,6 +134,13 @@ export const POSView: React.FC = () => {
   const notaCreditoRequireReason = documentCustomizations.find(x => x.document_type === 'nota_credito')?.resolved.nota_credito_require_reason ?? true;
   const presupuestoValidDays = documentCustomizations.find(x => x.document_type === 'presupuesto')?.resolved.presupuesto_valid_days ?? undefined;
 
+  // Toggle de habilitación por tipo (document_type_settings). Tolerante: sin
+  // datos cargados no bloqueamos (mismo criterio que el selector de venta).
+  const isDocumentTypeEnabled = (dt: DocumentType): boolean => {
+    const s = documentSettings.find(d => d.document_type === dt);
+    return s ? s.enabled : true;
+  };
+
   // Emisión de comprobantes no-venta (Remito/Presupuesto/Nota de crédito) desde
   // el carrito: se abren como modales por encima del POS, reusando los mismos
   // modales que antes vivían en el panel "Comprobantes" (eliminado del nav).
@@ -1448,19 +1455,22 @@ export const POSView: React.FC = () => {
                   <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl overflow-hidden">
                     <button
                       onClick={() => { setOpenDocumentModal('remito'); setDocumentMenuOpen(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                      disabled={!isDocumentTypeEnabled('remito')}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <Truck className="h-4 w-4 text-amber-500" /> Remito
                     </button>
                     <button
                       onClick={() => { setOpenDocumentModal('presupuesto'); setDocumentMenuOpen(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                      disabled={!isDocumentTypeEnabled('presupuesto')}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <FileText className="h-4 w-4 text-amber-500" /> Presupuesto
                     </button>
                     <button
                       onClick={() => { setOpenDocumentModal('nota_credito'); setDocumentMenuOpen(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                      disabled={!isDocumentTypeEnabled('nota_credito')}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <Receipt className="h-4 w-4 text-red-500" /> Nota de crédito
                     </button>

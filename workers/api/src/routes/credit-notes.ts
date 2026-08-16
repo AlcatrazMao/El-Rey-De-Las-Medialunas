@@ -69,6 +69,17 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
   const user = await resolveUser(db, userId);
   if (!user) return c.json(errBody("FORBIDDEN", "Usuario no registrado"), 403);
 
+  // DT-12: el tipo debe estar habilitado en la sucursal activa (mismo patrón
+  // que sales.ts). Sin esto, deshabilitar "Nota de crédito" en Configuración
+  // no bloqueaba la emisión (el toggle era solo visual para este tipo).
+  const settingRow = await db
+    .prepare(`SELECT enabled FROM document_type_settings WHERE branch_id = ? AND document_type = ?`)
+    .bind(branchId, "nota_credito")
+    .first<{ enabled: number }>();
+  if (!settingRow || settingRow.enabled !== 1) {
+    return c.json(errBody("DOCUMENT_TYPE_DISABLED", "El tipo de comprobante 'nota_credito' no está habilitado en esta sucursal"), 409);
+  }
+
   const { sale_id: saleId, reason, amount, cash_session_id: cashSessionId, items } = c.get("validatedBody") as z.infer<typeof createCreditNoteSchema>;
 
   // Obligatoriedad del motivo: override por sucursal > global > default true
@@ -110,6 +121,15 @@ creditNotesRoutes.post("/", validate({ body: createCreditNoteSchema }), async (c
     // Modo B: devolución standalone desde el carrito. El monto se CALCULA acá
     // (suma cantidad×precio) — nunca se confía en un `amount` del cliente.
     // Valida sesión de caja abierta para poder descontar el egreso.
+    //
+    // SECURITY: la devolución revierte caja (cash_movements 'expense') — exige
+    // rol elevado, igual que cash.ts para movimientos de tipo expense. Sin esta
+    // guarda, un cajero podría drenar la caja con devoluciones falsas.
+    const userRole = c.get("userRole");
+    if (userRole !== "admin" && userRole !== "owner" && userRole !== "supervisor") {
+      return c.json(errBody("FORBIDDEN", "No tenés permisos para emitir una devolución que descuenta de la caja"), 403);
+    }
+
     const session = await db
       .prepare("SELECT id, status FROM cash_sessions WHERE id = ? LIMIT 1")
       .bind(cashSessionId!)
