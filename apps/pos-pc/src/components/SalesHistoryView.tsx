@@ -18,6 +18,29 @@ import type { Sale } from '../types';
 import { exportSalesToCSV, printTicketOrInvoice } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
 
+// Labels de tipo de comprobante (solo los que viven en `sales`; los no-venta
+// —remito/presupuesto/nota_credito— tienen historiales propios).
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  ticket: 'Ticket',
+  factura_a: 'Factura A',
+  factura_b: 'Factura B',
+  factura_c: 'Factura C',
+};
+
+// Número REAL (document_number correlativo por tipo+sucursal). Cae al legacy
+// `invoiceNumber` solo para ventas anteriores al change "Document Types" que
+// no tienen documentNumber reconciliado.
+function displayDocNumber(sale: Sale): string {
+  if (sale.documentNumber !== undefined && sale.documentNumber !== null && sale.documentNumber !== '') {
+    return String(sale.documentNumber);
+  }
+  return sale.invoiceNumber;
+}
+
+function documentTypeLabel(sale: Sale): string {
+  return DOCUMENT_TYPE_LABELS[sale.documentType ?? 'ticket'] ?? 'Ticket';
+}
+
 export const SalesHistoryView: React.FC = () => {
   const {
     sales,
@@ -211,7 +234,7 @@ export const SalesHistoryView: React.FC = () => {
             <thead className="bg-gray-50 dark:bg-zinc-950 text-[10px] font-bold text-gray-500 uppercase tracking-wider select-none border-b border-gray-100 dark:border-zinc-800">
               <tr>
                 <th className="py-4 px-5 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('invoice'); setSortDir(sortCol === 'invoice' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc'); setCurrentPage(1); }}>
-                  Factura {sortCol === 'invoice' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+                  Comprobante {sortCol === 'invoice' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                 </th>
                 <th className="py-4 px-5 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => { setSortCol('date'); setSortDir(sortCol === 'date' ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc'); setCurrentPage(1); }}>
                   Fecha {sortCol === 'date' ? (sortDir === 'asc' ? '▲' : '▼') : '▼'}
@@ -253,7 +276,10 @@ export const SalesHistoryView: React.FC = () => {
                     >
                       {/* Comp Number */}
                       <td className="py-4 px-5 font-mono font-extrabold text-amber-600 dark:text-amber-500">
-                        {sale.invoiceNumber}
+                        <div className="flex flex-col">
+                          <span className="font-mono">{displayDocNumber(sale)}</span>
+                          <span className="text-[9px] font-bold text-gray-400 dark:text-zinc-500 normal-case">{documentTypeLabel(sale)}</span>
+                        </div>
                       </td>
 
                       {/* Date */}
@@ -403,7 +429,7 @@ export const SalesHistoryView: React.FC = () => {
           <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-zinc-850 p-6 max-w-sm w-full flex flex-col overflow-hidden">
             <div className="flex items-center justify-between border-b pb-3 border-gray-100 dark:border-zinc-800 mb-4">
               <h3 className="font-extrabold text-sm text-gray-800 dark:text-zinc-100 flex items-center gap-1.5">
-                <Receipt className="h-4 w-4 text-amber-505" /> Comprobante {selectedSale.invoiceNumber}
+                <Receipt className="h-4 w-4 text-amber-505" /> {documentTypeLabel(selectedSale)} {displayDocNumber(selectedSale)}
               </h3>
               <button
                 id="btn-close-ticket-detail"
@@ -418,7 +444,7 @@ export const SalesHistoryView: React.FC = () => {
             <div className="flex-1 overflow-y-auto max-h-[45vh] bg-amber-50/15 dark:bg-zinc-950/20 p-4 rounded-xl border border-dotted border-gray-300 dark:border-zinc-800 font-mono text-xs text-gray-800 dark:text-zinc-300">
               <div className="text-center">
                 <p className="font-extrabold text-sm text-amber-600 dark:text-amber-500">🥐 {getSettings().business.businessName || 'El Rey De Las Medialunas'} 🥐</p>
-                <p className="text-[10px] text-gray-400">Factura electrónica</p>
+                <p className="text-[10px] text-gray-400">{documentTypeLabel(selectedSale)}</p>
                 <p className="border-b border-dashed border-gray-300 dark:border-zinc-800 my-2" />
               </div>
 
@@ -525,7 +551,7 @@ export const SalesHistoryView: React.FC = () => {
             {selectedSale.paymentStatus === 'completed' && confirmVoidId === selectedSale.id && (
               <div className="mt-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40">
                 <p className="text-[11px] font-bold text-red-700 dark:text-red-300 mb-2 text-center">
-                  ¿Confirmás anular {selectedSale.invoiceNumber} por {formatCurrency(selectedSale.total)}? El stock será reingresado.
+                  ¿Confirmás anular {displayDocNumber(selectedSale)} por {formatCurrency(selectedSale.total)}? El stock será reingresado.
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
