@@ -1,4 +1,4 @@
-import type { UpdateProductRequest } from "@medialunas/shared/types/api";
+import type { CreateProductRequest, UpdateProductRequest } from "@medialunas/shared/types/api";
 
 import { getSettings } from "../hooks/useSettings";
 import { syncErrorStore } from "../lib/idb";
@@ -146,12 +146,23 @@ export async function persistSyncError(params: {
   });
 }
 
-export async function enqueue(entity_type: string, data: Record<string, unknown>): Promise<void> {
-  const client_id = String(data.id ?? crypto.randomUUID());
+export async function enqueue(
+  entity_type: string,
+  data: Record<string, unknown>,
+  operation: "create" | "update" | "delete" = "create",
+): Promise<void> {
+  // client_id debe ser ÚNICO por operación. Antes se usaba data.id, lo que
+  // colisionaba cuando la misma entidad se encolaba dos veces con distinto tipo
+  // (p.ej. una venta y su anulación comparten id). Como remove()/markFailed()
+  // operan por entityId (= client_id), dos ops con el mismo id se borraban o
+  // marcaban juntas, perdiendo una de las dos. El backend toma el id de la
+  // entidad desde `data.id` (no desde client_id), así que un UUID acá no altera
+  // la identidad del registro en D1.
+  const client_id = crypto.randomUUID();
   await dbAdapter.syncQueue.add({
     client_id,
     entity_type,
-    operation: "create",
+    operation,
     version: 1,
     client_timestamp: new Date().toISOString(),
     data,
@@ -323,17 +334,22 @@ export async function syncStockMovementToD1(movement: {
   quantity: number;
   reason: string;
 }): Promise<void> {
+  // idempotency_key compartido entre el POST online y la cola offline: si un
+  // timeout hace que el movimiento se re-encola tras haberse aplicado, el
+  // backend lo detecta y no duplica el delta de inventario.
+  const payload = {
+    product_id: movement.product_id,
+    branch_id: movement.branch_id || getSettings().business.branchId,
+    movement_type: movement.movement_type,
+    quantity: movement.quantity,
+    reason: movement.reason,
+    idempotency_key: crypto.randomUUID(),
+  };
   try {
-    await getApi().inventory.createMovement({
-      product_id: movement.product_id,
-      branch_id: movement.branch_id || getSettings().business.branchId,
-      movement_type: movement.movement_type,
-      quantity: movement.quantity,
-      reason: movement.reason,
-    });
+    await getApi().inventory.createMovement(payload);
   } catch (err) {
     if (isNetworkError(err)) {
-      await enqueue('stock_movement', movement as Record<string, unknown>);
+      await enqueue('stock_movement', payload as Record<string, unknown>);
     } else {
       throw err;
     }
@@ -571,12 +587,11 @@ export async function syncProductToD1(product: {
     const match = cats.find(c => String(c.name ?? '').toLowerCase() === product.category.toLowerCase());
     if (match) category_id = String(match.id ?? '');
   } catch {
-    // silently skip category resolution
+    // Sin red o categorías no disponibles: category_id queda vacío y lo
+    // resolvemos server-side via category_name (fallback a la primera categoría).
   }
 
-  if (!category_id) return;
-
-  const payload = {
+  const payload: CreateProductRequest = {
     code: product.code,
     name: product.name,
     branch_id: branchId,
@@ -593,11 +608,21 @@ export async function syncProductToD1(product: {
     is_active: true,
   };
 
+  // Si no pudimos resolver category_id (offline), encolamos directo con
+  // category_name para que el backend la resuelva. Antes esto retornaba sin
+  // crear NI encolar → el alta offline se perdía silenciosamente.
+  if (!category_id) {
+    await enqueue('product', { id: product.id, ...payload, category_name: product.category });
+    return;
+  }
+
   try {
     await getApi().products.create(payload);
   } catch (err) {
     if (isNetworkError(err)) {
       await enqueue('product', { id: product.id, ...payload });
+    } else {
+      throw err;
     }
   }
 }
@@ -609,10 +634,10 @@ export async function syncProductToD1(product: {
  * viene, se resuelve a `category_id` igual que en la sync de creación
  * (buscando por nombre en categories.getAll()).
  *
- * A diferencia de syncProductToD1, NO encolamos en `enqueue()` si falla: la
- * cola de sync (enqueue) sólo soporta operation "create" — extenderla para
- * "update" queda fuera de alcance de v1. El caller (useInventory.updateProduct)
- * es responsable de notificar al usuario y de que reintente manualmente.
+ * Si falla por red, encolamos la operación con operation "update" para que el
+ * SyncEngine la reintente al volver online (el backend `case "product"` soporta
+ * create y update). Si la categoría no pudo resolverse (offline), se manda
+ * `category_name` para que el backend la resuelva server-side.
  */
 export async function syncProductUpdateToD1(id: string, changes: {
   name?: string;
@@ -638,7 +663,9 @@ export async function syncProductUpdateToD1(id: string, changes: {
   // supplier es local-only (no existe en backend Product), no se sincroniza
   if (changes.taxRate !== undefined) payload.tax_rate = changes.taxRate;
 
+  let categoryName: string | undefined;
   if (changes.category !== undefined) {
+    categoryName = changes.category;
     const branchId = getSettings().business.branchId;
     let category_id = '';
     try {
@@ -647,14 +674,26 @@ export async function syncProductUpdateToD1(id: string, changes: {
       const match = cats.find(c => String(c.name ?? '').toLowerCase() === changes.category!.toLowerCase());
       if (match) category_id = String(match.id ?? '');
     } catch {
-      // silently skip category resolution — el resto de los campos igual se manda
+      // offline: category_id queda vacío → se resuelve server-side con category_name
     }
     if (category_id) payload.category_id = category_id;
   }
 
-  if (Object.keys(payload).length === 0) return;
+  if (Object.keys(payload).length === 0 && categoryName === undefined) return;
 
-  await getApi().products.update(id, payload);
+  try {
+    await getApi().products.update(id, payload);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      const data: Record<string, unknown> = { id, ...payload };
+      if (categoryName !== undefined && payload.category_id === undefined) {
+        data.category_name = categoryName;
+      }
+      await enqueue('product', data, 'update');
+    } else {
+      throw err;
+    }
+  }
 }
 
 const VALID_CATEGORIES = new Set<CategoryType>(['panes', 'facturas', 'pasteleria', 'bebidas', 'salados']);

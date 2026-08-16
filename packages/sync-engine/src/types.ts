@@ -96,7 +96,11 @@ export interface ApiClientInterface {
       branchId: string,
     ): Promise<{
       success: boolean;
-      data?: { processed: number; failed: number };
+      data?: {
+        processed: number;
+        failed: number;
+        errors: { client_id: string; entity_type: string; code: string; message: string }[];
+      };
     }>;
     pull(
       since?: string,

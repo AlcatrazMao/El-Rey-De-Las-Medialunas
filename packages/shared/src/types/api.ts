@@ -273,7 +273,19 @@ export interface SyncPushRequest {
   branch_id: string;
 }
 
-export interface SyncPushResponse extends ApiResponse<{ processed: number; failed: number }> {}
+export interface SyncPushError {
+  client_id: string;
+  entity_type: string;
+  code: string;
+  message: string;
+}
+
+export interface SyncPushResponse
+  extends ApiResponse<{
+    processed: number;
+    failed: number;
+    errors: SyncPushError[];
+  }> {}
 
 export interface SyncPullRequest {
   branch_id: string;

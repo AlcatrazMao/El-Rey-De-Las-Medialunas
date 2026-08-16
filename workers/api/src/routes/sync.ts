@@ -21,6 +21,29 @@ export const MAX_OPERATIONS_PER_PUSH = 50;
 const MAX_EXPENSE_AMOUNT = 10_000_000;
 const MAX_ITEM_QUANTITY = 100_000;
 const MAX_UNIT_PRICE = 10_000_000;
+const MAX_PRODUCT_PRICE = 10_000_000;
+const MAX_TAX_RATE = 100;
+const MAX_STOCK_BOUND = 10_000_000;
+const MAX_MOVEMENT_QUANTITY = 1_000_000;
+
+// Mismos guards que los endpoints directos (products.ts / inventory.ts) para
+// que la cola offline no sea un bypass de permisos.
+const PRODUCT_ALLOWED_ROLES = new Set(["admin", "owner"]);
+const STOCK_ADJUST_ROLES = new Set(["admin", "owner", "supervisor", "warehouse", "production"]);
+const VALID_PRODUCT_UNITS = new Set(["unit", "kg", "g", "l", "ml", "dozen", "pack"]);
+const VALID_STOCK_MOVEMENT_TYPES = new Set([
+  "purchase_in",
+  "production_in",
+  "transfer_in",
+  "adjustment_in",
+  "return_in",
+  "sale_out",
+  "transfer_out",
+  "waste_out",
+  "adjustment_out",
+  "production_out",
+  "production_waste",
+]);
 
 // SECURITY: numeric inputs vienen de la cola offline del cliente y pueden ser
 // NaN/Infinity por bugs en serialización (ej. Number(undefined)). Si dejamos
@@ -227,6 +250,36 @@ syncRoutes.post("/push", async (c) => {
 });
 
 // ── Operation dispatcher ───────────────────────────────────────────────
+
+// Resuelve category_id para productos creados/editados offline:
+//   category_id > category_name (match por nombre) > primera categoría de la
+//   sucursal (mismo fallback que products.ts POST). Lanza si no hay ninguna.
+async function resolveProductCategory(
+  db: D1Database,
+  branchId: string,
+  d: Record<string, unknown>,
+): Promise<string> {
+  const categoryId = typeof d.category_id === "string" && d.category_id.trim() !== "" ? d.category_id.trim() : "";
+  if (categoryId) return categoryId;
+
+  const categoryName = typeof d.category_name === "string" ? d.category_name.trim() : "";
+  if (categoryName) {
+    const catRow = await db
+      .prepare("SELECT id FROM categories WHERE branch_id = ? AND lower(name) = lower(?) LIMIT 1")
+      .bind(branchId, categoryName)
+      .first<{ id: string }>();
+    if (catRow) return catRow.id;
+  }
+
+  const firstCat = await db
+    .prepare("SELECT id FROM categories WHERE branch_id = ? LIMIT 1")
+    .bind(branchId)
+    .first<{ id: string }>();
+  if (!firstCat) {
+    throw new Error("VALIDATION_ERROR: no hay categorías disponibles en la sucursal");
+  }
+  return firstCat.id;
+}
 
 async function applyOperation(
   db: D1Database,
@@ -787,6 +840,196 @@ async function applyOperation(
              notes = COALESCE(?, notes), closed_at = ?
          WHERE id = ? AND status != 'closed'`
       ).bind(closingAmount, expectedAmount, difference, d.notes ?? null, now, id).run();
+      break;
+    }
+
+    case "product": {
+      // RBAC: creación/edición de catálogo — solo admin/owner, igual que
+      // products.ts (canManageProducts). Evita que un cajero cree/modifique
+      // productos a través de la cola offline.
+      if (!PRODUCT_ALLOWED_ROLES.has(userRole)) {
+        throw new Error("FORBIDDEN: Sin permisos para gestionar productos");
+      }
+
+      const unit = VALID_PRODUCT_UNITS.has(String(d.unit ?? "")) ? String(d.unit) : "unit";
+
+      if (op.operation === "create") {
+        const name = typeof d.name === "string" ? d.name.trim() : "";
+        const code = typeof d.code === "string" ? d.code.trim() : "";
+        if (!name || !code) {
+          throw new Error("VALIDATION_ERROR: producto sin name o code");
+        }
+
+        const price = assertFinitePositive(d.price ?? 0, "product.price");
+        const cost = assertFinitePositive(d.cost ?? 0, "product.cost");
+        const taxRate = assertFinitePositive(d.tax_rate ?? 0, "product.tax_rate");
+        const minStock = assertFinitePositive(d.min_stock ?? 0, "product.min_stock");
+        const maxStock = assertFinitePositive(d.max_stock ?? 0, "product.max_stock");
+        if (price > MAX_PRODUCT_PRICE || cost > MAX_PRODUCT_PRICE) {
+          throw new Error(`VALIDATION_ERROR: price/cost superan el máximo permitido de ${MAX_PRODUCT_PRICE}`);
+        }
+        if (taxRate > MAX_TAX_RATE) {
+          throw new Error(`VALIDATION_ERROR: tax_rate supera el máximo permitido de ${MAX_TAX_RATE}`);
+        }
+        if (minStock > MAX_STOCK_BOUND || maxStock > MAX_STOCK_BOUND) {
+          throw new Error(`VALIDATION_ERROR: min_stock/max_stock superan el máximo permitido de ${MAX_STOCK_BOUND}`);
+        }
+
+        const categoryId = await resolveProductCategory(db, branchId, d);
+
+        const isRawMaterial = d.is_raw_material ? 1 : 0;
+        const isProducible = d.is_producible ? 1 : 0;
+        const isActive = d.is_active === undefined || d.is_active === null ? 1 : (d.is_active ? 1 : 0);
+
+        // INSERT OR IGNORE: si el cliente ya creó el producto (replay), no falla.
+        await db
+          .prepare(
+            `INSERT OR IGNORE INTO products
+              (id, code, name, description, barcode, category_id, branch_id, unit, price, cost, tax_rate, min_stock, max_stock, track_inventory, is_producible, is_raw_material, is_active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`
+          )
+          .bind(id, code, name, d.description ?? null, d.barcode ?? null, categoryId, branchId, unit, price, cost, taxRate, minStock, maxStock, isProducible, isRawMaterial, isActive, now, now)
+          .run();
+      } else if (op.operation === "update") {
+        const setClauses: string[] = [];
+        const values: (string | number | null)[] = [];
+
+        if (d.name !== undefined) { setClauses.push("name = ?"); values.push(String(d.name).trim()); }
+        if (d.code !== undefined) { setClauses.push("code = ?"); values.push(String(d.code).trim()); }
+        if (d.description !== undefined) { setClauses.push("description = ?"); values.push(d.description == null ? null : String(d.description)); }
+        if (d.barcode !== undefined) { setClauses.push("barcode = ?"); values.push(d.barcode == null ? null : String(d.barcode)); }
+        if (d.category_id !== undefined || d.category_name !== undefined) {
+          const categoryId = await resolveProductCategory(db, branchId, d);
+          setClauses.push("category_id = ?"); values.push(categoryId);
+        }
+        if (d.unit !== undefined) { setClauses.push("unit = ?"); values.push(unit); }
+        if (d.price !== undefined) {
+          const price = assertFinitePositive(d.price, "product.price");
+          if (price > MAX_PRODUCT_PRICE) throw new Error(`VALIDATION_ERROR: price supera el máximo permitido de ${MAX_PRODUCT_PRICE}`);
+          setClauses.push("price = ?"); values.push(price);
+        }
+        if (d.cost !== undefined) {
+          const cost = assertFinitePositive(d.cost, "product.cost");
+          if (cost > MAX_PRODUCT_PRICE) throw new Error(`VALIDATION_ERROR: cost supera el máximo permitido de ${MAX_PRODUCT_PRICE}`);
+          setClauses.push("cost = ?"); values.push(cost);
+        }
+        if (d.tax_rate !== undefined) {
+          const taxRate = assertFinitePositive(d.tax_rate, "product.tax_rate");
+          if (taxRate > MAX_TAX_RATE) throw new Error(`VALIDATION_ERROR: tax_rate supera el máximo permitido de ${MAX_TAX_RATE}`);
+          setClauses.push("tax_rate = ?"); values.push(taxRate);
+        }
+        if (d.min_stock !== undefined) {
+          const minStock = assertFinitePositive(d.min_stock, "product.min_stock");
+          if (minStock > MAX_STOCK_BOUND) throw new Error(`VALIDATION_ERROR: min_stock supera el máximo permitido de ${MAX_STOCK_BOUND}`);
+          setClauses.push("min_stock = ?"); values.push(minStock);
+        }
+        if (d.max_stock !== undefined) {
+          const maxStock = assertFinitePositive(d.max_stock, "product.max_stock");
+          if (maxStock > MAX_STOCK_BOUND) throw new Error(`VALIDATION_ERROR: max_stock supera el máximo permitido de ${MAX_STOCK_BOUND}`);
+          setClauses.push("max_stock = ?"); values.push(maxStock);
+        }
+        if (d.is_raw_material !== undefined) { setClauses.push("is_raw_material = ?"); values.push(d.is_raw_material ? 1 : 0); }
+        if (d.is_producible !== undefined) { setClauses.push("is_producible = ?"); values.push(d.is_producible ? 1 : 0); }
+        if (d.is_active !== undefined) { setClauses.push("is_active = ?"); values.push(d.is_active ? 1 : 0); }
+
+        if (setClauses.length > 0) {
+          setClauses.push("updated_at = ?");
+          values.push(now, id);
+          await db
+            .prepare(`UPDATE products SET ${setClauses.join(", ")} WHERE id = ?`)
+            .bind(...values)
+            .run();
+        }
+      }
+      break;
+    }
+
+    case "stock_movement": {
+      // RBAC: ajuste de stock es operación privilegiada (mismo guard que
+      // inventory.ts POST /adjust). Cajeros no pueden acuñar ni quemar stock.
+      if (!STOCK_ADJUST_ROLES.has(userRole)) {
+        throw new Error("FORBIDDEN: Sin permisos para ajustar inventario");
+      }
+      if (op.operation !== "create") break;
+
+      const movementType = String(d.movement_type ?? "");
+      if (!VALID_STOCK_MOVEMENT_TYPES.has(movementType)) {
+        throw new Error("VALIDATION_ERROR: movement_type inválido");
+      }
+      const productId = String(d.product_id ?? "");
+      if (!productId) {
+        throw new Error("VALIDATION_ERROR: product_id requerido");
+      }
+      const qty = assertFinitePositive(d.quantity ?? 0, "stock_movement.quantity");
+      if (qty > MAX_MOVEMENT_QUANTITY) {
+        throw new Error(`VALIDATION_ERROR: quantity supera el máximo permitido de ${MAX_MOVEMENT_QUANTITY}`);
+      }
+
+      // Idempotencia: preferimos idempotency_key (compartida entre el POST
+      // online y la cola offline). Si no viene, usamos el id del movimiento
+      // (data.id ?? client_id, estable por operación encolada). Un replay NO
+      // re-aplica el delta de inventario.
+      const idempotencyKey =
+        typeof d.idempotency_key === "string" && d.idempotency_key.trim() !== ""
+          ? d.idempotency_key.trim()
+          : null;
+      if (idempotencyKey) {
+        const existingByKey = await db
+          .prepare("SELECT id FROM stock_movements WHERE idempotency_key = ? LIMIT 1")
+          .bind(idempotencyKey)
+          .first<{ id: string }>();
+        if (existingByKey) {
+          break;
+        }
+      }
+
+      const movementId = String(d.id ?? op.client_id);
+      const existing = await db
+        .prepare("SELECT id FROM stock_movements WHERE id = ? LIMIT 1")
+        .bind(movementId)
+        .first<{ id: string }>();
+      if (existing) {
+        break;
+      }
+
+      const isInbound = movementType.endsWith("_in");
+      const delta = isInbound ? qty : -qty;
+
+      // Rechazar stock insuficiente en movimientos de salida (mismo criterio
+      // que inventory.ts: no clampear silenciosamente a 0).
+      if (!isInbound) {
+        const current = await db
+          .prepare("SELECT current_quantity FROM inventory WHERE product_id = ? AND branch_id = ?")
+          .bind(productId, branchId)
+          .first<{ current_quantity: number }>();
+        if ((current?.current_quantity ?? 0) + delta < 0) {
+          throw new Error("INSUFFICIENT_STOCK: El ajuste supera el stock disponible");
+        }
+      }
+
+      const invId = genId();
+      const updateSql = isInbound
+        ? `UPDATE inventory SET current_quantity = current_quantity + ?, updated_at = ?
+           WHERE product_id = ? AND branch_id = ?`
+        : `UPDATE inventory SET current_quantity = MAX(0, current_quantity + ?), updated_at = ?
+           WHERE product_id = ? AND branch_id = ?`;
+
+      await db.batch([
+        db
+          .prepare(
+            `INSERT INTO stock_movements
+              (id, product_id, branch_id, movement_type, quantity, reason, user_id, idempotency_key, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(movementId, productId, branchId, movementType, qty, String(d.reason ?? ""), userId, idempotencyKey, now),
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO inventory (id, product_id, branch_id, current_quantity, updated_at)
+             VALUES (?, ?, ?, 0, ?)`
+          )
+          .bind(invId, productId, branchId, now),
+        db.prepare(updateSql).bind(delta, now, productId, branchId),
+      ]);
       break;
     }
 

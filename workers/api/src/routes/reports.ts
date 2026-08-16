@@ -14,8 +14,18 @@ export const reportRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // Validamos el formato YYYY-MM-DD ANTES de concatenar en SQL. Si bien D1 usa
 // bindings, un valor mal formado rompe DATETIME() de SQLite y produce 500 o
-// resultados silenciosamente incorrectos. Sólo aceptamos fechas calendario.
-export const isValidReportDate = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s);
+// resultados silenciosamente incorrectos. Sólo aceptamos fechas calendario
+// REALES (rechaza "2026-13-45" o "2026-02-30" que el regex dejaría pasar y que
+// luego revientan con Invalid Date → RangeError en dateRange()).
+export const isValidReportDate = (s: string): boolean => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+};
 
 // Retorna la fecha argentina de hoy en formato YYYY-MM-DD usando la API
 // estándar Intl — más robusto que un offset hardcodeado, ya que respeta
@@ -92,7 +102,7 @@ reportRoutes.get("/sales/summary", async (c) => {
   }
   const { branchId, from, to } = range;
 
-  const [summary, byPayment] = await Promise.all([
+  const [summary, voidedRow, byPayment] = await Promise.all([
     db.prepare(
       `SELECT
          COUNT(*) as total_sales,
@@ -100,11 +110,18 @@ reportRoutes.get("/sales/summary", async (c) => {
          COALESCE(SUM(tax_total), 0) as total_tax,
          COALESCE(SUM(subtotal), 0) as total_subtotal,
          COALESCE(SUM(discount_total), 0) as total_discounts,
-         COALESCE(AVG(total), 0) as average_ticket,
-         COUNT(CASE WHEN status = 'voided' THEN 1 END) as total_voided
+         COALESCE(AVG(total), 0) as average_ticket
        FROM sales
        WHERE branch_id = ? AND created_at BETWEEN ? AND ? AND status != 'voided'`
     ).bind(branchId, from, to).first(),
+
+    // total_voided se cuenta en una query separada: el WHERE del summary excluye
+    // status='voided', así que un CASE adentro jamás iba a contarlos (siempre 0).
+    db.prepare(
+      `SELECT COUNT(*) as total_voided
+       FROM sales
+       WHERE branch_id = ? AND created_at BETWEEN ? AND ? AND status = 'voided'`
+    ).bind(branchId, from, to).first<{ total_voided: number }>(),
 
     db.prepare(
       `SELECT sp.payment_method, COUNT(*) as count, COALESCE(SUM(sp.amount), 0) as total
@@ -120,6 +137,7 @@ reportRoutes.get("/sales/summary", async (c) => {
     data: {
       period: { from, to },
       ...summary,
+      total_voided: Number(voidedRow?.total_voided ?? 0),
       by_payment_method: byPayment.results ?? [],
     },
   });

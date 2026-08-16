@@ -57,6 +57,7 @@ export interface CreateMovementRequest {
   reference_type?: string;
   reference_id?: string;
   notes?: string;
+  idempotency_key?: string;
 }
 
 export interface CreateCountRequest {
@@ -90,8 +91,12 @@ export class InventoryEndpoints {
   }
 
   async createMovement(data: CreateMovementRequest): Promise<StockMovement> {
+    // El backend expone el ajuste de stock en POST /inventory/adjust (no en
+    // POST /inventory/movements, que nunca existió → 404). Se corrige la ruta
+    // para que el alta de movimientos (p.ej. purchase_in al aprobar un pedido)
+    // llegue al endpoint real.
     const response = await this.client.post<StockMovementResponse>(
-      "/api/v1/inventory/movements",
+      "/api/v1/inventory/adjust",
       data,
     );
     return response.data!;

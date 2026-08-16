@@ -138,10 +138,9 @@ export function useInventory(notify: NotifyFn) {
   /**
    * Edita campos de un producto existente (modal de edición en InventoryView).
    * Mismo patrón que addProduct: optimistic update local primero, luego se
-   * intenta sincronizar al backend vía PUT /products/:id. A diferencia de
-   * addProduct, si la sync falla NO se encola (enqueue() en d1-sync sólo
-   * soporta operation "create" — extenderlo a "update" queda fuera de alcance
-   * de v1). En su lugar avisamos con un error pidiendo reintentar manualmente.
+   * intenta sincronizar al backend vía PUT /products/:id. Si la sync falla por
+   * red, syncProductUpdateToD1 encola la operación (operation "update") para
+   * reintento automático al volver online.
    */
   const updateProduct = (
     id: string,
@@ -165,9 +164,9 @@ export function useInventory(notify: NotifyFn) {
       unit: changes.unit,
       taxRate: changes.taxRate,
     }).catch(() => {
-      // El cambio ya vive en el estado local (offline-first), pero el backend
-      // no lo recibió. Sin cola de reintento para updates (fuera de alcance v1):
-      // el usuario debe reintentar guardarlo manualmente más tarde.
+      // El cambio ya vive en el estado local (offline-first). Si la sync falló
+      // por una razón distinta a la red (validation/auth), avisamos; los errores
+      // de red ya quedaron encolados y se reintentan automáticamente.
       notify(
         '❌ Cambios sin sincronizar',
         `Los cambios en "${previous.name}" se guardaron localmente, pero no pudieron sincronizarse con el servidor. Reintentá guardarlos nuevamente.`,
