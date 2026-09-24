@@ -245,7 +245,7 @@ productRoutes.post("/", async (c) => {
   }
   const branchId = targetBranchId;
 
-  let categoryId = body.category_id ?? null;
+  const categoryId = body.category_id ?? null;
   if (!categoryId) {
     return c.json(errBody('VALIDATION_ERROR', 'Seleccioná una categoría válida antes de crear el producto'), 400);
   }
