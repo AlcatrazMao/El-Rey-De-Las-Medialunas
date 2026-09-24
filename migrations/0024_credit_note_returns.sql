@@ -17,6 +17,10 @@
 -- Preservamos datos existentes: renombramos la tabla vieja, recreamos con el
 -- nuevo shape y copiamos. credit_notes no es referenciada por ninguna FK (es
 -- tabla hoja, ver 0023), así que el RENAME + recreate es seguro.
+-- SQLite conserva los nombres de índices cuando se renombra la tabla. Hay que
+-- soltar los índices de 0023 ANTES de crear los nuevos con el mismo nombre.
+DROP INDEX IF EXISTS idx_credit_notes_branch;
+DROP INDEX IF EXISTS idx_credit_notes_sale;
 ALTER TABLE credit_notes RENAME TO credit_notes_old;
 
 CREATE TABLE credit_notes (

@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
-import { genId } from "../utils/id";
+import { genId, normalizeClientSaleId } from "../utils/id";
 import { nowSqliteTs } from "../utils/time";
 
 export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -194,6 +194,9 @@ salesRoutes.post("/", async (c) => {
   // (ignora cualquier otro valor); para roles elevados permite override
   // validado por membership. Mismo patrón que credit-notes/remitos/budgets.
   const branchId = c.get("branchId") || DEFAULT_BRANCH_ID;
+  if (body.branch_id && body.branch_id !== branchId) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'La venta pertenece a otra sucursal. Iniciá sesión en su sucursal para sincronizarla.' } }, 403);
+  }
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
@@ -387,15 +390,9 @@ salesRoutes.post("/", async (c) => {
     return c.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Total calculado inválido" } }, 400);
   }
 
-  // Aceptamos el ID generado por el cliente para que void/refund posteriores
-  // hagan match contra el mismo registro local. Validamos formato: UUID con
-  // o sin guiones (32 o 36 chars hex). Si no llega o es inválido, generamos.
-  const clientProvidedId = typeof body.id === "string" ? body.id.trim().toLowerCase() : "";
-  const isValidLocalId =
-    /^[0-9a-f]{32}$/.test(clientProvidedId) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(clientProvidedId);
-  const saleId = isValidLocalId
-    ? clientProvidedId.replace(/-/g, "")
-    : genId();
+  // Both current UUIDs and legacy sale_<timestamp>_<suffix> IDs are stable.
+  // Generating a different server ID breaks queued void/refund references.
+  const saleId = normalizeClientSaleId(body.id) ?? genId();
 
   const itemStatements = items.flatMap(item => {
     const itemId = genId();

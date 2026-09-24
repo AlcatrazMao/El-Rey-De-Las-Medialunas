@@ -64,6 +64,7 @@ export const InventoryView: React.FC = () => {
   const [expandedGroupsFor, setExpandedGroupsFor] = useState<string | null>(null);
   const [mermasFilter, setMermasFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [productKind, setProductKind] = useState('all');
 
   // Expiry Priority States
   const [priorityCriteria, setPriorityCriteria] = useState<'categoria' | 'precio' | 'unidades'>(() => {
@@ -90,7 +91,7 @@ export const InventoryView: React.FC = () => {
   };
 
   const getProductExpiryDays = (prod: Product) => {
-    if (!prod.elaborationDate || !prod.durabilityDays) return 999;
+    if (!prod.elaborationDate || prod.durabilityDays === undefined) return 999;
     const elaborDateObj = new Date(prod.elaborationDate + 'T00:00:00');
     if (isNaN(elaborDateObj.getTime())) return 999;
     const expiryDateObj = new Date(elaborDateObj.getTime());
@@ -200,6 +201,12 @@ export const InventoryView: React.FC = () => {
   const [prodSupplier, setProdSupplier] = useState('');
   const [prodTaxRate, setProdTaxRate] = useState(0);
   const [prodAttributes, setProdAttributes] = useState('');
+  const [prodDescription, setProdDescription] = useState('');
+  const [prodBarcode, setProdBarcode] = useState('');
+  const [prodMaxStock, setProdMaxStock] = useState(500);
+  const [prodShelfLife, setProdShelfLife] = useState(2);
+  const [prodStorage, setProdStorage] = useState('');
+  const [prodProducible, setProdProducible] = useState(true);
 
   const productFormDefaults = useMemo(() => (
     editingProduct
@@ -212,20 +219,30 @@ export const InventoryView: React.FC = () => {
           image: editingProduct.image,
           code: editingProduct.code,
           stock: editingProduct.stock,
+          unit: editingProduct.unit,
         }
       : {}
   ), [editingProduct]);
 
-  // Sync advanced fields when editing product changes
+  // Reset all fields on both edit and create; never carry metadata across products.
   useEffect(() => {
-    if (editingProduct) {
-      setProdSupplier(editingProduct.supplier ?? '');
-      setProdTaxRate(editingProduct.taxRate ?? 0);
-      setProdAttributes(editingProduct.attributes ?? '');
-    }
-  }, [editingProduct]);
+    setProdSupplier(editingProduct?.supplier ?? '');
+    setProdTaxRate(editingProduct?.taxRate ?? 21);
+    setProdAttributes(editingProduct?.attributes ?? '');
+    setProdDescription(editingProduct?.description ?? '');
+    setProdBarcode(editingProduct?.barcode ?? '');
+    setProdMaxStock(editingProduct?.maxStock ?? 500);
+    setProdShelfLife(editingProduct?.durabilityDays ?? 2);
+    setProdStorage(editingProduct?.storageInstructions ?? '');
+    setProdProducible(editingProduct?.isProducible ?? true);
+  }, [editingProduct, showProductModal]);
 
   const productForm = useProductForm((payload) => {
+    const details = {
+      supplier: prodSupplier, taxRate: prodTaxRate, attributes: prodAttributes,
+      description: prodDescription, barcode: prodBarcode, maxStock: prodMaxStock,
+      durabilityDays: prodShelfLife, storageInstructions: prodStorage, isProducible: prodProducible,
+    };
     if (editingProduct) {
       updateProduct(editingProduct.id, {
         name: payload.name,
@@ -236,12 +253,10 @@ export const InventoryView: React.FC = () => {
         image: payload.image,
         code: payload.code,
         unit: payload.unit,
-        supplier: prodSupplier || undefined,
-        taxRate: prodTaxRate > 0 ? prodTaxRate : undefined,
-        attributes: prodAttributes || undefined,
+        ...details,
       });
     } else {
-      addProduct(payload);
+      addProduct({ ...payload, ...details });
     }
     setShowProductModal(false);
     setEditingProduct(null);
@@ -443,7 +458,7 @@ export const InventoryView: React.FC = () => {
               onClick={() => setShowProductModal(true)}
               className="py-2 px-4 rounded-xl text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md h-9 shrink-0 transition-all"
             >
-              <Plus className="h-4 w-4" /> Registrar Pan Elaborado Mismo
+              <Plus className="h-4 w-4" /> Registrar Producto
             </button>
           )}
 
@@ -530,7 +545,7 @@ export const InventoryView: React.FC = () => {
                 : 'text-gray-500 dark:text-zinc-400 hover:text-gray-700'
             }`}
           >
-            Productos Elaborados
+            Productos / Reventa
           </button>
           <button
             id="btn-subtab-caducidad"
@@ -560,7 +575,7 @@ export const InventoryView: React.FC = () => {
           <input
             id="stock-search"
             type="text"
-            placeholder="Filtrar por nombre..."
+            placeholder="Nombre, código o proveedor..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full text-xs bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-lg py-2 pl-8 pr-3 focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-800 dark:text-zinc-100"
@@ -569,6 +584,14 @@ export const InventoryView: React.FC = () => {
         </div>
       </div>
 
+      {activeSubTab === 'productos' && (
+        <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-zinc-300">
+          Clasificación:
+          <select aria-label="Filtrar clasificación" value={productKind} onChange={e => setProductKind(e.target.value)} className="border rounded-lg p-2 bg-white dark:bg-zinc-900">
+            <option value="all">Todos los productos</option><option value="production">Elaboración propia</option><option value="resale">Reventa / comprado</option>
+          </select>
+        </label>
+      )}
       {/* LIST OR CARDS VIEW IN REAL TIME */}
       {activeSubTab === 'insumos' && (
         <div className="space-y-4">
@@ -694,7 +717,8 @@ export const InventoryView: React.FC = () => {
       {activeSubTab === 'productos' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {finishedProducts
-            .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+            .filter(p => productKind === 'all' || (productKind === 'production' ? p.isProducible : !p.isProducible))
+            .filter(p => [p.name, p.code, p.barcode, p.supplier].some(value => value?.toLowerCase().includes(searchQuery.toLowerCase())))
             .map(prod => {
               const isAlert = prod.stock <= prod.minStock;
               const hasRecipe = prod.ingredients && prod.ingredients.length > 0;
@@ -720,8 +744,10 @@ export const InventoryView: React.FC = () => {
                       
                       <div className="text-right flex items-start gap-1.5">
                         <div>
-                          <p className="text-xs font-extrabold text-emerald-500">{formatCurrency(prod.price)}</p>
-                          <p className="text-[9px] text-gray-400 leading-tight">Costo: {formatCurrency(prod.cost)}</p>
+                          <p className="text-xs font-extrabold text-emerald-500">{formatCurrency(prod.price)} / {prod.unit ?? 'unit'}</p>
+                          <p className="text-[10px] text-gray-500">{prod.isProducible ? 'Elaboración propia' : 'Reventa'}</p>
+                          {prod.localOnly && <p className="text-[10px] font-bold text-amber-600" title="Este producto no está confirmado en D1. Revisá la cola de sincronización antes de seguir vendiéndolo.">Pendiente en D1</p>}
+                          <p className="text-[9px] text-gray-400 leading-tight">Costo: {formatCurrency(prod.cost)} / {prod.unit ?? 'unit'}</p>
                         </div>
                         {/* 'owner' no está en el tipo UserRole pero el backend lo emite — cast
                             explícito para que la comparación no rompa el typecheck. */}
@@ -743,7 +769,7 @@ export const InventoryView: React.FC = () => {
                       <span className="text-gray-500">Stock Mostrador:</span>
                       <div className="text-right font-mono">
                         <span className={`font-extrabold ${isAlert ? 'text-red-500' : 'text-gray-800 dark:text-zinc-50'}`}>
-                          {prod.stock} unidades
+                          {prod.stock} {prod.unit ?? 'unit'}
                         </span>
                         <span className="text-[9px] text-gray-400 block font-sans">Crítico: {prod.minStock}</span>
                       </div>
@@ -821,7 +847,7 @@ export const InventoryView: React.FC = () => {
                         onClick={() => {
                           const today = new Date().toISOString().split('T')[0];
                           const exp = new Date();
-                          exp.setDate(exp.getDate() + (prod.durabilityDays || 3));
+                          exp.setDate(exp.getDate() + (prod.durabilityDays ?? 3));
                           addBatch({
                             productId: prod.id,
                             batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`,
@@ -990,7 +1016,7 @@ export const InventoryView: React.FC = () => {
                                       onClick={() => {
                                         const today = new Date().toISOString().split('T')[0];
                                         const exp = new Date();
-                                        exp.setDate(exp.getDate() + (prod.durabilityDays || 3));
+                                        exp.setDate(exp.getDate() + (prod.durabilityDays ?? 3));
                                         addBatch({
                                           productId: prod.id,
                                           batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`,
@@ -1377,7 +1403,7 @@ export const InventoryView: React.FC = () => {
                   <input
                     id="modal-insumo-stock"
                     type="number"
-                    step="0.1"
+                    step="0.001"
                     required
                     min="0"
                     value={insumoStock}
@@ -1392,7 +1418,7 @@ export const InventoryView: React.FC = () => {
                 <input
                   id="modal-insumo-minstock"
                   type="number"
-                  step="0.1"
+                  step="0.001"
                   required
                   min="0.1"
                   value={insumoMinStock}
@@ -1555,6 +1581,7 @@ export const InventoryView: React.FC = () => {
                   <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Stock Inicial Horneado</label>
                   <input
                     id="modal-prod-stock"
+                    step="0.001"
                     type="number"
                     required
                     min="0"
@@ -1569,15 +1596,44 @@ export const InventoryView: React.FC = () => {
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Alerta Quiebre Stock (Mín)</label>
                 <input
                   id="modal-prod-minstock"
+                    step="0.001"
                   type="number"
                   required
-                  min="1"
+                  min="0"
                   value={productForm.fields.minStock}
                   onChange={(e) => productForm.setters.setMinStock(Number(e.target.value))}
                   className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
                 />
               </div>
             </div>
+
+            <fieldset className="space-y-3 border-t border-gray-200 dark:border-zinc-700 pt-3">
+              <legend className="text-xs font-bold">Ficha del producto</legend>
+              <p className="text-xs text-gray-500">Precio, costo y stock se expresan por la unidad seleccionada. Cambiarla no convierte cantidades anteriores.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs">Clasificación
+                  <select aria-label="Clasificación del producto" value={prodProducible ? 'produccion' : 'reventa'} onChange={e => setProdProducible(e.target.value === 'produccion')} className="w-full border rounded-lg p-2 bg-white dark:bg-zinc-800">
+                    <option value="produccion">Elaboración propia</option><option value="reventa">Reventa / comprado</option>
+                  </select>
+                </label>
+                <label className="text-xs">Código de barras
+                  <input aria-label="Código de barras" maxLength={128} value={prodBarcode} onChange={e => setProdBarcode(e.target.value)} className="w-full border rounded-lg p-2 bg-white dark:bg-zinc-800" />
+                </label>
+                <label className="text-xs">Stock máximo ({productForm.fields.unit})
+                  <input aria-label="Stock máximo" type="number" min={productForm.fields.minStock} max="10000000" step="0.001" required value={prodMaxStock} onChange={e => setProdMaxStock(Number(e.target.value))} className="w-full border rounded-lg p-2 bg-white dark:bg-zinc-800" />
+                </label>
+                <label className="text-xs">Vida útil (días)
+                  <input aria-label="Vida útil en días" type="number" min="0" max="36500" step="1" required value={prodShelfLife} onChange={e => setProdShelfLife(Number(e.target.value))} className="w-full border rounded-lg p-2 bg-white dark:bg-zinc-800" />
+                </label>
+                <label className="text-xs col-span-2">Descripción / ingredientes / alérgenos
+                  <textarea aria-label="Descripción del producto" maxLength={2000} value={prodDescription} onChange={e => setProdDescription(e.target.value)} className="w-full border rounded-lg p-2 bg-white dark:bg-zinc-800" />
+                </label>
+                <label className="text-xs col-span-2">Conservación
+                  <input aria-label="Conservación" maxLength={2000} placeholder="Ej.: refrigerado, envase cerrado" value={prodStorage} onChange={e => setProdStorage(e.target.value)} className="w-full border rounded-lg p-2 bg-white dark:bg-zinc-800" />
+                </label>
+              </div>
+              <p className="text-xs text-gray-500">La vida útil es una referencia del producto. Controlá el vencimiento real en cada lote.</p>
+            </fieldset>
 
             {/* Advanced fields */}
             <details className="group">
@@ -1600,16 +1656,16 @@ export const InventoryView: React.FC = () => {
                   <input
                     type="number"
                     min="0"
-                    max="99"
+                    max="100"
                     step="0.01"
                     value={prodTaxRate}
                     onChange={e => setProdTaxRate(Number(e.target.value))}
-                    placeholder="0 = Heredar de config. fiscal"
+                    placeholder="0 = Exento"
                     className="w-full text-xs bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-705 rounded-xl p-3 focus:outline-none text-gray-850 dark:text-zinc-100"
                   />
                 </div>
                 <div className="space-y-1 col-span-2">
-                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Atributos / Variantes (JSON)</label>
+                  <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Presentación / Variantes / Observaciones</label>
                   <input
                     type="text"
                     value={prodAttributes}
@@ -1679,7 +1735,7 @@ export const InventoryView: React.FC = () => {
                 id="btn-prod-modal-submit"
                 className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
-                {editingProduct ? 'Guardar Cambios' : 'Guardar Nuevo Horneado'}
+                {editingProduct ? 'Guardar Cambios' : 'Guardar Producto'}
               </button>
             </div>
           </form>

@@ -10,7 +10,7 @@ export class SyncEndpoints {
       operations: changes,
       branch_id: branchId,
     };
-    return this.client.post<SyncPushResponse>("/api/v1/sync/push", body);
+    return this.client.post<SyncPushResponse>("/api/v1/sync/push", body, { branchId });
   }
 
   async pull(

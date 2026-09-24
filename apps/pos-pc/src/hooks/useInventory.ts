@@ -3,19 +3,22 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 /** UUID sin guiones, compatible con todos los entornos modernos (HTTPS o localhost). */
 const uid = () => crypto.randomUUID().replace(/-/g, '');
 
-import { INITIAL_INGREDIENTS, INITIAL_PRODUCTS, PAYMENT_GATEWAYS } from '../initialData';
+import { PAYMENT_GATEWAYS } from '../initialData';
+import { getActiveBranchId } from '../services/api';
 import { fetchProductsFromD1, syncProductToD1, syncProductUpdateToD1 } from '../services/d1-sync';
 import type { Ingredient, Product, PaymentGateway, ProductGroup } from '../types';
 import { safeSetItem, safeParseLocalStorage } from '../utils/safeStorage';
+
+import { getSettings } from './useSettings';
 
 type NotifyFn = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
 export function useInventory(notify: NotifyFn) {
   const [ingredients, setIngredients] = useState<Ingredient[]>(() =>
-    safeParseLocalStorage<Ingredient[]>('pan_erp_ingredients', INITIAL_INGREDIENTS)
+    safeParseLocalStorage<Ingredient[]>('pan_erp_ingredients', [])
   );
   const [products, setProducts] = useState<Product[]>(() =>
-    safeParseLocalStorage<Product[]>('pan_erp_products', INITIAL_PRODUCTS)
+    safeParseLocalStorage<Product[]>('pan_erp_products', [])
   );
   const [gateways, setGateways] = useState<PaymentGateway[]>(() =>
     safeParseLocalStorage<PaymentGateway[]>('pan_erp_gateways', PAYMENT_GATEWAYS)
@@ -97,7 +100,7 @@ export function useInventory(notify: NotifyFn) {
   };
 
   const addProduct = (newProd: Omit<Product, 'id' | 'code'>) => {
-    const prodId = `prod_${newProd.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${uid()}`;
+    const prodId = uid();
     const code = `77912345${uid().slice(-5).toUpperCase()}`;
     const today = new Date().toISOString().split('T')[0];
     const productInstance: Product = {
@@ -105,6 +108,8 @@ export function useInventory(notify: NotifyFn) {
       durabilityDays: 2,
       ...newProd,
       id: prodId,
+      localOnly: true,
+      branchId: getActiveBranchId() ?? getSettings().business.branchId,
       code,
     };
     setProducts(prev => [...prev, productInstance]);
@@ -119,12 +124,23 @@ export function useInventory(notify: NotifyFn) {
       isRawMaterial: productInstance.isRawMaterial,
       isProducible: productInstance.isProducible,
       unit: productInstance.unit,
+      stock: productInstance.stock,
+      maxStock: productInstance.maxStock,
+      description: productInstance.description,
+      barcode: productInstance.barcode,
+      supplier: productInstance.supplier,
+      attributes: productInstance.attributes,
+      taxRate: productInstance.taxRate,
+      durabilityDays: productInstance.durabilityDays,
+      storageInstructions: productInstance.storageInstructions,
+    }).then(synced => {
+      if (synced) setProducts(prev => prev.map(p => p.id === prodId ? { ...p, localOnly: false } : p));
     }).catch(() => {
       // Surface the failure: the product lives locally but the backend never
       // received it. Background sync engine will retry, but the user should know.
       notify(
         '⚠️ Producto sin sincronizar',
-        `"${productInstance.name}" se guardó localmente, pero no pudo sincronizarse. Se reintentará automáticamente.`,
+        `"${productInstance.name}" se guardó localmente, pero no pudo sincronizarse. Revisá la conexión y los permisos; los errores de validación necesitan corregirse antes de guardar.`,
         'warning'
       );
     });
@@ -144,7 +160,7 @@ export function useInventory(notify: NotifyFn) {
    */
   const updateProduct = (
     id: string,
-    changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image' | 'isRawMaterial' | 'isProducible' | 'unit' | 'taxRate' | 'attributes'>>
+    changes: Partial<Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'minStock' | 'code' | 'image' | 'isRawMaterial' | 'isProducible' | 'unit' | 'taxRate' | 'attributes' | 'supplier' | 'description' | 'barcode' | 'maxStock' | 'durabilityDays' | 'storageInstructions'>>
   ) => {
     const previous = productsRef.current.find(prod => prod.id === id);
     if (!previous) return;
@@ -163,6 +179,13 @@ export function useInventory(notify: NotifyFn) {
       isProducible: changes.isProducible,
       unit: changes.unit,
       taxRate: changes.taxRate,
+      maxStock: changes.maxStock,
+      description: changes.description,
+      barcode: changes.barcode,
+      supplier: changes.supplier,
+      attributes: changes.attributes,
+      durabilityDays: changes.durabilityDays,
+      storageInstructions: changes.storageInstructions,
     }).catch(() => {
       // El cambio ya vive en el estado local (offline-first). Si la sync falló
       // por una razón distinta a la red (validation/auth), avisamos; los errores

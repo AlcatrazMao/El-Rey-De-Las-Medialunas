@@ -30,7 +30,7 @@ export const BatchPanel: React.FC<BatchPanelProps> = ({ product, onClose }) => {
   const [newElabDate, setNewElabDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [newExpDate, setNewExpDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() + (product.durabilityDays || 3));
+    d.setDate(d.getDate() + (product.durabilityDays ?? 3));
     return d.toISOString().split('T')[0];
   });
   const [withdrawalMode, setWithdrawalMode] = useState<'manual' | 'automatic'>('manual');
@@ -46,7 +46,7 @@ export const BatchPanel: React.FC<BatchPanelProps> = ({ product, onClose }) => {
     if (!val) return;
     const d = new Date(val + 'T00:00:00');
     if (isNaN(d.getTime())) return;
-    d.setDate(d.getDate() + (product.durabilityDays || 3));
+    d.setDate(d.getDate() + (product.durabilityDays ?? 3));
     setNewExpDate(d.toISOString().split('T')[0]);
   };
 

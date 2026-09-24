@@ -9,6 +9,12 @@ export const unitEnum = z.enum(["unit", "kg", "g", "l", "ml", "dozen", "pack"]);
 
 export const createProductSchema = z
   .object({
+    id: z.string().regex(/^[a-zA-Z0-9_-]{1,180}$/).optional(),
+    initial_stock: z.number().finite().min(0).max(10000000).optional(),
+    supplier: z.string().max(2000).nullable().optional(),
+    attributes: z.string().max(2000).nullable().optional(),
+    shelf_life_days: z.number().int().min(0).max(36500).nullable().optional(),
+    storage_instructions: z.string().max(2000).nullable().optional(),
     code: z
       .string()
       .min(1, "El código es requerido")

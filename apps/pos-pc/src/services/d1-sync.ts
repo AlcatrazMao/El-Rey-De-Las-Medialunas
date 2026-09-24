@@ -1,11 +1,13 @@
 import type { CreateProductRequest, UpdateProductRequest } from "@medialunas/shared/types/api";
 
 import { getSettings } from "../hooks/useSettings";
-import { syncErrorStore } from "../lib/idb";
+import { syncErrorStore, salesQueueStore } from "../lib/idb";
 import type { Sale, Product, CategoryType, CashSession as LocalCashSession, SyncErrorCategory } from "../types";
 
-import { getApi } from "./api";
+import { getApi, getActiveBranchId } from "./api";
 import { dbAdapter } from "./db-adapter";
+import { canonicalProductId, rememberProductIdentity, reconcileSaleProductIds } from './product-identity';
+import { confirmLocalSale } from './sale-confirmation';
 
 // ── Tipos de payload para sync ──────────────────────────────────────────────
 
@@ -80,7 +82,7 @@ export function isNetworkError(err: unknown): boolean {
     return NETWORK_DOM_EXCEPTION_NAMES.has(err.name);
   }
   // AbortError como Error genérico (algunas plataformas no usan DOMException).
-  if (err instanceof Error && err.name === 'AbortError') return true;
+  if (err instanceof Error && (err.name === 'AbortError' || /Request failed.*(fetch|network)/i.test(err.message))) return true;
   return false;
 }
 
@@ -108,11 +110,12 @@ export function calcNextRetry(attempts: number): string {
  *   - server: cualquier otra cosa → reintentable con cautela
  */
 export function classifyError(err: unknown, response?: Response): SyncErrorCategory {
-  if (!navigator.onLine || (err instanceof TypeError && /fetch|network|failed/i.test((err as Error).message))) {
+  if (!navigator.onLine || isNetworkError(err)) {
     return 'network';
   }
-  if (response?.status === 401 || response?.status === 403) return 'auth';
-  if (response?.status === 400 || response?.status === 422) return 'validation';
+  const status = response?.status ?? (err && typeof err === 'object' && 'status' in err ? Number(err.status) : undefined);
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 400 || status === 422 || status === 409) return 'validation';
   return 'server';
 }
 
@@ -182,11 +185,11 @@ export async function enqueue(
  * Además mandamos `idempotency_key` para que el backend deduplique reintentos.
  */
 export function buildSalePayload(sale: Sale, ivaRate: number): SalePayload {
-  const branchId = getSettings().business.branchId;
+  const branchId = sale.branchId ?? getActiveBranchId() ?? getSettings().business.branchId;
   return {
     id: sale.id,
     client_id: sale.id,
-    idempotency_key: sale.idempotencyKey,
+    idempotency_key: sale.idempotencyKey || sale.id,
     branch_id: branchId,
     customer_id: sale.customerId ?? null,
     document_type: sale.documentType,
@@ -237,13 +240,18 @@ export interface SaleCreateResult {
  */
 export async function syncSaleToD1(sale: Sale): Promise<SaleCreateResult | undefined> {
   const ivaRate = getSettings().fiscal.ivaRate;
-  const payload = buildSalePayload(sale, ivaRate);
+  const payload = reconcileSaleProductIds(buildSalePayload(sale, ivaRate));
+  // Durable outbox before network I/O: closing the tab during fetch must not lose the sale.
+  await salesQueueStore.enqueue({ id: sale.id, saleData: { ...payload }, createdAt: sale.date,
+    origin: window.location.hostname === 'localhost' ? 'local' : 'web', synced: false });
 
   try {
     // SalePayload es un superset de CreateSaleRequest: tiene todos los campos
     // requeridos (branch_id, items, payments) más campos de trazabilidad del POS.
     // El tipo es compatible estructuralmente — no necesitamos cast.
     const created = await getApi().sales.create(payload);
+    await salesQueueStore.markSynced(sale.id);
+    confirmLocalSale(sale.id, created as unknown as SaleCreateResult);
     return created as unknown as SaleCreateResult;
   } catch (err) {
     // Extraemos response del error si el api-client lo expone (típicamente
@@ -266,10 +274,7 @@ export async function syncSaleToD1(sale: Sale): Promise<SaleCreateResult | undef
     });
 
     if (category === "network") {
-      // Compat: seguimos encolando en sales_queue para que el SyncEngine
-      // legacy también lo retome al volver online. El idempotency_key del
-      // backend deduplica si ambos paths terminan empujando.
-      await enqueue("sale", { ...payload });
+      // The durable outbox above will retry when connectivity returns.
       return;
     }
     throw err;
@@ -567,6 +572,7 @@ export async function syncExpenseToD1(expense: {
 
 export async function syncProductToD1(product: {
   id: string;
+  branchId?: string;
   name: string;
   code: string;
   price: number;
@@ -576,22 +582,38 @@ export async function syncProductToD1(product: {
   isRawMaterial?: boolean;
   isProducible?: boolean;
   unit?: Product['unit'];
-}): Promise<void> {
-  const branchId = getSettings().business.branchId;
+  taxRate?: number;
+  stock?: number;
+  maxStock?: number;
+  description?: string;
+  barcode?: string;
+  supplier?: string;
+  attributes?: string;
+  durabilityDays?: number;
+  storageInstructions?: string;
+}): Promise<boolean> {
+  const branchId = product.branchId ?? getActiveBranchId() ?? getSettings().business.branchId;
   const ivaRate = getSettings().fiscal.ivaRate;
 
   let category_id = '';
   try {
     const categories = await getApi().categories.getAll(branchId, undefined, true);
     const cats = (Array.isArray(categories) ? categories : []) as Array<{ id: unknown; name: unknown }>;
-    const match = cats.find(c => String(c.name ?? '').toLowerCase() === product.category.toLowerCase());
-    if (match) category_id = String(match.id ?? '');
+    category_id = findServerCategoryId(cats, product.category);
   } catch {
     // Sin red o categorías no disponibles: category_id queda vacío y lo
     // resolvemos server-side via category_name (fallback a la primera categoría).
   }
 
   const payload: CreateProductRequest = {
+    id: product.id,
+    initial_stock: product.stock ?? 0,
+    description: product.description ?? '',
+    barcode: product.barcode ?? '',
+    supplier: product.supplier ?? '',
+    attributes: product.attributes ?? '',
+    shelf_life_days: product.durabilityDays ?? null,
+    storage_instructions: product.storageInstructions ?? '',
     code: product.code,
     name: product.name,
     branch_id: branchId,
@@ -599,9 +621,9 @@ export async function syncProductToD1(product: {
     unit: product.unit ?? 'unit',
     price: product.price,
     cost: product.cost,
-    tax_rate: ivaRate,
+    tax_rate: product.taxRate ?? ivaRate * 100,
     min_stock: product.minStock,
-    max_stock: product.minStock * 10,
+    max_stock: product.maxStock ?? Math.max(product.minStock * 10, product.stock ?? 0),
     track_inventory: true,
     is_producible: product.isProducible ?? true,
     is_raw_material: product.isRawMaterial ?? false,
@@ -612,15 +634,17 @@ export async function syncProductToD1(product: {
   // category_name para que el backend la resuelva. Antes esto retornaba sin
   // crear NI encolar → el alta offline se perdía silenciosamente.
   if (!category_id) {
-    await enqueue('product', { id: product.id, ...payload, category_name: product.category });
-    return;
+    await enqueue('product', { id: product.id, ...payload, category_name: serverCategoryName(product.category) });
+    return false;
   }
 
   try {
     await getApi().products.create(payload);
+    return true;
   } catch (err) {
     if (isNetworkError(err)) {
       await enqueue('product', { id: product.id, ...payload });
+      return false;
     } else {
       throw err;
     }
@@ -649,9 +673,19 @@ export async function syncProductUpdateToD1(id: string, changes: {
   isRawMaterial?: boolean;
   isProducible?: boolean;
   unit?: Product['unit'];
+  stock?: number;
+  maxStock?: number;
+  description?: string;
+  barcode?: string;
+  supplier?: string;
+  attributes?: string;
+  durabilityDays?: number;
+  storageInstructions?: string;
   taxRate?: number;
 }): Promise<void> {
+  id = canonicalProductId(getActiveBranchId() ?? getSettings().business.branchId, id);
   const payload: UpdateProductRequest = {};
+  const writeBranchId = getActiveBranchId() ?? getSettings().business.branchId;
   if (changes.name !== undefined) payload.name = changes.name;
   if (changes.code !== undefined) payload.code = changes.code;
   if (changes.price !== undefined) payload.price = changes.price;
@@ -660,19 +694,24 @@ export async function syncProductUpdateToD1(id: string, changes: {
   if (changes.isRawMaterial !== undefined) payload.is_raw_material = changes.isRawMaterial;
   if (changes.isProducible !== undefined) payload.is_producible = changes.isProducible;
   if (changes.unit !== undefined) payload.unit = changes.unit;
-  // supplier es local-only (no existe en backend Product), no se sincroniza
+  if (changes.maxStock !== undefined) payload.max_stock = changes.maxStock;
+  if (changes.description !== undefined) payload.description = changes.description;
+  if (changes.barcode !== undefined) payload.barcode = changes.barcode;
+  if (changes.supplier !== undefined) payload.supplier = changes.supplier;
+  if (changes.attributes !== undefined) payload.attributes = changes.attributes;
+  if (changes.durabilityDays !== undefined) payload.shelf_life_days = changes.durabilityDays;
+  if (changes.storageInstructions !== undefined) payload.storage_instructions = changes.storageInstructions;
   if (changes.taxRate !== undefined) payload.tax_rate = changes.taxRate;
 
   let categoryName: string | undefined;
   if (changes.category !== undefined) {
-    categoryName = changes.category;
-    const branchId = getSettings().business.branchId;
+    categoryName = serverCategoryName(changes.category);
+    const branchId = writeBranchId;
     let category_id = '';
     try {
       const categories = await getApi().categories.getAll(branchId, undefined, true);
       const cats = (Array.isArray(categories) ? categories : []) as Array<{ id: unknown; name: unknown }>;
-      const match = cats.find(c => String(c.name ?? '').toLowerCase() === changes.category!.toLowerCase());
-      if (match) category_id = String(match.id ?? '');
+      category_id = findServerCategoryId(cats, changes.category);
     } catch {
       // offline: category_id queda vacío → se resuelve server-side con category_name
     }
@@ -681,11 +720,15 @@ export async function syncProductUpdateToD1(id: string, changes: {
 
   if (Object.keys(payload).length === 0 && categoryName === undefined) return;
 
+  if (categoryName !== undefined && payload.category_id === undefined) {
+    await enqueue('product', { id, ...payload, branch_id: writeBranchId, category_name: categoryName }, 'update');
+    return;
+  }
   try {
     await getApi().products.update(id, payload);
   } catch (err) {
     if (isNetworkError(err)) {
-      const data: Record<string, unknown> = { id, ...payload };
+      const data: Record<string, unknown> = { id, ...payload, branch_id: writeBranchId };
       if (categoryName !== undefined && payload.category_id === undefined) {
         data.category_name = categoryName;
       }
@@ -697,14 +740,39 @@ export async function syncProductUpdateToD1(id: string, changes: {
 }
 
 const VALID_CATEGORIES = new Set<CategoryType>(['panes', 'facturas', 'pasteleria', 'bebidas', 'salados']);
+const SERVER_CATEGORY_NAMES: Record<CategoryType, string[]> = {
+  panes: ['Pan Dulce y Salado', 'Panadería'],
+  facturas: ['Facturas', 'Medialunas'],
+  pasteleria: ['Pastelería', 'Tortas', 'Postres'],
+  bebidas: ['Bebidas', 'Café', 'Aguas y Jugos'],
+  salados: ['Salados'],
+};
 
-function normalizeCategoryName(name: string | undefined | null): CategoryType {
-  const lower = (name ?? "").toLowerCase();
+export function serverCategoryName(category: string): string {
+  const names = SERVER_CATEGORY_NAMES[category as CategoryType];
+  if (!names) throw new Error(`Categoría inválida: ${category}`);
+  return names[0];
+}
+
+export function findServerCategoryId(cats: Array<{ id: unknown; name: unknown }>, category: string): string {
+  const names = SERVER_CATEGORY_NAMES[category as CategoryType];
+  if (!names) return '';
+  const normalize = (value: unknown) => String(value ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const preferred of names) {
+    const match = cats.find(c => normalize(c.name) === normalize(preferred));
+    if (match) return String(match.id ?? '');
+  }
+  const match = cats.find(c => normalizeCategoryName(String(c.name ?? '')) === category);
+  return match ? String(match.id ?? '') : '';
+}
+
+export function normalizeCategoryName(name: string | undefined | null): CategoryType {
+  const lower = (name ?? "").toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (VALID_CATEGORIES.has(lower as CategoryType)) return lower as CategoryType;
   if (lower.includes("pan")) return "panes";
-  if (lower.includes("factor") || lower.includes("medialuna")) return "facturas";
-  if (lower.includes("pastel") || lower.includes("torta")) return "pasteleria";
-  if (lower.includes("bebida") || lower.includes("cafe")) return "bebidas";
+  if (lower.includes("factur") || lower.includes("medialuna")) return "facturas";
+  if (lower.includes("pastel") || lower.includes("torta") || lower.includes("postre")) return "pasteleria";
+  if (["bebida", "cafe", "jugo", "agua", "gaseosa", "licuado"].some(part => lower.includes(part))) return "bebidas";
   if (lower.includes("salad") || lower.includes("sandw")) return "salados";
   return "panes";
 }
@@ -717,13 +785,22 @@ export async function fetchProductsFromD1(
   // los productos nuevos venían con stock=0 (y el merge silenciaba la realidad
   // del server). Traemos el inventario en paralelo y mergeamos current_quantity
   // → stock por product_id como clave.
-  const [productsRes, categoriesRes, inventoryRows] = await Promise.all([
+  const [productsRes, categoriesRes, inventoryRows, pendingChanges] = await Promise.all([
     getApi().products.getAll(branchId ? { branch_id: branchId, limit: 200 } : { limit: 200 }),
     getApi().categories.getAll(branchId, undefined, true),
     fetchInventoryFromD1(branchId).catch(() => [] as unknown[]),
+    dbAdapter.syncQueue.toArray(),
   ]);
 
   const d1Products = (productsRes.data ?? []) as unknown as Record<string, unknown>[];
+  // Load every page before deciding whether a cached product exists on D1.
+  // Otherwise product #201 would look local-only even though it is persisted.
+  const totalProducts = productsRes.pagination?.total ?? d1Products.length;
+  while (d1Products.length < totalProducts) {
+    const page = await getApi().products.getAll({ branch_id: branchId, limit: 200, offset: d1Products.length });
+    if (!page.data?.length) throw new Error('El catálogo del servidor está incompleto; reintentá la carga');
+    d1Products.push(...page.data as unknown as Record<string, unknown>[]);
+  }
   const d1Categories = (Array.isArray(categoriesRes) ? categoriesRes : []) as unknown as Record<string, unknown>[];
   const d1Inventory = (Array.isArray(inventoryRows) ? inventoryRows : []) as unknown as Record<string, unknown>[];
 
@@ -743,6 +820,8 @@ export async function fetchProductsFromD1(
     stockByProductId.set(pid, (stockByProductId.get(pid) ?? 0) + qty);
   }
 
+  const pendingProductIds = new Set(pendingChanges.filter(change => change.entity_type === 'product')
+    .map(change => canonicalProductId(branchId ?? getSettings().business.branchId, String(change.data.id ?? ''))));
   const existingById = new Map<string, Product>(existing.map(p => [p.id, p]));
   const merged: Product[] = [...existing];
   const seenIds = new Set<string>(existing.map(p => p.id));
@@ -751,6 +830,14 @@ export async function fetchProductsFromD1(
     const id = String(d1.id ?? "");
     if (!id) continue;
 
+    const localAlias = existing.find(p => p.id !== id && p.code === d1.code && (p.branchId === branchId || (!p.branchId && branchId === getSettings().business.branchId)));
+    if (localAlias && branchId) {
+      rememberProductIdentity(branchId, localAlias.id, id);
+      existingById.set(id, { ...localAlias, id });
+      const aliasIndex = merged.findIndex(p => p.id === localAlias.id);
+      if (aliasIndex >= 0) merged.splice(aliasIndex, 1);
+      if (!merged.some(p => p.id === id)) merged.push({ ...localAlias, id });
+    }
     const categoryName = categoryNameById.get(String(d1.category_id ?? ""));
     const category = normalizeCategoryName(categoryName);
     // Si inventory trae la fila → es la fuente de verdad. Si no, conservamos
@@ -760,6 +847,9 @@ export async function fetchProductsFromD1(
     if (existingById.has(id)) {
       const local = existingById.get(id)!;
       const idx = merged.findIndex(p => p.id === id);
+      // Offline edits are newer than the server snapshot. Keep them until
+      // the outbox acknowledges them; queue removal triggers a fresh pull.
+      if (pendingProductIds.has(id)) { merged[idx] = { ...local, localOnly: false }; continue; }
       merged[idx] = {
         ...local,
         name: String(d1.name ?? local.name),
@@ -771,7 +861,17 @@ export async function fetchProductsFromD1(
         stock: serverStock ?? local.stock,
         isRawMaterial: Boolean(Number(d1.is_raw_material ?? 0)),
         isProducible: Boolean(Number(d1.is_producible ?? 0)),
+        localOnly: false,
+        branchId: String(d1.branch_id ?? branchId ?? ''),
         unit: (d1.unit ?? 'unit') as Product['unit'],
+        description: String(d1.description ?? ''),
+        barcode: String(d1.barcode ?? ''),
+        supplier: String(d1.supplier ?? ''),
+        attributes: String(d1.attributes ?? ''),
+        maxStock: Number(d1.max_stock ?? 999999),
+        taxRate: Number(d1.tax_rate ?? 21),
+        durabilityDays: d1.shelf_life_days == null ? undefined : Number(d1.shelf_life_days),
+        storageInstructions: String(d1.storage_instructions ?? ''),
       };
     } else if (!seenIds.has(id)) {
       seenIds.add(id);
@@ -788,7 +888,17 @@ export async function fetchProductsFromD1(
         ingredients: [],
         isRawMaterial: Boolean(Number(d1.is_raw_material ?? 0)),
         isProducible: Boolean(Number(d1.is_producible ?? 0)),
+        localOnly: false,
+        branchId: String(d1.branch_id ?? branchId ?? ''),
         unit: (d1.unit ?? 'unit') as Product['unit'],
+        description: String(d1.description ?? ''),
+        barcode: String(d1.barcode ?? ''),
+        supplier: String(d1.supplier ?? ''),
+        attributes: String(d1.attributes ?? ''),
+        maxStock: Number(d1.max_stock ?? 999999),
+        taxRate: Number(d1.tax_rate ?? 21),
+        durabilityDays: d1.shelf_life_days == null ? undefined : Number(d1.shelf_life_days),
+        storageInstructions: String(d1.storage_instructions ?? ''),
       });
     }
   }
@@ -804,5 +914,6 @@ export async function fetchProductsFromD1(
   // El motor de retries / próximos refreshes terminan reconciliando.
   const d1Ids = new Set(d1Products.map(p => String(p.id ?? '')));
   const existingIds = new Set(existing.map(p => p.id));
-  return merged.filter(p => d1Ids.has(p.id) || existingIds.has(p.id));
+  return merged.filter(p => d1Ids.has(p.id) || existingIds.has(p.id)).map(p =>
+    d1Ids.has(p.id) || (p.branchId && p.branchId !== branchId) ? p : { ...p, localOnly: true });
 }

@@ -72,6 +72,7 @@ import type {
 export interface ApiClientOptions {
   baseUrl: string;
   getToken: () => string | null | Promise<string | null>;
+  getBranchId?: () => string | null;
   /**
    * Called when a request fails with 401 Unauthorized. Should attempt to
    * refresh the access token and return `true` if a fresh token is now
@@ -83,6 +84,7 @@ export interface ApiClientOptions {
 }
 
 export interface RequestOptions {
+  branchId?: string;
   params?: Record<string, string | number | boolean | undefined>;
   signal?: AbortSignal;
 }

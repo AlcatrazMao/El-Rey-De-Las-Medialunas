@@ -137,7 +137,7 @@ export async function fetchWithAuth(input: string, init: RequestInit = {}): Prom
     // Para roles operativos el backend igual fuerza su default_branch del token
     // (el header es más relevante para admin/owner/supervisor con selector),
     // pero lo mandamos siempre que lo tengamos resuelto.
-    if (activeBranchId) headers.set("X-Branch-Id", activeBranchId);
+    if (activeBranchId && !headers.has("X-Branch-Id")) headers.set("X-Branch-Id", activeBranchId);
     return headers;
   };
 
@@ -157,6 +157,7 @@ export function getApi() {
   if (!client) {
     client = createApiClient({
       baseUrl: API_URL,
+      getBranchId: () => activeBranchId,
       getToken: () => sessionStorage.getItem("access_token") || "",
       onUnauthorized: async () => {
         // doTokenRefresh ya desloguea en los casos de falla real (401/403,

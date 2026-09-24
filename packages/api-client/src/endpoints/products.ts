@@ -19,6 +19,7 @@ export interface ProductFilters {
   is_raw_material?: boolean;
   search?: string;
   page?: number;
+  offset?: number;
   limit?: number;
   sort_by?: string;
   sort_order?: "asc" | "desc";
@@ -39,12 +40,14 @@ export class ProductEndpoints {
 
   async create(data: CreateProductRequest): Promise<Product> {
     const response = await this.client.post<ProductResponse>("/api/v1/products", data);
-    return response.data!;
+    if (!response.success || !response.data?.id) throw new Error("El servidor no confirmó el producto");
+    return response.data;
   }
 
   async update(id: string, data: UpdateProductRequest): Promise<Product> {
     const response = await this.client.put<ProductResponse>(`/api/v1/products/${id}`, data);
-    return response.data!;
+    if (!response.success || !response.data?.id) throw new Error("El servidor no confirmó el producto");
+    return response.data;
   }
 
   async delete(id: string): Promise<void> {

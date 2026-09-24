@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { INITIAL_PRODUCTS } from '../initialData';
 import { API_URL, fetchWithAuth } from '../services/api';
 import { enqueue, isNetworkError } from '../services/d1-sync';
 import type { ProductBatch, Product } from '../types';
@@ -132,62 +131,7 @@ export function useBatches({ notify, products }: UseBatchesParams) {
       localStorage.removeItem('pan_erp_batches');
     }
 
-    const initialBatches: ProductBatch[] = [];
-    INITIAL_PRODUCTS.forEach((prod, index) => {
-      const durability = prod.durabilityDays || 3;
-      const totalStock = prod.stock || 50;
-      const freshQty = Math.floor(totalStock * 0.6);
-      const nearQty = Math.floor(totalStock * 0.3);
-      const expiredQty = totalStock - freshQty - nearQty;
-
-      if (freshQty > 0) {
-        const freshElab = new Date();
-        initialBatches.push({
-          id: uid(),
-          productId: prod.id,
-          batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-F-${String(index + 10).padStart(2, '0')}`,
-          quantity: freshQty,
-          stock: freshQty,
-          elaborationDate: freshElab.toISOString().split('T')[0],
-          expiryDate: new Date(freshElab.getTime() + durability * 86400000).toISOString().split('T')[0],
-          status: 'active',
-          withdrawalMode: 'manual',
-        });
-      }
-      if (nearQty > 0) {
-        const nearElab = new Date();
-        nearElab.setDate(nearElab.getDate() - (durability - 1));
-        initialBatches.push({
-          id: uid(),
-          productId: prod.id,
-          batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-N-${String(index + 20).padStart(2, '0')}`,
-          quantity: nearQty,
-          stock: nearQty,
-          elaborationDate: nearElab.toISOString().split('T')[0],
-          expiryDate: new Date(nearElab.getTime() + durability * 86400000).toISOString().split('T')[0],
-          status: 'active',
-          withdrawalMode: 'manual',
-        });
-      }
-      if (expiredQty > 0) {
-        const expElab = new Date();
-        expElab.setDate(expElab.getDate() - (durability + 1));
-        const expExpiryDate = new Date(expElab.getTime() + durability * 86400000).toISOString().split('T')[0];
-        const isExpired = new Date(expExpiryDate).getTime() < Date.now();
-        initialBatches.push({
-          id: uid(),
-          productId: prod.id,
-          batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-E-${String(index + 30).padStart(2, '0')}`,
-          quantity: expiredQty,
-          stock: expiredQty,
-          elaborationDate: expElab.toISOString().split('T')[0],
-          expiryDate: expExpiryDate,
-          status: isExpired ? 'expired' : 'active',
-          withdrawalMode: 'manual',
-        });
-      }
-    });
-    return initialBatches;
+    return [];
   });
 
   // Refs para que checkExpiry lea SIEMPRE el último valor de products/batches

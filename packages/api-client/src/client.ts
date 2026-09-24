@@ -10,10 +10,12 @@ export class ApiClient {
   private getToken: () => string | null | Promise<string | null>;
   private onUnauthorized?: () => boolean | Promise<boolean>;
   private retries: number;
+  private getBranchId?: () => string | null;
 
   constructor(options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.getToken = options.getToken;
+    this.getBranchId = options.getBranchId;
     this.onUnauthorized = options.onUnauthorized;
     this.retries = options.retries ?? DEFAULT_RETRIES;
   }
@@ -22,12 +24,14 @@ export class ApiClient {
     this.baseUrl = url.replace(/\/+$/, "");
   }
 
-  private async buildHeaders(): Promise<HeadersInit> {
+  private async buildHeaders(requestBranchId?: string): Promise<HeadersInit> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
     };
 
+    const branchId = requestBranchId ?? this.getBranchId?.();
+    if (branchId) headers["X-Branch-Id"] = branchId;
     const token = await this.getToken();
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
@@ -83,7 +87,7 @@ export class ApiClient {
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const headers = await this.buildHeaders();
+        const headers = await this.buildHeaders(options?.branchId);
         const url = this.buildUrl(path, options?.params);
 
         const fetchOptions: RequestInit = {
@@ -176,6 +180,8 @@ export class ApiClient {
       Accept: "application/json",
     };
 
+    const branchId = options?.branchId ?? this.getBranchId?.();
+    if (branchId) headers["X-Branch-Id"] = branchId;
     const token = await this.getToken();
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;

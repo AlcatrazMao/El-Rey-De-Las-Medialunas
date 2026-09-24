@@ -1,3 +1,4 @@
+import { db } from '@medialunas/db-client';
 import type { User as FirebaseUser } from 'firebase/auth';
 import * as React from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
@@ -16,16 +17,12 @@ import { useSupplyRequests } from './hooks/useSupplyRequests';
 import { enqueueSale as syncEnqueueSale, syncOnCashClose as syncOnCashCloseFn } from './hooks/useSyncEngine';
 import { useUsers } from './hooks/useUsers';
 import {
-  INITIAL_INGREDIENTS,
-  INITIAL_PRODUCTS,
-  INITIAL_SALES,
-  INITIAL_EXPENSES,
-  USERS,
-  INITIAL_NOTIFICATIONS,
   PAYMENT_GATEWAYS,
 } from './initialData';
+import { clearLocalBusinessStores } from './lib/idb';
 import { API_URL, fetchWithAuth, setActiveBranchId as setApiActiveBranchId } from './services/api';
 import { syncSaleToD1, buildSalePayload, updateSupplyRequestStatusInD1, syncStockMovementToD1, syncBatchToD1 } from './services/d1-sync';
+import { canonicalProductId } from './services/product-identity';
 import type {
   Ingredient, Product, ProductGroup, Sale, Expense, User, PushNotification, PaymentGateway,
   UserRole, ProductBatch, SupplyRequest, CashSession, Customer,
@@ -62,7 +59,7 @@ interface AppContextType {
   addSystemNotification: (title: string, message: string, type: PushNotification['type']) => void;
   markNotificationAsRead: (id: string) => void;
   clearNotifications: () => void;
-  resetAllData: () => void;
+  resetAllData: () => Promise<void>;
   addBatch: (batch: Omit<ProductBatch, 'id' | 'status'>) => void;
   requestBatchWithdrawal: (batchId: string, quantity: number, reason: string) => Promise<{ queued: boolean }>;
   requestSupply: (type: 'ingredient' | 'product', itemId: string, quantity: number, reason: string) => void;
@@ -192,7 +189,7 @@ export const AppProvider: React.FC<{
     // Al completarse una merma el backend descontó atómicamente producto Y lote:
     // refrescamos ambos desde D1 para reflejar el valor persistido sin esperar al
     // próximo poll (antes solo se refrescaba el producto, el lote quedaba stale).
-    inv.refreshProductsFromD1(getSettings().business.branchId);
+    inv.refreshProductsFromD1(usr.activeBranchId ?? getSettings().business.branchId);
     void bch.refreshBatchesFromD1();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- reaccionamos sólo a `requests`; refreshProductsFromD1/refreshBatchesFromD1 son estables (useCallback)
   }, [requests]);
@@ -200,13 +197,14 @@ export const AppProvider: React.FC<{
   useEffect(() => {
     const loadFromD1 = () => {
       cust.loadCustomersFromD1();
-      inv.refreshProductsFromD1(getSettings().business.branchId);
+      inv.refreshProductsFromD1(usr.activeBranchId ?? getSettings().business.branchId);
     };
     loadFromD1();
     window.addEventListener('firebase-token-ready', loadFromD1);
-    return () => window.removeEventListener('firebase-token-ready', loadFromD1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only effect; hook refs are stable
-  }, []);
+    window.addEventListener('catalog-synced', loadFromD1);
+    return () => { window.removeEventListener('firebase-token-ready', loadFromD1); window.removeEventListener('catalog-synced', loadFromD1); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the active branch changes
+  }, [usr.activeBranchId]);
 
   const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar', documentType: Sale['documentType'] = 'ticket') => {
     // Fix 2: prevent double-click / rapid-scanner from creating duplicate invoices.
@@ -226,6 +224,9 @@ export const AppProvider: React.FC<{
     // Bug 8 fix: capture settings once — avoids repeated getSettings() calls throughout the function
     const settings = getSettings();
     const ivaRate = settings.fiscal.ivaRate;
+    cartItems = cartItems.map(item => ({ ...item,
+      productId: canonicalProductId(usr.activeBranchId ?? settings.business.branchId, item.productId),
+    }));
 
     // Idempotency: si el caller no mandó key, generamos una. Idealmente la genera
     // el POSView al iniciar el cobro y la pasa acá.
@@ -242,6 +243,9 @@ export const AppProvider: React.FC<{
 
     // Validation pass — uses snapshot (early-exit, no state mutation yet)
     for (const item of cartItems) {
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        return { success: false, error: { code: 'INVALID_QUANTITY', message: 'Ingresá una cantidad mayor a cero para cada producto.' } };
+      }
       const product = snapshotProducts.find(p => p.id === item.productId);
       if (!product) {
         return { success: false, error: { code: 'PRODUCT_NOT_FOUND', message: `El producto ${item.productId} no existe.` } };
@@ -364,8 +368,9 @@ export const AppProvider: React.FC<{
     const operatorRole = seller ? seller.role : usr.activeUser.role;
 
     const newSaleInstance: Sale = {
-      id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      id: crypto.randomUUID().replace(/-/g, ''),
       invoiceNumber,
+      branchId: usr.activeBranchId ?? getSettings().business.branchId,
       documentType,
       date: dateToday.toISOString(),
       items: saleLineItems,
@@ -376,6 +381,7 @@ export const AppProvider: React.FC<{
       total: totalFinal,
       tax: finalTax,
       idempotencyKey: finalIdempotencyKey,
+      syncFailed: true,
       paymentMethod,
       paymentStatus: 'completed',
       operatorRole,
@@ -480,7 +486,7 @@ export const AppProvider: React.FC<{
       // red (ver su firma) — nada que reconciliar todavía en ese caso.
       if (!created) return;
       sal.setSales(prev => prev.map(s => s.id === newSaleInstance.id
-        ? { ...s, documentNumber: created.document_number ?? s.documentNumber, documentType: (created.document_type as Sale['documentType']) ?? s.documentType }
+        ? { ...s, syncFailed: false, documentNumber: created.document_number ?? s.documentNumber, documentType: (created.document_type as Sale['documentType']) ?? s.documentType }
         : s));
     }).catch(async (err: unknown) => {
       if (import.meta.env.DEV) console.warn('[D1 sync] sale failed:', err instanceof Error ? err.message : err);
@@ -595,7 +601,13 @@ export const AppProvider: React.FC<{
     notif.addSystemNotification('✅ Abastecimiento Aprobado', `Se autorizó reposición de ${approved.quantity} ${approved.unit} para "${approved.itemName}". Detalle admin: ${adminMemo}`, 'success');
   };
 
-  const resetAllData = () => {
+  const resetAllData = async () => {
+    // Clear both offline stores before touching React/localStorage state. A
+    // localStorage-only reset leaves pending sales queued for the next sync.
+    await clearLocalBusinessStores();
+    await db.transaction('rw', db.tables, async () => {
+      for (const table of db.tables) await table.clear();
+    });
     // Fix 4: instead of a hard-coded list (which inevitably goes stale as new
     // keys are added), sweep everything with a pan_erp_* or erp_* prefix.
     // pan_erp_settings and pan_erp_widgets_* are intentionally preserved so the
@@ -611,17 +623,16 @@ export const AppProvider: React.FC<{
       }
     }
     toRemove.forEach(k => localStorage.removeItem(k));
-    inv.setIngredients(INITIAL_INGREDIENTS); inv.setProducts(INITIAL_PRODUCTS); inv.setGateways(PAYMENT_GATEWAYS);
-    sal.setSales(INITIAL_SALES); exp.setExpenses(INITIAL_EXPENSES); usr.setUsers(USERS);
+    inv.setIngredients([]); inv.setProducts([]); inv.setGateways(PAYMENT_GATEWAYS);
+    sal.setSales([]); exp.setExpenses([]); usr.setUsers([usr.activeUser]);
     usr.setActiveTab('dashboard'); usr.invoiceSeqRef.current = 0;
     bch.setBatches([]);
     cash.setCurrentCashSession(null); cash.setCashSessionsHistory([]);
     cust.setCustomers([]);
     sup.setSupplyRequests([]);
-    // NOTE: notifications reset via clearNotifications + replay since the hook owns state
+    // No demo notifications should be recreated after a reset.
     notif.clearNotifications();
-    INITIAL_NOTIFICATIONS.forEach(n => notif.addSystemNotification(n.title, n.message, n.type));
-    notif.addSystemNotification('⚙️ Sistema Reiniciado', 'La base de datos original ha sido restablecida en tiempo real.', 'success');
+    notif.addSystemNotification('⚙️ Datos locales limpiados', 'Se borraron los datos de este dispositivo. La base D1 remota no fue modificada.', 'success');
   };
 
   const requestBatchWithdrawal = (batchId: string, quantity: number, reason: string): Promise<{ queued: boolean }> => {
@@ -635,7 +646,7 @@ export const AppProvider: React.FC<{
   // for practical purposes (they're recreated only when their owning hooks
   // re-render, which is already in this dep array via the underlying state).
   const value: AppContextType = useMemo(() => ({
-    ingredients: inv.ingredients, products: inv.products, sales: sal.sales, expenses: exp.expenses,
+    ingredients: inv.ingredients, products: inv.products.filter(p => (p.branchId ?? getSettings().business.branchId) === (usr.activeBranchId ?? getSettings().business.branchId)), sales: sal.sales, expenses: exp.expenses,
     users: usr.users, notifications: notif.notifications, gateways: inv.gateways,
     activeUser: usr.activeUser, activeTab: usr.activeTab, batches: bch.batches,
     supplyRequests: sup.supplyRequests,

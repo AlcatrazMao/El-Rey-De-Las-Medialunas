@@ -48,7 +48,9 @@ export const dbAdapter: DbClientInterface = {
 
     async remove(clientIds) {
       if (clientIds.length === 0) return;
+      const removed = await db.syncQueue.where("entityId").anyOf(clientIds).toArray();
       await db.syncQueue.where("entityId").anyOf(clientIds).delete();
+      if (removed.some(item => item.entityType === 'product')) window.dispatchEvent(new Event('catalog-synced'));
     },
 
     async markFailed(clientId, _error, retryCount) {

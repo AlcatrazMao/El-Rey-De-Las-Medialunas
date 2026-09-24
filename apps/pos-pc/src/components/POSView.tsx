@@ -1028,7 +1028,7 @@ export const POSView: React.FC = () => {
       if (targetIdx < 0) return prev;
       const existing = prev[targetIdx];
       playBeep(400, 0.05);
-      if (existing.quantity === 1) {
+      if (existing.quantity <= 1) {
         return prev.filter((_, i) => i !== targetIdx);
       }
       return prev.map((item, i) =>
@@ -1917,6 +1917,7 @@ export const POSView: React.FC = () => {
         aria-label="Buscar productos"
       >
         <Search className="h-6 w-6 group-hover:rotate-12 transition-transform duration-300" />
+        <span className="ml-2 text-sm font-bold">Buscar</span>
       </button>
 
       {/* MODAL / POPUP: TRANSACTION CONFIRMATION / PRINT PREVIEW */}

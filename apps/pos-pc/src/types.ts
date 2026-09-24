@@ -25,6 +25,8 @@ export interface ProductGroup {
 }
 
 export interface Product {
+  localOnly?: boolean;
+  branchId?: string;
   id: string;
   name: string;
   category: CategoryType;
@@ -41,6 +43,9 @@ export interface Product {
   isRawMaterial?: boolean;
   isProducible?: boolean;
   unit?: 'unit' | 'kg' | 'g' | 'l' | 'ml' | 'dozen' | 'pack';
+  description?: string;
+  maxStock?: number;
+  storageInstructions?: string;
   supplier?: string;
   taxRate?: number;
   barcode?: string;
@@ -59,6 +64,7 @@ export interface SaleItem {
 }
 
 export interface Sale {
+  branchId?: string;
   id: string;
   /**
    * Legacy: rótulo local calculado antes del change "Document Types". Se

@@ -99,7 +99,7 @@ export type CategoriesResponse = ApiResponse<Category[]>;
 export type CreateProductRequest = Omit<
   Product,
   "id" | "created_at" | "updated_at" | "deleted_at"
->;
+> & { id?: string; initial_stock?: number };
 export type UpdateProductRequest = Partial<CreateProductRequest>;
 export type ProductResponse = ApiResponse<Product>;
 export type ProductsResponse = PaginatedResponse<Product>;

@@ -102,19 +102,25 @@ export const MainHeadLayout: React.FC = () => {
                   <LogOut className="h-3.5 w-3.5" />
                   Cerrar sesión
                 </button>
-                <button
+                {isAdmin && <button
                   id="btn-system-reset"
-                  onClick={() => {
+                  onClick={async () => {
                     // eslint-disable-next-line no-alert
-                    if (window.confirm('¿Reiniciar todos los datos? Se perderán las ventas del día.')) {
-                      resetAllData();
+                    if (window.confirm('¿Borrar los datos locales de este dispositivo, incluidas las ventas pendientes de sincronizar? D1 no se modificará y sus datos pueden volver a descargarse.')) {
+                      try {
+                        await resetAllData();
+                      } catch (error) {
+                        // eslint-disable-next-line no-alert
+                        window.alert(`No se completó la limpieza local: ${error instanceof Error ? error.message : String(error)}`);
+                      }
                     }
                   }}
                   className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-gray-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 dark:hover:text-red-400 transition-colors text-left cursor-pointer"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  Restablecer sistema
+                  Limpiar datos locales
                 </button>
+                }
               </div>
             </div>
           </div>

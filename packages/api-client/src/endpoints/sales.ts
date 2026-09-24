@@ -25,8 +25,9 @@ export class SaleEndpoints {
   constructor(private client: ApiClient) {}
 
   async create(data: CreateSaleRequest): Promise<Sale> {
-    const response = await this.client.post<SaleResponse>("/api/v1/sales", data);
-    return response.data!;
+    const response = await this.client.post<SaleResponse>("/api/v1/sales", data, { branchId: data.branch_id });
+    if (!response.success || !response.data?.id) throw new Error("El servidor no confirmó la venta");
+    return response.data;
   }
 
   async getAll(filters?: SaleFilters): Promise<SalesResponse> {

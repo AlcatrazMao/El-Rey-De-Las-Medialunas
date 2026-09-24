@@ -136,6 +136,19 @@ export function openDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
+/** Borra sólo datos de negocio offline; no toca credenciales ni D1. */
+export async function clearLocalBusinessStores(): Promise<void> {
+  const db = await openDB();
+  const stores = [STORE_BATCHES, STORE_SALES_QUEUE, STORE_OFFERS, STORE_SYNC_ERRORS, STORE_REQUESTS];
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(stores, 'readwrite');
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error ?? new Error('Local reset aborted'));
+    for (const store of stores) transaction.objectStore(store).clear();
+  });
+}
+
 export const batchStore = {
   async getAll(filters?: { status?: string }): Promise<IDBBatch[]> {
     const db = await openDB();

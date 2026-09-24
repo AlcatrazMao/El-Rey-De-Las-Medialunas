@@ -67,6 +67,10 @@ export interface Category extends Timestamps {
 }
 
 export interface Product extends Timestamps {
+  supplier?: string | null;
+  attributes?: string | null;
+  shelf_life_days?: number | null;
+  storage_instructions?: string | null;
   id: string;
   code: string;
   barcode?: string | null;
@@ -170,6 +174,8 @@ export interface StockMovement {
 }
 
 export interface Sale {
+  document_type?: string;
+  document_number?: string | number;
   id: string;
   client_id?: string | null;
   idempotency_key?: string | null;

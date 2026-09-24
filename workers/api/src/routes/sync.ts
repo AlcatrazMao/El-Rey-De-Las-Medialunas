@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { DEFAULT_BRANCH_ID } from "../config/constants";
+import { createCatalogProduct, validateProductDetails, PRODUCT_DETAIL_TEXT_FIELDS } from '../lib/catalog-product';
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
@@ -252,8 +253,8 @@ syncRoutes.post("/push", async (c) => {
 // ── Operation dispatcher ───────────────────────────────────────────────
 
 // Resuelve category_id para productos creados/editados offline:
-//   category_id > category_name (match por nombre) > primera categoría de la
-//   sucursal (mismo fallback que products.ts POST). Lanza si no hay ninguna.
+//   category_id > category_name (match por nombre/alias). Nunca elegir la
+//   primera categoría arbitrariamente: corrompe la clasificación silenciosamente.
 async function resolveProductCategory(
   db: D1Database,
   branchId: string,
@@ -264,21 +265,18 @@ async function resolveProductCategory(
 
   const categoryName = typeof d.category_name === "string" ? d.category_name.trim() : "";
   if (categoryName) {
+    const aliases: Record<string, string> = {
+      panes: 'Pan Dulce y Salado', facturas: 'Facturas',
+      pasteleria: 'Pastelería', bebidas: 'Bebidas', salados: 'Salados',
+    };
+    const resolvedName = aliases[categoryName.toLowerCase()] ?? categoryName;
     const catRow = await db
       .prepare("SELECT id FROM categories WHERE branch_id = ? AND lower(name) = lower(?) LIMIT 1")
-      .bind(branchId, categoryName)
+      .bind(branchId, resolvedName)
       .first<{ id: string }>();
     if (catRow) return catRow.id;
   }
-
-  const firstCat = await db
-    .prepare("SELECT id FROM categories WHERE branch_id = ? LIMIT 1")
-    .bind(branchId)
-    .first<{ id: string }>();
-  if (!firstCat) {
-    throw new Error("VALIDATION_ERROR: no hay categorías disponibles en la sucursal");
-  }
-  return firstCat.id;
+  throw new Error('VALIDATION_ERROR: categoría inexistente en la sucursal');
 }
 
 async function applyOperation(
@@ -851,6 +849,8 @@ async function applyOperation(
         throw new Error("FORBIDDEN: Sin permisos para gestionar productos");
       }
 
+      const detailsError = validateProductDetails(d);
+      if (detailsError) throw new Error(`VALIDATION_ERROR: ${detailsError}`);
       const unit = VALID_PRODUCT_UNITS.has(String(d.unit ?? "")) ? String(d.unit) : "unit";
 
       if (op.operation === "create") {
@@ -877,19 +877,7 @@ async function applyOperation(
 
         const categoryId = await resolveProductCategory(db, branchId, d);
 
-        const isRawMaterial = d.is_raw_material ? 1 : 0;
-        const isProducible = d.is_producible ? 1 : 0;
-        const isActive = d.is_active === undefined || d.is_active === null ? 1 : (d.is_active ? 1 : 0);
-
-        // INSERT OR IGNORE: si el cliente ya creó el producto (replay), no falla.
-        await db
-          .prepare(
-            `INSERT OR IGNORE INTO products
-              (id, code, name, description, barcode, category_id, branch_id, unit, price, cost, tax_rate, min_stock, max_stock, track_inventory, is_producible, is_raw_material, is_active, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`
-          )
-          .bind(id, code, name, d.description ?? null, d.barcode ?? null, categoryId, branchId, unit, price, cost, taxRate, minStock, maxStock, isProducible, isRawMaterial, isActive, now, now)
-          .run();
+        await createCatalogProduct(db, { ...d, id }, branchId, categoryId, userId);
       } else if (op.operation === "update") {
         const setClauses: string[] = [];
         const values: (string | number | null)[] = [];
@@ -903,6 +891,11 @@ async function applyOperation(
           setClauses.push("category_id = ?"); values.push(categoryId);
         }
         if (d.unit !== undefined) { setClauses.push("unit = ?"); values.push(unit); }
+        for (const field of PRODUCT_DETAIL_TEXT_FIELDS) {
+          if (d[field] !== undefined) { setClauses.push(`${field} = ?`); values.push(d[field] == null ? null : String(d[field])); }
+        }
+        if (d.shelf_life_days !== undefined) { setClauses.push('shelf_life_days = ?'); values.push(d.shelf_life_days == null ? null : Number(d.shelf_life_days)); }
+
         if (d.price !== undefined) {
           const price = assertFinitePositive(d.price, "product.price");
           if (price > MAX_PRODUCT_PRICE) throw new Error(`VALIDATION_ERROR: price supera el máximo permitido de ${MAX_PRODUCT_PRICE}`);
@@ -935,10 +928,11 @@ async function applyOperation(
         if (setClauses.length > 0) {
           setClauses.push("updated_at = ?");
           values.push(now, id);
-          await db
-            .prepare(`UPDATE products SET ${setClauses.join(", ")} WHERE id = ?`)
-            .bind(...values)
+          const updated = await db
+            .prepare(`UPDATE products SET ${setClauses.join(", ")} WHERE id = ? AND branch_id = ? AND deleted_at IS NULL`)
+            .bind(...values, branchId)
             .run();
+          if (updated.meta.changes === 0) throw new Error('NOT_FOUND: Producto pendiente de alta o inexistente');
         }
       }
       break;

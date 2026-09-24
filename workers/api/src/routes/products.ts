@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { DEFAULT_BRANCH_ID } from "../config/constants";
+import { createCatalogProduct, validateProductDetails, PRODUCT_DETAIL_TEXT_FIELDS } from '../lib/catalog-product';
 import { resolveUser } from "../lib/resolve-user";
 import { escapeLike } from "../lib/sql-escape";
 import type { Env, Variables } from "../types/bindings";
@@ -176,6 +177,12 @@ productRoutes.post("/", async (c) => {
 
   const db = c.env.DB;
   const body = await c.req.json<{
+    id?: string;
+    initial_stock?: number;
+    supplier?: string;
+    attributes?: string;
+    shelf_life_days?: number;
+    storage_instructions?: string;
     code: string;
     name: string;
     description?: string;
@@ -237,46 +244,21 @@ productRoutes.post("/", async (c) => {
     return c.json(errBody("FORBIDDEN", "No podés crear productos en otra sucursal"), 403);
   }
   const branchId = targetBranchId;
-  const now = nowSqliteTs();
 
   let categoryId = body.category_id ?? null;
   if (!categoryId) {
-    const cat = await db
-      .prepare("SELECT id FROM categories WHERE branch_id = ? LIMIT 1")
-      .bind(branchId)
-      .first<{ id: string }>();
-    categoryId = cat?.id ?? null;
+    return c.json(errBody('VALIDATION_ERROR', 'Seleccioná una categoría válida antes de crear el producto'), 400);
   }
 
-  const id = genId();
-
-  await db
-    .prepare(
-      `INSERT INTO products (id, code, name, description, barcode, category_id, branch_id, unit, price, cost, tax_rate, min_stock, max_stock, is_raw_material, is_producible, track_inventory, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
-    )
-    .bind(
-      id,
-      body.code.trim(),
-      body.name.trim(),
-      body.description ?? null,
-      body.barcode ?? null,
-      categoryId,
-      branchId,
-      body.unit ?? null,
-      body.price,
-      body.cost ?? null,
-      body.tax_rate ?? 0,
-      body.min_stock ?? null,
-      body.max_stock ?? null,
-      body.is_raw_material ? 1 : 0,
-      body.is_producible ? 1 : 0,
-      now,
-      now,
-    )
-    .run();
-
-  return c.json({ success: true, data: { id } }, 201);
+  try {
+    const id = await createCatalogProduct(db, body, branchId, categoryId, user.id);
+    return c.json({ success: true, data: { id } }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith('VALIDATION_ERROR:')) return c.json(errBody('VALIDATION_ERROR', message), 400);
+    if (message.startsWith('CONFLICT:') || /UNIQUE constraint/i.test(message)) return c.json(errBody('CONFLICT', 'El ID o código de producto ya existe; revisá el catálogo antes de reintentar'), 409);
+    throw error;
+  }
 });
 
 // PUT /:id
@@ -292,6 +274,10 @@ productRoutes.put("/:id", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
   const body = await c.req.json<{
+    supplier?: string;
+    attributes?: string;
+    shelf_life_days?: number | null;
+    storage_instructions?: string;
     code?: string;
     name?: string;
     description?: string;
@@ -355,15 +341,18 @@ productRoutes.put("/:id", async (c) => {
     return c.json(errBody("VALIDATION_ERROR", "max_stock debe ser un número finito >= 0"), 400);
   }
 
+  const detailsError = validateProductDetails(body);
+  if (detailsError) return c.json(errBody('VALIDATION_ERROR', detailsError), 400);
+
   const now = nowSqliteTs();
 
   const setClauses: string[] = [];
   const values: (string | number | boolean | null)[] = [];
 
-  for (const field of ["code", "name", "description", "barcode", "category_id", "unit"] as const) {
+  for (const field of ["code", "name", "description", "barcode", "category_id", "unit", ...PRODUCT_DETAIL_TEXT_FIELDS] as const) {
     if (field in body) { setClauses.push(`${field} = ?`); values.push(body[field] ?? null); }
   }
-  for (const field of ["price", "cost", "tax_rate", "min_stock", "max_stock"] as const) {
+  for (const field of ["price", "cost", "tax_rate", "min_stock", "max_stock", "shelf_life_days"] as const) {
     if (field in body) { setClauses.push(`${field} = ?`); values.push(body[field] ?? null); }
   }
   for (const field of ["is_raw_material", "is_producible", "is_active"] as const) {

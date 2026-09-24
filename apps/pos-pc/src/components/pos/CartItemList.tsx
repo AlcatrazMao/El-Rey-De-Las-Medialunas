@@ -67,7 +67,7 @@ export const CartItemList: React.FC<CartItemListProps> = ({
           className="flex-1 group w-full flex flex-col items-center justify-center px-4 text-gray-400 dark:text-zinc-500 border border-dashed border-gray-100 dark:border-zinc-800 rounded-xl cursor-pointer transition-colors duration-200 hover:border-orange-300 dark:hover:border-orange-700 hover:bg-orange-50/40 dark:hover:bg-orange-900/10"
         >
           <span className="text-4xl block mb-2 opacity-50 font-emoji transition-opacity duration-200 group-hover:opacity-100 animate-pulse" role="img" aria-label="bread">🍞</span>
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-400 transition-colors duration-200 group-hover:text-orange-500 dark:group-hover:text-orange-400">Espera de Selección</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400 transition-colors duration-200 group-hover:text-orange-500 dark:group-hover:text-orange-400">Agregar</p>
           <p className="text-[11px] text-gray-400/80 mt-1 transition-colors duration-200 group-hover:text-orange-500/80 dark:group-hover:text-orange-400/80">
             Pulsa para Seleccionar o Vender un Producto
           </p>
@@ -115,7 +115,7 @@ export const CartItemList: React.FC<CartItemListProps> = ({
 
                 {/* Mobile: compacto como antes */}
                 <div className="md:hidden flex flex-col items-end shrink-0">
-                  <span className="text-xs font-bold font-mono text-amber-600">{formatCurrency(item.unitPrice)} c/u</span>
+                  <span className="text-xs font-bold font-mono text-amber-600">{formatCurrency(item.unitPrice)} / {item.product.unit ?? 'unit'}</span>
                   <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Sub: {formatCurrency(lineSubtotal)}</span>
                 </div>
 
@@ -124,7 +124,7 @@ export const CartItemList: React.FC<CartItemListProps> = ({
                     <button
                       id={`btn-cart-minus-${item.product.id}-${lineIdx}`}
                       onClick={() => {
-                        if (item.presentation) {
+                        if (item.presentation || item.quantity <= 1) {
                           setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity: Math.max(0, it.quantity - 1) } : it).filter(it => it.quantity > 0));
                           playBeep(400, 0.05);
                         } else {
@@ -135,7 +135,14 @@ export const CartItemList: React.FC<CartItemListProps> = ({
                     >
                       <Minus className="h-3 w-3" />
                     </button>
-                    <span className="px-2 font-bold font-mono text-gray-800 dark:text-zinc-100">{item.quantity}</span>
+                    {!item.presentation && ['kg', 'g', 'l', 'ml'].includes(item.product.unit ?? '') ? (
+                      <label className="text-xs flex items-center gap-1">
+                        <input aria-label={`Cantidad de ${item.product.name} en ${item.product.unit}`} type="number" min="0.001" step="0.001" value={item.quantity}
+                          onChange={e => { const quantity = Number(e.target.value); if (Number.isFinite(quantity) && quantity >= 0) setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity } : it)); }}
+                          className="w-20 px-1 bg-transparent font-bold text-gray-800 dark:text-zinc-100" />
+                        {item.product.unit}
+                      </label>
+                    ) : (<span className="px-2 font-bold font-mono text-gray-800 dark:text-zinc-100">{item.quantity}</span>)}
                     <button
                       id={`btn-cart-plus-${item.product.id}-${lineIdx}`}
                       onClick={() => {

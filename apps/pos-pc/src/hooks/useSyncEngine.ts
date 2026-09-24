@@ -8,6 +8,9 @@ import { fetchWithAuth, getApi, isAccessTokenExpired, refreshAccessToken, API_UR
 import { calcNextRetry, classifyError, persistSyncError } from "../services/d1-sync";
 import type { SalePayload } from "../services/d1-sync";
 import { dbAdapter } from "../services/db-adapter";
+import { pushLegacyOperations } from '../services/legacy-sale-sync';
+import { reconcileSaleProductIds } from '../services/product-identity';
+import { confirmLocalSale } from '../services/sale-confirmation';
 import type { SyncStatus, SyncLedState } from "../types";
 
 import { getSettings } from "./useSettings";
@@ -59,30 +62,27 @@ export async function flushSalesQueue(): Promise<{ flushed: number; failed: numb
 
   for (const item of pending) {
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/v1/sync/push`, {
+      // Replay through the canonical sale endpoint (same validation, document
+      // numbering and idempotency as the first attempt). Never use HTTP 200
+      // from sync/push as proof that an individual operation was committed.
+      const response = await fetchWithAuth(`${API_URL}/api/v1/sales`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          branch_id: getSettings().business.branchId,
-          operations: [
-            {
-              client_id: item.id,
-              entity_type: "sale",
-              operation: "create",
-              data: {
-                ...item.saleData,
-                origin: item.origin,
-                client_timestamp: item.createdAt,
-              },
-              client_timestamp: item.createdAt,
-            },
-          ],
-        }),
+        headers: { "Content-Type": "application/json", ...(typeof item.saleData.branch_id === "string" ? { "X-Branch-Id": item.saleData.branch_id } : {}) },
+        body: JSON.stringify({ ...reconcileSaleProductIds(item.saleData), idempotency_key: item.saleData.idempotency_key || item.id, origin: item.origin, client_timestamp: item.createdAt }),
       });
       if (response.ok) {
+        const result = await response.json() as { success?: boolean; data?: { id?: string; document_number?: string | number; document_type?: string } };
+        if (result.success !== true || !result.data?.id) {
+          await salesQueueStore.incrementRetries(item.id);
+          failed++;
+          continue;
+        }
         await salesQueueStore.markSynced(item.id);
+        confirmLocalSale(item.id, result.data);
+        const error = await syncErrorStore.findBySaleId(item.id);
+        if (error?.id) await syncErrorStore.markResolved(error.id);
         flushed++;
-      } else if (response.status === 401 || response.status === 403) {
+      } else if (response.status === 401 || response.status === 403 || response.status === 429) {
         // Auth transitorio: el access_token venció y el refresh no recuperó en
         // este intento (rotación, blip de red/servidor en /auth/refresh, etc.).
         // NO es un error de payload — marcar permanent_fail bloquearía ventas
@@ -95,6 +95,7 @@ export async function flushSalesQueue(): Promise<{ flushed: number; failed: numb
         // will never succeed, so mark permanently failed and stop pumping retries.
         let reason = `HTTP ${response.status}`;
         try { reason = (await response.text()) || reason; } catch { /* ignore body read errors */ }
+        await persistSyncError({ saleId: item.id, category: 'validation', message: reason, payload: item.saleData });
         await salesQueueStore.markPermanentlyFailed(item.id, reason);
         failed++;
       } else {
@@ -166,7 +167,9 @@ async function attemptRetry(errorId: number, opts?: { forceTokenRefresh?: boolea
   }
 
   try {
-    await getApi().sales.create(payloadParsed as unknown as SalePayload);
+    const created = await getApi().sales.create(reconcileSaleProductIds(payloadParsed) as unknown as SalePayload);
+    confirmLocalSale(record.sale_id, created);
+    await salesQueueStore.markSynced(record.sale_id);
     await syncErrorStore.markResolved(errorId);
   } catch (err) {
     const maybeResponse =
@@ -235,9 +238,9 @@ export function useSyncEngine(isAuthenticated: boolean) {
   const refreshPendingCount = useCallback(async () => {
     if (!mountedRef.current) return;
     try {
-      const pending = await syncErrorStore.getPending();
+      const [pending, queued] = await Promise.all([syncErrorStore.getPending(), salesQueueStore.getUnsynced()]);
       if (!mountedRef.current) return;
-      setPendingErrorCount(pending.length);
+      setPendingErrorCount(new Set([...pending.map(e => e.sale_id), ...queued.map(e => e.id)]).size);
     } catch {
       // ignore
     }
@@ -296,6 +299,21 @@ export function useSyncEngine(isAuthenticated: boolean) {
     };
   }, [isAuthenticated, scheduleRetry, refreshPendingCount]);
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let running = false;
+    const flush = async () => {
+      if (running || !navigator.onLine) return;
+      running = true;
+      try { await flushSalesQueue(); } catch { /* outbox remains durable */ }
+      finally { running = false; void refreshPendingCount(); }
+    };
+    void flush();
+    const timer = setInterval(() => { void flush(); }, 30_000);
+    window.addEventListener('online', flush);
+    return () => { clearInterval(timer); window.removeEventListener('online', flush); };
+  }, [isAuthenticated, refreshPendingCount]);
+
   // Polling del contador (UI viva sin librerías reactivas extra).
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -353,7 +371,7 @@ export function useSyncEngine(isAuthenticated: boolean) {
       db: dbAdapter,
       apiClient: {
         sync: {
-          push: (operations, bid) => getApi().sync.push(operations, bid),
+          push: pushLegacyOperations,
           pull: (since, entities, bid) => getApi().sync.pull(since, entities, bid),
         },
       },

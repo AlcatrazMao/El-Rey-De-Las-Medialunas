@@ -255,69 +255,11 @@ export const INITIAL_SALES: Sale[] = [
   }
 ];
 
-export const INITIAL_EXPENSES: Expense[] = [
-  {
-    id: 'exp_1',
-    concept: 'Compra de 200kg Harina',
-    category: 'materia_prima',
-    amount: 240.00,
-    date: '2026-06-03T10:00:00Z',
-    paymentMethod: 'Transferencia Bancaria'
-  },
-  {
-    id: 'exp_2',
-    concept: 'Alquiler Local Mensual',
-    category: 'alquiler',
-    amount: 800.00,
-    date: '2026-06-01T08:00:00Z',
-    paymentMethod: 'Débit'
-  },
-  {
-    id: 'exp_3',
-    concept: 'Factura de Electricidad (Trifásica Horno)',
-    category: 'servicios',
-    amount: 185.50,
-    date: '2026-06-02T15:30:00Z',
-    paymentMethod: 'Débito'
-  },
-  {
-    id: 'exp_4',
-    concept: 'Sueldo Ayudante Panadero',
-    category: 'salarios',
-    amount: 600.00,
-    date: '2026-06-01T17:00:00Z',
-    paymentMethod: 'Transferencia Bancaria'
-  }
-];
+export const INITIAL_EXPENSES: Expense[] = [];
 
 export const USERS: User[] = [];
 
-export const INITIAL_NOTIFICATIONS: PushNotification[] = [
-  {
-    id: 'not_1',
-    title: '⚠️ Insuficiente Stock: Harina 0000',
-    message: 'El stock de Harina de Trigo 0000 ha bajado del mínimo de 30 kg. Stock actual: 28 kg.',
-    type: 'warning',
-    timestamp: '2026-06-04T10:11:00Z',
-    read: false
-  },
-  {
-    id: 'not_2',
-    title: '❌ Transacción de Pago Fallida',
-    message: 'Un intento de cobro con PayPal por un valor de $5.40 ha sido rechazado por el emisor de la tarjeta.',
-    type: 'error',
-    timestamp: '2026-06-04T12:30:10Z',
-    read: false
-  },
-  {
-    id: 'not_3',
-    title: '✅ Sincronización Completa',
-    message: 'La base de datos en la nube está completamente sincronizada con 3 dispositivos activos.',
-    type: 'success',
-    timestamp: '2026-06-04T23:50:00Z',
-    read: true
-  }
-];
+export const INITIAL_NOTIFICATIONS: PushNotification[] = [];
 
 export const PAYMENT_GATEWAYS: PaymentGateway[] = [
   { id: 'gate_stripe', name: 'Stripe', logo: '💳', status: 'active', chargeFee: 2.9 },
