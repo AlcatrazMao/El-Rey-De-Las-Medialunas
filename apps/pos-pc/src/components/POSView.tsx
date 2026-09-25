@@ -1598,7 +1598,7 @@ export const POSView: React.FC = () => {
         </button>
 
         {/* Pie de caja: la fila central absorbe el espacio y mantiene datos + COBRAR abajo. */}
-        <div className="shrink-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 rounded-b-2xl flex items-stretch">
+        <div className="shrink-0 border-t-2 border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-zinc-800/90 shadow-[0_-4px_14px_rgba(120,72,20,0.08)] rounded-b-2xl flex items-stretch">
 
           {/* ── IZQUIERDA: campos + COBRAR ── */}
           <div className="flex-1 min-w-0 px-2 py-2 flex flex-col gap-1.5 justify-center relative">
@@ -1856,7 +1856,7 @@ export const POSView: React.FC = () => {
           </div>
 
           {/* ── DERECHA: resumen de importes alineado con totales del carrito ── */}
-          <div className="hidden md:flex px-4 py-2 flex-col justify-center gap-0.5 text-[13px] border-l border-gray-100 dark:border-zinc-800 shrink-0 min-w-[200px] text-right">
+          <div className="hidden md:flex px-4 py-2 flex-col justify-center gap-0.5 text-[13px] border-l border-amber-200 dark:border-amber-800 shrink-0 min-w-[200px] text-right">
             <div className="flex items-center justify-end gap-3 text-gray-400">
               <span>Subtotal</span>
               <span className="font-semibold text-gray-600 dark:text-zinc-300 min-w-[80px] text-right">{formatCurrency(cartSubtotal)}</span>
