@@ -1323,7 +1323,7 @@ export const POSView: React.FC = () => {
     <div className="flex flex-col flex-1 min-h-0">
 
       {/* RIGHT COLUMN: POS CHECKOUT CART PANEL (Nueva Venta) */}
-      <div className="flex flex-col flex-1 md:flex-none min-h-0 w-full max-w-5xl mx-auto bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs">
+      <div className="flex flex-col flex-1 min-h-0 w-full max-w-5xl mx-auto bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs">
 
         {/* BARRA UNIFICADA: carrusel de ventas + acciones */}
         <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 rounded-t-2xl">
@@ -1567,7 +1567,7 @@ export const POSView: React.FC = () => {
 
         {/* Cart Item rows list */}
         <div
-          className="flex-1 min-h-0 md:min-h-[160px] md:max-h-[40vh] overflow-y-auto flex flex-col px-3 pb-3"
+          className="flex-1 min-h-0 overflow-y-auto flex flex-col px-3 pb-3"
           onTouchStart={handleMainTouchStart}
           onTouchEnd={handleMainTouchEnd}
         >
@@ -1601,7 +1601,7 @@ export const POSView: React.FC = () => {
         <div className="shrink-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 rounded-b-2xl flex items-stretch">
 
           {/* ── IZQUIERDA: campos + COBRAR ── */}
-          <div className="flex-1 min-w-0 px-3 py-3 flex flex-col gap-2 justify-center relative">
+          <div className="flex-1 min-w-0 px-2 py-2 flex flex-col gap-1.5 justify-center relative">
 
             {/* Fila 1: Comprobante (botones) | Tipo | Pago | Lista de precios */}
             <div className="hidden md:flex items-center gap-1.5">
@@ -1614,7 +1614,7 @@ export const POSView: React.FC = () => {
                       <button
                         key={dt}
                         onClick={() => setDocumentType(dt)}
-                        className={`px-2 py-1.5 text-[11px] font-bold rounded-md cursor-pointer transition-colors whitespace-nowrap ${
+                        className={`px-2 py-1 text-[10px] font-bold rounded-md cursor-pointer transition-colors whitespace-nowrap ${
                           isActive
                             ? isFiscal
                               ? 'bg-emerald-500 text-white'
@@ -1634,7 +1634,7 @@ export const POSView: React.FC = () => {
               <select
                 value={fiscalType}
                 onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
-                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[11px] font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
               >
                 <option value="consumidor_final">Cons. Final</option>
                 <option value="exento">IVA Exento</option>
@@ -1644,7 +1644,7 @@ export const POSView: React.FC = () => {
               <select
                 value={paymentMethod}
                 onChange={e => setPaymentMethod(e.target.value)}
-                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
+                className="flex-1 min-w-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[11px] font-semibold text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer"
               >
                 {posSettings.paymentMethods.filter(pm => pm.enabled).map(pm => (
                   <option key={pm.id} value={pm.id}>{pm.label}</option>
@@ -1661,7 +1661,7 @@ export const POSView: React.FC = () => {
                   <select
                     value={selectedPriceListId}
                     onChange={e => setSelectedPriceListId(e.target.value)}
-                    className="shrink-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer hidden md:block"
+                    className="shrink-0 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-[11px] font-medium text-gray-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 cursor-pointer hidden md:block"
                   >
                     {posSettings.priceLists.map(pl => (
                       <option key={pl.id} value={pl.id}>{pl.name}</option>
@@ -1824,7 +1824,7 @@ export const POSView: React.FC = () => {
               onClick={handlePayment}
               disabled={cart.length === 0 || isProcessingPayment || cuitMissingForInvoice}
               title={cuitMissingForInvoice ? `${DOCUMENT_TYPE_LABELS[documentType]} requiere CUIT del cliente cargado.` : undefined}
-              className={`w-full py-2.5 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
+              className={`w-full py-2 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:translate-y-0 ${
                 cart.length === 0 || cuitMissingForInvoice
                   ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
                   : 'bg-[#D97706] hover:bg-[#B45309] text-white border-b-4 border-[#92400E]'
@@ -1856,7 +1856,7 @@ export const POSView: React.FC = () => {
           </div>
 
           {/* ── DERECHA: resumen de importes alineado con totales del carrito ── */}
-          <div className="hidden md:flex px-4 py-3 flex-col justify-center gap-1 text-[13px] border-l border-gray-100 dark:border-zinc-800 shrink-0 min-w-[230px] text-right">
+          <div className="hidden md:flex px-4 py-2 flex-col justify-center gap-0.5 text-[13px] border-l border-gray-100 dark:border-zinc-800 shrink-0 min-w-[200px] text-right">
             <div className="flex items-center justify-end gap-3 text-gray-400">
               <span>Subtotal</span>
               <span className="font-semibold text-gray-600 dark:text-zinc-300 min-w-[80px] text-right">{formatCurrency(cartSubtotal)}</span>
@@ -1893,7 +1893,7 @@ export const POSView: React.FC = () => {
               <span>IVA {(cartIvaRate * 100).toFixed(0)}%</span>
               <span className="min-w-[80px] text-right">{formatCurrency(cartTax)}</span>
             </div>
-            <div className="flex items-center justify-end gap-3 font-black text-gray-900 dark:text-white text-[17px] mt-1 pt-1 border-t border-gray-200 dark:border-zinc-700">
+            <div className="flex items-center justify-end gap-3 font-black text-gray-900 dark:text-white text-[15px] mt-0.5 pt-0.5 border-t border-gray-200 dark:border-zinc-700">
               <span className="text-[10px] uppercase tracking-wider text-gray-400">Total</span>
               <span className="min-w-[80px] text-right">{formatCurrency(cartTotal)}</span>
             </div>
@@ -1912,7 +1912,7 @@ export const POSView: React.FC = () => {
           setShowSelectionModal(true);
           playBeep(705, 0.05);
         }}
-        className="flex md:hidden fixed top-[calc(50%+3.5rem)] right-0 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900"
+        className="flex fixed top-[calc(50%+3.5rem)] right-0 md:top-auto md:bottom-28 md:right-6 lg:bottom-36 lg:right-8 z-50 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group animate-pulse"
         title="Buscar Panificados"
         aria-label="Buscar productos"
       >
