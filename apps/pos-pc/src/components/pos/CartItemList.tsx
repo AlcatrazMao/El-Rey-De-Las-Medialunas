@@ -24,7 +24,7 @@ interface CartItemListProps {
   addUnitToCart: (product: Product) => void;
   /** Beep audible — se invoca con (freq, duration). */
   playBeep: (freq?: number, duration?: number) => void;
-  /** Handler para el placeholder vacío (abre el modal de selección). */
+  /** Abre el selector de productos, con carrito vacío u ocupado. */
   onEmptyClick: () => void;
   /** Ofertas activas del día — usadas para mostrar badge por línea. */
   activeOffers?: IDBOffer[];
@@ -73,7 +73,7 @@ export const CartItemList: React.FC<CartItemListProps> = ({
           </p>
         </button>
       ) : (
-        <div className="divide-y divide-gray-100 dark:divide-zinc-800 mb-4">
+        <div className="divide-y divide-gray-100 dark:divide-zinc-800 mb-2">
           {cart.map((item, lineIdx) => {
             const lineKey = `${item.product.id}::${item.presentation ?? ''}::${lineIdx}`;
             const lineSubtotal = item.unitPrice * item.quantity;
@@ -174,6 +174,13 @@ export const CartItemList: React.FC<CartItemListProps> = ({
               </div>
             );
           })}
+          <button
+            type="button"
+            onClick={onEmptyClick}
+            className="w-full py-3 flex items-center justify-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors cursor-pointer"
+          >
+            <Plus className="h-4 w-4" /> Agregar otro producto
+          </button>
         </div>
       )}
     </div>
