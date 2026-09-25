@@ -1320,10 +1320,10 @@ export const POSView: React.FC = () => {
     : [];
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col flex-1 min-h-0 h-full">
 
       {/* RIGHT COLUMN: POS CHECKOUT CART PANEL (Nueva Venta) */}
-      <div className="flex flex-col flex-1 min-h-0 w-full max-w-5xl mx-auto bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs">
+      <div className="grid grid-rows-[auto_minmax(0,1fr)_auto] flex-1 min-h-0 h-full w-full max-w-5xl mx-auto bg-white dark:bg-zinc-900 border border-orange-100 dark:border-zinc-800 rounded-2xl shadow-xs">
 
         {/* BARRA UNIFICADA: carrusel de ventas + acciones */}
         <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 rounded-t-2xl">
@@ -1597,7 +1597,7 @@ export const POSView: React.FC = () => {
           {hasNonDefaults && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
         </button>
 
-        {/* Footer 2 columnas: campos + COBRAR izq | totales der */}
+        {/* Pie de caja: la fila central absorbe el espacio y mantiene datos + COBRAR abajo. */}
         <div className="shrink-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/60 dark:bg-zinc-950/60 rounded-b-2xl flex items-stretch">
 
           {/* ── IZQUIERDA: campos + COBRAR ── */}
