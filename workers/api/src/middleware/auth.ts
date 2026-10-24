@@ -156,7 +156,11 @@ const ELEVATED_ROLES: ReadonlySet<Role> = new Set(["admin", "owner", "supervisor
 interface BranchScopeContext {
   get(key: "userRole"): Role;
   get(key: "userDefaultBranch"): string | null | undefined;
-  req: { query(key: string): string | undefined };
+  get?(key: "branchId"): string | undefined;
+  req: {
+    query(key: string): string | undefined;
+    header?(name: string): string | undefined;
+  };
   set(key: "branchId", value: string): void;
 }
 
@@ -184,7 +188,7 @@ type BranchScopeResult =
 //   branchId="" (lo que antes terminaba en acceso implícito a la sucursal
 //   DEFAULT_BRANCH_ID vía el fallback de cada ruta).
 // - Roles elevados (admin, owner, supervisor): pueden pasar ?branch_id=<id>
-//   para operar sobre una sucursal específica (se valida contra
+//   o cabecera X-Branch-Id para operar sobre una sucursal específica (se valida contra
 //   userBranches si vino en el token; si branches está vacío —p.ej. admin
 //   con acceso implícito a todas— se permite igual, ya que auth middleware
 //   ya no restringe X-Branch-Id para admin/owner). Si no se pasa branch_id,
@@ -201,8 +205,11 @@ export function resolveBranchScopeValue(c: BranchScopeContext): BranchScopeResul
   }
 
   if (ELEVATED_ROLES.has(role)) {
-    const queryBranch = c.req.query("branch_id") ?? "";
-    return { ok: true, branchId: queryBranch };
+    const queryBranch = c.req.query("branch_id");
+    const headerBranch = typeof c.req.header === "function" ? c.req.header("X-Branch-Id") : undefined;
+    const contextBranch = typeof c.get === "function" ? c.get("branchId") : undefined;
+    const resolved = queryBranch || headerBranch || contextBranch || "";
+    return { ok: true, branchId: resolved };
   }
 
   // Rol desconocido (no debería llegar acá porque authMiddleware ya valida

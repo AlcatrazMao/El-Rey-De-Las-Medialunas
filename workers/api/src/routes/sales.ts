@@ -186,21 +186,40 @@ salesRoutes.post("/", async (c) => {
     document_type?: string;
   }>();
 
-  // SECURITY: el branch_id NUNCA se deriva del body — un cliente podría mandar
-  // el branch_id de una sucursal ajena y la venta (+ descuento de inventory +
-  // stock_movements) quedaría grabada ahí. c.get("branchId") ya fue resuelto
-  // y validado por el middleware resolveBranchScope (auth.ts), enganchado
-  // global en app.ts: para roles operativos fuerza token.default_branch
-  // (ignora cualquier otro valor); para roles elevados permite override
-  // validado por membership. Mismo patrón que credit-notes/remitos/budgets.
-  const branchId = c.get("branchId") || DEFAULT_BRANCH_ID;
-  if (body.branch_id && body.branch_id !== branchId) {
-    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'La venta pertenece a otra sucursal. Iniciá sesión en su sucursal para sincronizarla.' } }, 403);
-  }
+  // SECURITY: c.get("branchId") fue resuelto por resolveBranchScope (auth.ts).
+  // Para roles operativos se fuerza su default_branch. Para roles elevados
+  // (admin, owner, supervisor) se permite operar sobre la sucursal indicada en
+  // el body/header (con validación de membresía para supervisor).
+  const userRole = c.get("userRole");
+  const scopedBranch = c.get("branchId");
+  let branchId = scopedBranch || DEFAULT_BRANCH_ID;
+
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
   const now = nowSqliteTs();
+
+  if (userRole === "admin" || userRole === "owner") {
+    if (body.branch_id) {
+      branchId = body.branch_id;
+    }
+  } else if (userRole === "supervisor") {
+    if (body.branch_id && body.branch_id !== branchId) {
+      const membership = await db
+        .prepare("SELECT 1 FROM user_branches WHERE user_id = ? AND branch_id = ? LIMIT 1")
+        .bind(user.id, body.branch_id)
+        .first<{ 1: number }>();
+      if (membership) {
+        branchId = body.branch_id;
+      } else {
+        return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'La venta pertenece a otra sucursal. Iniciá sesión en su sucursal para sincronizarla.' } }, 403);
+      }
+    }
+  } else {
+    if (body.branch_id && body.branch_id !== branchId) {
+      return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'La venta pertenece a otra sucursal. Iniciá sesión en su sucursal para sincronizarla.' } }, 403);
+    }
+  }
 
   // ── Document Types (Comprobantes) ──────────────────────────────────────
   // DT-6: solo 4 de los 7 tipos globales se emiten como venta. Default
@@ -293,11 +312,24 @@ salesRoutes.post("/", async (c) => {
   // ── Document Types (Comprobantes): habilitación + CUIT (DT-7, DT-11) ────
   // Validamos ANTES de calcular totales/numeración para no gastar cómputo ni
   // numeración en un intento que de todos modos va a ser rechazado.
-  const settingRow = await db
+  let settingRow = await db
     .prepare(`SELECT enabled FROM document_type_settings WHERE branch_id = ? AND document_type = ?`)
     .bind(branchId, documentType)
     .first<{ enabled: number }>();
-  if (!settingRow || settingRow.enabled !== 1) {
+
+  if (!settingRow) {
+    const defaultEnabled = documentType === "ticket" ? 1 : 0;
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO document_type_settings (branch_id, document_type, enabled, updated_at)
+         VALUES (?, ?, ?, ?)`
+      )
+      .bind(branchId, documentType, defaultEnabled, now)
+      .run();
+    settingRow = { enabled: defaultEnabled };
+  }
+
+  if (settingRow.enabled !== 1) {
     return c.json(
       {
         success: false,
@@ -392,7 +424,7 @@ salesRoutes.post("/", async (c) => {
 
   // Both current UUIDs and legacy sale_<timestamp>_<suffix> IDs are stable.
   // Generating a different server ID breaks queued void/refund references.
-  const saleId = normalizeClientSaleId(body.id) ?? genId();
+  const saleId = normalizeClientSaleId(body.id) ?? normalizeClientSaleId(body.client_id) ?? genId();
 
   const itemStatements = items.flatMap(item => {
     const itemId = genId();

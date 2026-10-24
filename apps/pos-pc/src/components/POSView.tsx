@@ -44,6 +44,7 @@ import { CreateCreditNoteModal } from './documents/CreateCreditNoteModal';
 import { CreateRemitoModal } from './documents/CreateRemitoModal';
 import { GroupSelectorModal } from './GroupSelectorModal';
 import { CartItemList } from './pos/CartItemList';
+import { ProductCard } from './pos/ProductCard';
 
 interface CartLine {
   product: Product;
@@ -696,37 +697,16 @@ export const POSView: React.FC = () => {
     return (
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {productsList.map(prod => {
-          const inStock = prod.stock > 0;
-          const lowStock = prod.stock <= (prod.minStock || 5);
           const quantityInCart = cart.filter(item => item.product.id === prod.id).reduce((s, i) => s + i.quantity, 0);
           return (
-            <button
+            <ProductCard
               key={prod.id}
-              onClick={() => { addToCart(prod); playBeep(800, 0.05); }}
-              className={`relative flex flex-col justify-between text-left p-3 rounded-2xl border transition-all active:scale-97 cursor-pointer ${
-                !inStock
-                  ? 'bg-red-50/40 dark:bg-red-950/10 border-red-200 dark:border-red-900/40 hover:bg-red-50/60'
-                  : lowStock
-                  ? 'bg-amber-50/40 dark:bg-amber-950/10 border-amber-200 dark:border-amber-900/60 hover:bg-amber-50/70'
-                  : 'bg-white dark:bg-zinc-850 hover:bg-orange-50/30 dark:hover:bg-zinc-800 border-amber-100/40 dark:border-zinc-850/50 hover:border-amber-200 shadow-xs'
-              }`}
-            >
-              {quantityInCart > 0 && (
-                <span className="absolute top-2 right-2 bg-amber-500 text-white text-[10px] font-black rounded-full w-5 h-5 flex items-center justify-center">
-                  {quantityInCart}
-                </span>
-              )}
-              <div className="text-2xl mb-1" role="img" aria-label={prod.name}>{prod.image}</div>
-              <div>
-                <span className={`inline-block text-[9px] font-black px-1.5 py-0.5 rounded-full mb-1 ${
-                  !inStock ? 'bg-red-100 text-red-700' : lowStock ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                }`}>
-                  {!inStock ? 'SIN STOCK' : `${prod.stock}u`}
-                </span>
-                <p className="font-extrabold text-xs text-gray-800 dark:text-zinc-100 leading-snug line-clamp-2">{prod.name}</p>
-              </div>
-              <span className="text-sm font-extrabold text-amber-600 dark:text-amber-500 mt-2">{formatCurrency(prod.price)}</span>
-            </button>
+              product={prod}
+              quantityInCart={quantityInCart}
+              onAddToCart={addToCart}
+              onDecreaseQuantity={decreaseQuantity}
+              playBeep={playBeep}
+            />
           );
         })}
       </div>
@@ -2257,7 +2237,7 @@ export const POSView: React.FC = () => {
                     <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">Resultados ({filteredProducts.length})</span>
                     <button onClick={() => setSearchQuery('')} className="text-[10px] text-amber-600 font-bold hover:underline cursor-pointer">Limpiar</button>
                   </div>
-                  {renderProductList(filteredProducts)}
+                  {modalMode === 'visual' ? renderProductGrid(filteredProducts) : renderProductList(filteredProducts)}
                 </div>
               ) : modalSelectedCategory === null ? (
                 /* Grid de categorías */

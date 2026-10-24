@@ -186,6 +186,20 @@ export async function enqueue(
  */
 export function buildSalePayload(sale: Sale, ivaRate: number): SalePayload {
   const branchId = sale.branchId ?? getActiveBranchId() ?? getSettings().business.branchId;
+  const items = Array.isArray(sale.items) ? sale.items : [];
+  const itemsSum = items.reduce((acc, item) => acc + (Number(item.price ?? 0) * Number(item.quantity ?? 0)), 0);
+  const subtotalBruto = typeof sale.subtotal_bruto === 'number' && !isNaN(sale.subtotal_bruto)
+    ? sale.subtotal_bruto
+    : (itemsSum > 0 ? itemsSum : Number(sale.total ?? 0));
+  const totalFinal = typeof sale.total_final === 'number' && !isNaN(sale.total_final)
+    ? sale.total_final
+    : Number(sale.total ?? subtotalBruto);
+  const discountTotal = typeof sale.discount_total === 'number' && !isNaN(sale.discount_total)
+    ? sale.discount_total
+    : parseFloat((subtotalBruto - totalFinal).toFixed(2));
+  const sanitizedDiscount = Math.abs(subtotalBruto - discountTotal - totalFinal) > 0.05
+    ? parseFloat((subtotalBruto - totalFinal).toFixed(2))
+    : discountTotal;
   return {
     id: sale.id,
     client_id: sale.id,
@@ -194,13 +208,13 @@ export function buildSalePayload(sale: Sale, ivaRate: number): SalePayload {
     customer_id: sale.customerId ?? null,
     document_type: sale.documentType,
     // Los 3 campos canónicos
-    subtotal_bruto: sale.subtotal_bruto,
-    discount_total: sale.discount_total,
-    total_final: sale.total_final,
+    subtotal_bruto: subtotalBruto,
+    discount_total: sanitizedDiscount,
+    total_final: totalFinal,
     // Legacy/compat — el backend los acepta pero prefiere los canónicos
-    subtotal: sale.subtotal_bruto,
-    tax_total: sale.tax,
-    total: sale.total_final,
+    subtotal: subtotalBruto,
+    tax_total: sale.tax ?? 0,
+    total: totalFinal,
     items: sale.items.map(item => ({
       product_id: item.productId,
       quantity: item.quantity,
@@ -210,7 +224,7 @@ export function buildSalePayload(sale: Sale, ivaRate: number): SalePayload {
       tax_amount: parseFloat((item.subtotal - item.subtotal / (1 + ivaRate)).toFixed(2)),
       notes: null,
     })),
-    payments: [{ payment_method: sale.paymentMethod, amount: sale.total_final, reference: null }],
+    payments: [{ payment_method: sale.paymentMethod, amount: totalFinal, reference: null }],
     notes: sale.customerName ? `Cliente: ${sale.customerName}` : null,
     client_timestamp: sale.date,
   };

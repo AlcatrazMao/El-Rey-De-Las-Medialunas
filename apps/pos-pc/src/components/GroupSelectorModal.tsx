@@ -28,11 +28,11 @@ export const GroupSelectorModal: React.FC<GroupSelectorModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-55 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
+      className="fixed inset-0 z-55 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fade-in"
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-zinc-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-gray-150 dark:border-zinc-800 max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col"
+        className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-gray-150 dark:border-zinc-800 max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

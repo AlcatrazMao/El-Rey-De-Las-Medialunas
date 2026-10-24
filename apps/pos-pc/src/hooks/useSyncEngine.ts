@@ -62,13 +62,38 @@ export async function flushSalesQueue(): Promise<{ flushed: number; failed: numb
 
   for (const item of pending) {
     try {
+      const rawData = item.saleData as Record<string, unknown>;
+      const items = Array.isArray(rawData.items) ? rawData.items : [];
+      const itemsSum = items.reduce((acc, it: any) => acc + (Number(it.unit_price ?? it.price ?? 0) * Number(it.quantity ?? 1)), 0);
+      const subtotalBruto = typeof rawData.subtotal_bruto === 'number' && !isNaN(rawData.subtotal_bruto)
+        ? rawData.subtotal_bruto
+        : (itemsSum > 0 ? itemsSum : Number(rawData.total ?? rawData.subtotal ?? 0));
+      const totalFinal = typeof rawData.total_final === 'number' && !isNaN(rawData.total_final)
+        ? rawData.total_final
+        : Number(rawData.total ?? subtotalBruto);
+      const discountTotal = typeof rawData.discount_total === 'number' && !isNaN(rawData.discount_total)
+        ? rawData.discount_total
+        : parseFloat((subtotalBruto - totalFinal).toFixed(2));
+      const sanitizedDiscount = Math.abs(subtotalBruto - discountTotal - totalFinal) > 0.05
+        ? parseFloat((subtotalBruto - totalFinal).toFixed(2))
+        : discountTotal;
+
+      const preparedData = {
+        ...rawData,
+        subtotal_bruto: subtotalBruto,
+        discount_total: sanitizedDiscount,
+        total_final: totalFinal,
+        subtotal: subtotalBruto,
+        total: totalFinal,
+      };
+
       // Replay through the canonical sale endpoint (same validation, document
       // numbering and idempotency as the first attempt). Never use HTTP 200
       // from sync/push as proof that an individual operation was committed.
       const response = await fetchWithAuth(`${API_URL}/api/v1/sales`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(typeof item.saleData.branch_id === "string" ? { "X-Branch-Id": item.saleData.branch_id } : {}) },
-        body: JSON.stringify({ ...reconcileSaleProductIds(item.saleData), idempotency_key: item.saleData.idempotency_key || item.id, origin: item.origin, client_timestamp: item.createdAt }),
+        body: JSON.stringify({ ...reconcileSaleProductIds(preparedData), idempotency_key: item.saleData.idempotency_key || item.id, origin: item.origin, client_timestamp: item.createdAt }),
       });
       if (response.ok) {
         const result = await response.json() as { success?: boolean; data?: { id?: string; document_number?: string | number; document_type?: string } };
@@ -167,7 +192,31 @@ async function attemptRetry(errorId: number, opts?: { forceTokenRefresh?: boolea
   }
 
   try {
-    const created = await getApi().sales.create(reconcileSaleProductIds(payloadParsed) as unknown as SalePayload);
+    const rawData = payloadParsed as Record<string, unknown>;
+    const items = Array.isArray(rawData.items) ? rawData.items : [];
+    const itemsSum = items.reduce((acc, it: any) => acc + (Number(it.unit_price ?? it.price ?? 0) * Number(it.quantity ?? 1)), 0);
+    const subtotalBruto = typeof rawData.subtotal_bruto === 'number' && !isNaN(rawData.subtotal_bruto)
+      ? rawData.subtotal_bruto
+      : (itemsSum > 0 ? itemsSum : Number(rawData.total ?? rawData.subtotal ?? 0));
+    const totalFinal = typeof rawData.total_final === 'number' && !isNaN(rawData.total_final)
+      ? rawData.total_final
+      : Number(rawData.total ?? subtotalBruto);
+    const discountTotal = typeof rawData.discount_total === 'number' && !isNaN(rawData.discount_total)
+      ? rawData.discount_total
+      : parseFloat((subtotalBruto - totalFinal).toFixed(2));
+    const sanitizedDiscount = Math.abs(subtotalBruto - discountTotal - totalFinal) > 0.05
+      ? parseFloat((subtotalBruto - totalFinal).toFixed(2))
+      : discountTotal;
+
+    const preparedData = {
+      ...rawData,
+      subtotal_bruto: subtotalBruto,
+      discount_total: sanitizedDiscount,
+      total_final: totalFinal,
+      subtotal: subtotalBruto,
+      total: totalFinal,
+    };
+    const created = await getApi().sales.create(reconcileSaleProductIds(preparedData) as unknown as SalePayload);
     confirmLocalSale(record.sale_id, created);
     await salesQueueStore.markSynced(record.sale_id);
     await syncErrorStore.markResolved(errorId);

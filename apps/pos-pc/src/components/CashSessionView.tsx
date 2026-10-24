@@ -65,13 +65,21 @@ export const CashSessionView: React.FC = () => {
   const [historicalClosingNote, setHistoricalClosingNote] = useState<string>('');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [highlightOpenSession, setHighlightOpenSession] = useState(false);
+  const [highlightCloseSection, setHighlightCloseSection] = useState(false);
+  const [highlightCloseButton, setHighlightCloseButton] = useState(false);
+  const [highlightUseAmount, setHighlightUseAmount] = useState(false);
+  const [highlightConfirmClose, setHighlightConfirmClose] = useState(false);
   const [dateFilter, setDateFilter] = useState<'day' | 'month' | 'year' | 'all'>('all');
   const openSessionRef = useRef<HTMLDivElement>(null);
+  const closeSectionRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const useThisAmountBtnRef = useRef<HTMLButtonElement>(null);
+  const confirmCloseBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (showHistoryModal && highlightOpenSession && openSessionRef.current) {
       const timer = setTimeout(() => {
-        openSessionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        openSessionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }, 120);
       return () => clearTimeout(timer);
     }
@@ -82,6 +90,9 @@ export const CashSessionView: React.FC = () => {
 
   const setBill = (value: number, qty: number) => {
     setBillCounts(prev => ({ ...prev, [String(value)]: Math.max(0, qty) }));
+    if (qty > 0) {
+      setHighlightUseAmount(true);
+    }
   };
 
   const denomList = settings.cash.denominaciones.length > 0
@@ -101,9 +112,34 @@ export const CashSessionView: React.FC = () => {
     if (currentCashSession) {
       setClosingAmount(billTotal);
       setCloseStep(3);
+      setHighlightUseAmount(false);
+      setTimeout(() => {
+        confirmCloseBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        confirmCloseBtnRef.current?.focus();
+        setHighlightConfirmClose(true);
+      }, 150);
     } else {
       setOpeningAmount(billTotal);
     }
+  };
+
+  const handleAttemptOpenAnother = () => {
+    setHighlightCloseSection(true);
+    setHighlightCloseButton(true);
+    closeSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => {
+      closeButtonRef.current?.focus();
+    }, 250);
+  };
+
+  const handleProceedToCounting = () => {
+    setCloseStep(2);
+    setHighlightCloseButton(false);
+    setTimeout(() => {
+      useThisAmountBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      useThisAmountBtnRef.current?.focus();
+      setHighlightUseAmount(true);
+    }, 150);
   };
 
   const openHistoricalSession = cashSessionsHistory.find(s => s.status === 'open');
@@ -146,11 +182,25 @@ export const CashSessionView: React.FC = () => {
             Garantiza la seguridad de los ingresos diarios haciendo habilitaciones de turno, arqueos ciegos y rendición de cuentas.
           </p>
         </div>
-        <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 px-4 py-2.5 rounded-2xl shadow-xs self-start sm:self-auto">
-          <div className={`w-3 h-3 rounded-full ${currentCashSession ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
-          <span className="text-xs font-extrabold text-gray-700 dark:text-zinc-200">
-            Caja Chica: {currentCashSession ? '🔓 ABIERTA' : '🔒 CERRADA'}
-          </span>
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 px-4 py-2.5 rounded-2xl shadow-xs">
+            <div className={`w-3 h-3 rounded-full ${currentCashSession ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className="text-xs font-extrabold text-gray-700 dark:text-zinc-200">
+              Caja Chica: {currentCashSession ? '🔓 ABIERTA' : '🔒 CERRADA'}
+            </span>
+          </div>
+          {currentCashSession && (
+            <button
+              type="button"
+              id="btn-attempt-open-cash"
+              onClick={handleAttemptOpenAnother}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-350 border border-emerald-500/30 rounded-2xl text-xs font-black transition-all cursor-pointer active:scale-95 shadow-xs"
+              title="Abrir otra caja o turno"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Abrir otra caja</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -290,7 +340,39 @@ export const CashSessionView: React.FC = () => {
           ) : (
 
             /* CIERRE */
-            <div className="bg-white dark:bg-zinc-900 border border-amber-500/15 dark:border-zinc-800 shadow-md rounded-3xl p-5 md:p-6 space-y-5">
+            <div
+              ref={closeSectionRef}
+              id="section-cash-close"
+              className={`bg-white dark:bg-zinc-900 border shadow-md rounded-3xl p-5 md:p-6 space-y-5 transition-all duration-300 ${
+                highlightCloseSection
+                  ? 'border-amber-500 ring-4 ring-amber-400/50 ring-offset-2 dark:ring-offset-zinc-950 shadow-amber-500/10'
+                  : 'border-amber-500/15 dark:border-zinc-800'
+              }`}
+            >
+              {/* Asistente contextual si el operador intentó abrir otra caja */}
+              {highlightCloseSection && (
+                <div className="bg-amber-500/15 border-2 border-amber-500/40 rounded-2xl p-3.5 flex items-start justify-between gap-2.5 animate-fade-in shadow-sm">
+                  <div className="flex items-start gap-2.5">
+                    <CircleAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-bounce" />
+                    <div>
+                      <p className="text-xs font-black text-amber-900 dark:text-amber-200">
+                        Caja actual en curso
+                      </p>
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                        Para abrir un nuevo turno, primero debés registrar el conteo físico y cerrar la caja actual.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHighlightCloseSection(false)}
+                    className="p-1 hover:bg-amber-500/20 rounded-lg text-amber-700 dark:text-amber-400 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               {/* Cabecera con HISTORIAL visible */}
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
@@ -391,8 +473,14 @@ export const CashSessionView: React.FC = () => {
                       <p className="text-xs text-gray-400 italic px-1">Nota: {currentCashSession.note}</p>
                     )}
                     <button
-                      onClick={() => setCloseStep(2)}
-                      className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors"
+                      id="btn-proceed-to-counting"
+                      ref={closeButtonRef}
+                      onClick={handleProceedToCounting}
+                      className={`w-full py-3 rounded-xl font-bold text-sm transition-all duration-300 cursor-pointer ${
+                        highlightCloseButton
+                          ? 'bg-amber-500 hover:bg-amber-600 text-white ring-4 ring-amber-400 ring-offset-2 animate-pulse scale-102 shadow-xl shadow-amber-500/30'
+                          : 'bg-amber-500 hover:bg-amber-600 text-white'
+                      }`}
                     >
                       Continuar con el conteo →
                     </button>
@@ -526,6 +614,7 @@ export const CashSessionView: React.FC = () => {
                       >← Atrás</button>
                       <button
                         id="btn-close-and-submit-confirmed"
+                        ref={confirmCloseBtnRef}
                         onClick={async (e) => {
                           e.preventDefault();
                           if (closingAmount < 0) return;
@@ -534,9 +623,16 @@ export const CashSessionView: React.FC = () => {
                           resetBills();
                           setClosingAmount(0);
                           setClosingNote(settings.cash.defaultClosingNote ?? '');
+                          setHighlightConfirmClose(false);
+                          setHighlightCloseSection(false);
+                          setHighlightCloseButton(false);
                         }}
                         disabled={closingAmount < 0}
-                        className="flex-[2] py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className={`flex-[2] py-2.5 rounded-xl font-bold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                          highlightConfirmClose
+                            ? 'bg-red-600 hover:bg-red-700 text-white ring-4 ring-red-400 ring-offset-2 animate-pulse scale-102 shadow-xl shadow-red-500/30'
+                            : 'bg-red-600 hover:bg-red-700 text-white'
+                        }`}
                       >
                         🔒 Cerrar caja
                       </button>
@@ -643,9 +739,15 @@ export const CashSessionView: React.FC = () => {
               </div>
               <button
                 type="button"
+                id="btn-use-bill-amount"
+                ref={useThisAmountBtnRef}
                 onClick={applyBillTotal}
                 disabled={billTotal === 0}
-                className="shrink-0 px-5 py-3 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-100 dark:disabled:bg-zinc-800 disabled:text-gray-400 dark:disabled:text-zinc-600 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] disabled:scale-100 disabled:cursor-not-allowed cursor-pointer shadow-md shadow-amber-500/20"
+                className={`shrink-0 px-5 py-3 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-md ${
+                  highlightUseAmount && billTotal > 0
+                    ? 'bg-amber-500 hover:bg-amber-600 ring-4 ring-amber-400 ring-offset-2 animate-pulse scale-105 shadow-amber-500/50'
+                    : 'bg-amber-500 hover:bg-amber-600 disabled:bg-gray-100 dark:disabled:bg-zinc-800 disabled:text-gray-400 dark:disabled:text-zinc-600 hover:scale-[1.02] disabled:scale-100 disabled:cursor-not-allowed shadow-amber-500/20'
+                }`}
               >
                 Usar este monto →
               </button>
@@ -656,42 +758,47 @@ export const CashSessionView: React.FC = () => {
 
       {/* ── Modal Historial ── */}
       {showHistoryModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 md:p-8">
-            <div className="max-w-3xl mx-auto bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl overflow-hidden">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in"
+          onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
+        >
+          <div
+            className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-gray-150 dark:border-zinc-800 max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
 
-              {/* Header modal */}
-              <div className="sticky top-0 bg-white dark:bg-zinc-900 border-b border-gray-100 dark:border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
-                    className="flex items-center gap-1.5 text-xs font-black text-gray-500 dark:text-zinc-400 hover:text-gray-800 dark:hover:text-zinc-100 transition-colors cursor-pointer"
-                  >
-                    <ArrowLeft className="w-4 h-4" /> Volver
-                  </button>
-                  <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700" />
-                  <div className="flex items-center gap-2">
-                    <History className="w-4 h-4 text-amber-500" />
-                    <h3 className="font-extrabold text-sm text-gray-800 dark:text-zinc-100">Historial de Turnos</h3>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] bg-gray-100 dark:bg-zinc-950 px-2.5 py-1 rounded-lg font-extrabold text-gray-500">
-                    {cashSessionsHistory.length} turnos
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-400 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+            {/* Header modal */}
+            <div className="bg-white dark:bg-zinc-900 border-b border-gray-100 dark:border-zinc-800 px-6 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
+                  className="flex items-center gap-1.5 text-xs font-black text-gray-500 dark:text-zinc-400 hover:text-gray-800 dark:hover:text-zinc-100 transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" /> Volver
+                </button>
+                <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700" />
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4 text-amber-500" />
+                  <h3 className="font-extrabold text-sm text-gray-800 dark:text-zinc-100">Historial de Turnos</h3>
                 </div>
               </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] bg-gray-100 dark:bg-zinc-950 px-2.5 py-1 rounded-lg font-extrabold text-gray-500">
+                  {cashSessionsHistory.length} turnos
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-400 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
 
-              {/* Body modal */}
-              <div className="p-6 space-y-4">
+            {/* Body modal */}
+            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
                 {cashSessionsHistory.length === 0 ? (
                   <div className="py-16 text-center border-2 border-dashed border-gray-100 dark:border-zinc-850 rounded-2xl">
                     <Coins className="w-10 h-10 text-gray-300 mx-auto mb-3" />
@@ -877,16 +984,15 @@ export const CashSessionView: React.FC = () => {
                 )}
               </div>
 
-              {/* Footer modal */}
-              <div className="border-t border-gray-100 dark:border-zinc-800 px-6 py-4">
-                <button
-                  type="button"
-                  onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-600 dark:text-zinc-300 font-black text-xs uppercase tracking-widest rounded-2xl transition-all cursor-pointer"
-                >
-                  <ArrowLeft className="w-4 h-4" /> Volver a la Caja
-                </button>
-              </div>
+            {/* Footer modal */}
+            <div className="border-t border-gray-100 dark:border-zinc-800 px-6 py-4 shrink-0 bg-white dark:bg-zinc-900">
+              <button
+                type="button"
+                onClick={() => { setShowHistoryModal(false); setHighlightOpenSession(false); }}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-600 dark:text-zinc-300 font-black text-xs uppercase tracking-widest rounded-2xl transition-all cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" /> Volver a la Caja
+              </button>
             </div>
           </div>
         </div>

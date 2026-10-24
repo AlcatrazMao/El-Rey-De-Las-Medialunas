@@ -7,16 +7,35 @@ import { useApp } from '../AppContext';
 export const NotificationCenter: React.FC = () => {
   const { notifications, markNotificationAsRead, clearNotifications } = useApp();
   const [isOpen, setIsOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // Close on click outside or Escape
+  // Close on click/touch outside or Escape
   useEffect(() => {
     if (!isOpen) return;
-    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsOpen(false); };
-    document.addEventListener('mousedown', close);
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        panelRef.current &&
+        !panelRef.current.contains(target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
     document.addEventListener('keydown', esc);
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+      document.removeEventListener('keydown', esc);
+    };
   }, [isOpen]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -35,8 +54,9 @@ export const NotificationCenter: React.FC = () => {
   };
 
   return (
-    <div className="relative z-50" ref={ref}>
+    <div className="relative z-50">
       <button
+        ref={buttonRef}
         id="btn-bell-notif"
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 rounded-full cursor-pointer transition-all duration-200 text-gray-600 dark:text-gray-300 hover:bg-amber-100 dark:hover:bg-amber-950/40"
@@ -51,8 +71,20 @@ export const NotificationCenter: React.FC = () => {
       </button>
 
       {isOpen && (
-        // desktop: la campana vive en el cluster derecho de la navbar, por eso se ancla a la derecha (right-0) y abre hacia la izquierda para no salirse del viewport
-        <div className="fixed left-2 right-2 top-16 z-50 md:absolute md:inset-auto md:left-auto md:right-0 md:top-full md:mt-2 md:w-[min(24rem,calc(100vw-2rem))] bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-gray-100 dark:border-zinc-800 p-4 transition-all duration-300">
+        <>
+          {/* Backdrop que garantiza el cierre al tocar afuera en desktop, mobile y tablet */}
+          <div
+            id="notification-backdrop"
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]"
+            onClick={() => setIsOpen(false)}
+            aria-hidden="true"
+          />
+          {/* desktop: la campana vive en el cluster derecho de la navbar, por eso se ancla a la derecha (right-0) y abre hacia la izquierda para no salirse del viewport */}
+          <div
+            ref={panelRef}
+            onClick={(e) => e.stopPropagation()}
+            className="fixed left-2 right-2 top-16 z-50 md:absolute md:inset-auto md:left-auto md:right-0 md:top-full md:mt-2 md:w-[min(24rem,calc(100vw-2rem))] bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-gray-100 dark:border-zinc-800 p-4 transition-all duration-300"
+          >
           <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-zinc-800">
             <h3 className="font-semibold text-gray-800 dark:text-zinc-100 flex items-center gap-2">
               <Bell className="h-4 w-4" /> Notificaciones Críticas ({unreadCount} sin leer)
@@ -116,6 +148,7 @@ export const NotificationCenter: React.FC = () => {
             Pulsación del sonido habilitada • Monitoreo sincronizado
           </div>
         </div>
+      </>
       )}
     </div>
   );

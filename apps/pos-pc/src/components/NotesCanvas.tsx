@@ -1,4 +1,4 @@
-import { X, Calendar, Flag } from 'lucide-react';
+import { X, Calendar, Flag, Maximize2, Minimize2 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useRef, useCallback, useEffect } from 'react';
 
@@ -16,10 +16,83 @@ export const NotesCanvas: React.FC<NotesCanvasProps> = ({ notes, onUpdate, onDel
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const dragRef = useRef<{ id: string; ox: number; oy: number; nx: number; ny: number; moved: boolean } | null>(null);
   const noteRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const canvasRef = useRef<HTMLDivElement>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fullscreen & Horizontal orientation support
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      const container = canvasRef.current;
+      if (!container) return;
+
+      const isCurrentlyFs = Boolean(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement
+      );
+
+      if (!isCurrentlyFs) {
+        if (container.requestFullscreen) {
+          await container.requestFullscreen();
+        } else if ((container as any).webkitRequestFullscreen) {
+          await (container as any).webkitRequestFullscreen();
+        }
+
+        // Intento de rotación horizontal si está soportado por la API ScreenOrientation
+        try {
+          if (typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.lock === 'function') {
+            await screen.orientation.lock('landscape').catch(() => {});
+          }
+        } catch {
+          // Navegadores no soportados o bloqueo de permisos en iframe
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        }
+
+        try {
+          if (typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.unlock === 'function') {
+            screen.orientation.unlock();
+          }
+        } catch {
+          // Ignorar si no está soportado
+        }
+      }
+    } catch (err) {
+      console.warn('Fullscreen toggle failed:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      const isFs = Boolean(
+        (document.fullscreenElement && document.fullscreenElement === canvasRef.current) ||
+        ((document as any).webkitFullscreenElement && (document as any).webkitFullscreenElement === canvasRef.current)
+      );
+      setIsFullscreen(isFs);
+      if (!isFs) {
+        try {
+          if (typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.unlock === 'function') {
+            screen.orientation.unlock();
+          }
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFsChange);
+    document.addEventListener('webkitfullscreenchange', handleFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange);
+      document.removeEventListener('webkitfullscreenchange', handleFsChange);
+    };
+  }, []);
 
   const activeNotes = notes.filter(n => n.status !== 'archived');
 
@@ -93,9 +166,47 @@ export const NotesCanvas: React.FC<NotesCanvasProps> = ({ notes, onUpdate, onDel
   const priorityColor = (p: string) => p === 'high' ? 'text-red-500' : p === 'medium' ? 'text-amber-500' : 'text-gray-400';
 
   return (
-    <div ref={canvasRef} className="flex-1 relative bg-[#FAF0E6] dark:bg-zinc-950 border border-dashed border-amber-200 dark:border-zinc-800 rounded-xl overflow-auto select-none"
-      style={{ minHeight: '60vh', minWidth: '100%', touchAction: 'none' }}
-      onDoubleClick={(e) => { if (e.target === canvasRef.current) return; }}>
+    <div
+      ref={canvasRef}
+      id="notes-canvas-container"
+      className={`relative select-none transition-all duration-200 ${
+        isFullscreen
+          ? 'fixed inset-0 z-50 w-full h-full min-h-screen bg-[#FAF0E6] dark:bg-zinc-950 p-4 sm:p-6 overflow-auto'
+          : 'flex-1 w-full h-full min-h-[60vh] bg-[#FAF0E6] dark:bg-zinc-950 border border-dashed border-amber-200 dark:border-zinc-800 rounded-xl overflow-auto'
+      }`}
+      style={{
+        minHeight: isFullscreen ? '100vh' : '60vh',
+        minWidth: '100%',
+        touchAction: 'none'
+      }}
+      onDoubleClick={(e) => { if (e.target === canvasRef.current) return; }}
+    >
+      {/* Botón flotante de Pantalla Completa / Salir */}
+      <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+        <button
+          type="button"
+          id="btn-toggle-canvas-fullscreen"
+          onClick={toggleFullscreen}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold shadow-md transition-all cursor-pointer backdrop-blur-md active:scale-95 ${
+            isFullscreen
+              ? 'bg-amber-500 text-white hover:bg-amber-600 ring-2 ring-white/50'
+              : 'bg-white/90 dark:bg-zinc-900/90 hover:bg-white dark:hover:bg-zinc-850 text-gray-700 dark:text-zinc-200 border border-amber-200/80 dark:border-zinc-700 hover:border-amber-400'
+          }`}
+          title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+        >
+          {isFullscreen ? (
+            <>
+              <Minimize2 className="w-3.5 h-3.5" />
+              <span>Salir</span>
+            </>
+          ) : (
+            <>
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Pantalla completa</span>
+            </>
+          )}
+        </button>
+      </div>
       {activeNotes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">
           <div className="text-center"><div className="text-4xl mb-2 opacity-30">📝</div><p className="text-sm">Doble clic para editar, arrastrar para mover</p></div>

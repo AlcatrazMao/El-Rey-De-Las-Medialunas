@@ -106,7 +106,7 @@ function UpdateBanner() {
   );
 }
 
-function ERPLayout() {
+export function ERPLayout() {
   const { activeTab, setActiveTab, activeUser, logout, batches, syncStatus } = useApp();
   const isAdmin = activeUser?.role === 'admin';
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -228,7 +228,7 @@ function ERPLayout() {
           { id: 'inventory', label: 'Inventario', icon: <Package className="h-4 w-4" /> },
           { id: 'offers', label: 'Ofertas', icon: <Tag className="h-4 w-4" /> },
           { id: 'history', label: 'Historial', icon: <ReceiptText className="h-4 w-4" /> },
-          { id: 'accounting', label: 'Egresos', icon: <HandCoins className="h-4 w-4" /> },
+          { id: 'accounting', label: 'Contabilidad', icon: <HandCoins className="h-4 w-4" /> },
           { id: 'integrations', label: 'Pagos', icon: <Globe className="h-4 w-4" /> },
           { id: 'customers', label: 'Clientes', icon: <Users className="h-4 w-4" /> },
           { id: 'requests', label: 'Solicitudes', icon: <ClipboardList className="h-4 w-4" /> },
@@ -248,7 +248,13 @@ function ERPLayout() {
       {/* Navbar mobile — única barra de nav en celular */}
       <div className="md:hidden bg-white dark:bg-zinc-900 border-b border-orange-100/40 dark:border-zinc-800 px-3 py-3 flex flex-col gap-2.5 select-none shadow-sm">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <button
+            type="button"
+            id="btn-mobile-brand-menu"
+            aria-label="Abrir menú"
+            onClick={() => setIsMobileMenuOpen(prev => !prev)}
+            className="flex items-center gap-2 text-left cursor-pointer hover:opacity-80 transition-opacity active:scale-95 focus:outline-none"
+          >
             <span className="text-xl" role="img" aria-label="croissant">🥐</span>
             <div>
               <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest leading-none block">
@@ -256,7 +262,7 @@ function ERPLayout() {
               </span>
               <span className="text-[10px] font-semibold text-gray-500 dark:text-zinc-400 leading-none">El Rey De Las Medialunas</span>
             </div>
-          </div>
+          </button>
           <div className="flex items-center gap-1.5">
             <SyncLed status={syncStatus} onClick={isAdmin ? () => setActiveTab('sync_console') : undefined} />
             <NotificationCenter />
@@ -265,7 +271,9 @@ function ERPLayout() {
               <LogOut className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              id="btn-mobile-menu-toggle"
+              aria-label="Menú principal"
+              onClick={() => setIsMobileMenuOpen(prev => !prev)}
               className="p-2 bg-gray-50 hover:bg-gray-100 dark:bg-zinc-950 dark:hover:bg-zinc-800 border rounded-xl text-gray-600 dark:text-zinc-300 cursor-pointer flex items-center transition-all active:scale-95"
             >
               <Menu className="w-4 h-4 text-amber-500" />

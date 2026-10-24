@@ -167,6 +167,21 @@ export interface Expense {
   invoiceUrl?: string;
 }
 
+export type AccountingMovementType = 'ingreso' | 'egreso';
+
+export interface AccountingMovement {
+  id: string;
+  type: AccountingMovementType;
+  concept: string;
+  category: string;
+  categoryLabel: string;
+  date: string;
+  paymentMethod: string;
+  amount: number;
+  rawSale?: Sale;
+  rawExpense?: Expense;
+}
+
 export type UserRole = 'admin' | 'cajero' | 'panadero' | 'cocinero' | 'repartidor';
 
 export interface User {

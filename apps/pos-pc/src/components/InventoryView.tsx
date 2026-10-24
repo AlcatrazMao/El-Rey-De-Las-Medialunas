@@ -1742,15 +1742,19 @@ export const InventoryView: React.FC = () => {
           </div>
       )}
 
-      {/* FLOATING ACTION LUPA BUTTON FOR BOTH VIEWS */}
+      {/* FLOATING ACTION LUPA BUTTON FOR INVENTORY */}
       <button
         id="btn-inventory-floating-lupa-search"
         onClick={() => {
-          try { localStorage.setItem('pan_erp_open_search_list', 'true'); } catch { /* storage full */ }
-          setActiveTab('pos');
+          const searchInput = document.getElementById('stock-search') as HTMLInputElement | null;
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
         }}
         className="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-40 p-4 rounded-full bg-amber-500 hover:bg-amber-600 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer border-2 border-white dark:border-zinc-800 ring-4 ring-amber-550/10 dark:ring-zinc-900 group animate-bounce"
-        title="Buscar Panificados (Modo Lista)"
+        title="Buscar en inventario"
+        aria-label="Buscar en inventario"
       >
         <Search className="h-6 w-6 group-hover:rotate-12 transition-transform duration-300" />
       </button>

@@ -188,7 +188,9 @@ syncRoutes.post("/push", async (c) => {
   const user = await resolveUser(c.env.DB, userId);
   if (!user) return c.json({ success: false, error: { code: "FORBIDDEN", message: "Usuario no registrado" } }, 403);
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const branchId = body.branch_id
+    ?? (c.get("branchId") || (user as { default_branch?: string }).default_branch)
+    ?? DEFAULT_BRANCH_ID;
   const operations = body.operations ?? [];
   const userRole = c.get("userRole") ?? "";
 
@@ -331,10 +333,14 @@ async function applyOperation(
       }
 
       // BUG FIX C4 — validar valores numéricos finitos antes de tocar el batch.
-      const subtotal = assertFinitePositive(d.subtotal ?? 0, "subtotal");
-      const discountTotal = assertFinitePositive(d.discount_total ?? 0, "discount_total");
+      const subtotal = assertFinitePositive(d.subtotal ?? d.subtotal_bruto ?? 0, "subtotal");
+      const rawDiscount = d.discount_total ?? 0;
+      if (typeof rawDiscount !== "number" || !Number.isFinite(rawDiscount)) {
+        throw new Error(`INVALID_NUMERIC: discount_total=${String(rawDiscount)}`);
+      }
+      const discountTotal = rawDiscount;
       const taxTotal = assertFinitePositive(d.tax_total ?? 0, "tax_total");
-      const total = assertFinitePositive(d.total ?? subtotal + taxTotal, "total");
+      const total = assertFinitePositive(d.total ?? d.total_final ?? Math.max(0, subtotal - discountTotal + taxTotal), "total");
 
       const items = Array.isArray(d.items) ? d.items as Record<string, unknown>[] : [];
       const payments = Array.isArray(d.payments) ? d.payments as Record<string, unknown>[] : [];
@@ -342,7 +348,7 @@ async function applyOperation(
       // Validar items antes de armar statements — un NaN en quantity rompe stock.
       for (const item of items) {
         const itemQty = assertFinitePositive(item.quantity ?? 0, "item.quantity");
-        const itemPrice = assertFinitePositive(item.unit_price ?? 0, "item.unit_price");
+        const itemPrice = assertFinitePositive(item.unit_price ?? item.price ?? 0, "item.unit_price");
         // FIX R8-5 — caps de cantidad y precio por item, igual que sales.ts POST /.
         if (itemQty > MAX_ITEM_QUANTITY) {
           throw new Error(`VALIDATION_ERROR: item.quantity ${itemQty} supera el máximo permitido de ${MAX_ITEM_QUANTITY}`);
@@ -364,19 +370,21 @@ async function applyOperation(
         assertFinitePositive(pay.amount ?? 0, "payment.amount");
       }
 
+      const saleBranchId = (typeof d.branch_id === 'string' && d.branch_id.trim()) ? d.branch_id.trim() : branchId;
+
       const itemStmts = items.flatMap(item => {
         const itemId = genId();
         const movId = genId();
         const invId = genId();
         const qty = Number(item.quantity ?? 0);
-        const price = Number(item.unit_price ?? 0);
+        const price = Number(item.unit_price ?? item.price ?? 0);
         // BUG FIX C3 — discount estaba hardcodeado a 0; ahora respetamos el
         // payload del cliente (con fallback a 0 si no viene).
         const discount = item.discount !== undefined && item.discount !== null
           ? Number(item.discount)
           : 0;
         const lineTotal = qty * price - discount;
-        const productId = String(item.product_id ?? "");
+        const productId = String(item.product_id ?? item.productId ?? "");
         return [
           db.prepare(
             `INSERT OR IGNORE INTO sale_items (id, sale_id, product_id, quantity, unit_price, discount, tax_rate, tax_amount, total, created_at)
@@ -385,7 +393,7 @@ async function applyOperation(
           db.prepare(
             `INSERT OR IGNORE INTO stock_movements (id, product_id, branch_id, movement_type, quantity, reason, user_id, created_at)
              VALUES (?, ?, ?, 'sale_out', ?, 'Venta sync offline', ?, ?)`
-          ).bind(movId, productId, branchId, qty, userId, now),
+          ).bind(movId, productId, saleBranchId, qty, userId, now),
           // Fix 2: garantizar que la fila de inventory exista antes del UPDATE.
           // Si el producto nunca tuvo movimiento en esta sucursal, el UPDATE
           // afecta 0 filas y el stock queda sin decrementar — igual que en
@@ -393,11 +401,11 @@ async function applyOperation(
           db.prepare(
             `INSERT OR IGNORE INTO inventory (id, product_id, branch_id, current_quantity, updated_at)
              VALUES (?, ?, ?, 0, ?)`
-          ).bind(invId, productId, branchId, now),
+          ).bind(invId, productId, saleBranchId, now),
           db.prepare(
             `UPDATE inventory SET current_quantity = MAX(0, current_quantity - ?), updated_at = ?
              WHERE product_id = ? AND branch_id = ?`
-          ).bind(qty, now, productId, branchId),
+          ).bind(qty, now, productId, saleBranchId),
         ];
       });
 
@@ -414,18 +422,20 @@ async function applyOperation(
       const MAX_SALE_NUMBER_RETRIES = 5;
       let attempts = 0;
       let inserted = false;
+      const documentType = typeof d.document_type === 'string' && ['ticket', 'factura_a', 'factura_b', 'factura_c'].includes(d.document_type) ? d.document_type : 'ticket';
+      const clientId = typeof d.client_id === 'string' ? d.client_id : (typeof d.id === 'string' ? d.id : id);
 
       while (attempts < MAX_SALE_NUMBER_RETRIES && !inserted) {
         const saleNumberRow = await db
           .prepare("SELECT COALESCE(MAX(sale_number), 0) + 1 AS next_number FROM sales WHERE branch_id = ?")
-          .bind(branchId)
+          .bind(saleBranchId)
           .first<{ next_number: number }>();
         const saleNumber = saleNumberRow?.next_number ?? 1;
 
         const saleInsert = db.prepare(
-          `INSERT INTO sales (id, idempotency_key, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'synced', ?, ?)`
-        ).bind(id, idempotencyKey, branchId, userId, d.customer_id ?? null, saleNumber, subtotal, discountTotal, taxTotal, total, d.notes ?? null, now);
+          `INSERT INTO sales (id, client_id, idempotency_key, branch_id, user_id, customer_id, sale_number, subtotal, discount_total, tax_total, total, status, sync_status, notes, created_at, document_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'synced', ?, ?, ?)`
+        ).bind(id, clientId, idempotencyKey, saleBranchId, userId, d.customer_id ?? null, saleNumber, subtotal, discountTotal, taxTotal, total, d.notes ?? null, now, documentType);
 
         try {
           await db.batch([saleInsert, ...itemStmts, ...paymentStmts]);
