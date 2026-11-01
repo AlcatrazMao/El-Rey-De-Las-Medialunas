@@ -68,6 +68,7 @@ import type {
   PaginationParams,
   PaginatedResponse,
 } from "@medialunas/shared/types/api";
+export type { DocumentType, SaleDocumentType } from "@medialunas/shared";
 
 export interface ApiClientOptions {
   baseUrl: string;

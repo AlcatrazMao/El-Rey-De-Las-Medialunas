@@ -15,6 +15,7 @@ import {
   List,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Settings,
   Download,
   CheckCircle2,
@@ -39,11 +40,9 @@ import { downloadTicketHtml, printDocument, printTicketOrInvoice, type PrintCust
 import { formatCurrency } from '../utils/format';
 import { calcularPrecioUnitarioGrupo } from '../utils/productGroups';
 
-import { CreateBudgetModal } from './documents/CreateBudgetModal';
-import { CreateCreditNoteModal } from './documents/CreateCreditNoteModal';
-import { CreateRemitoModal } from './documents/CreateRemitoModal';
 import { GroupSelectorModal } from './GroupSelectorModal';
 import { CartItemList } from './pos/CartItemList';
+import { DocumentTypeSelectorModal } from './pos/DocumentTypeSelectorModal';
 import { ProductCard } from './pos/ProductCard';
 
 interface CartLine {
@@ -69,23 +68,49 @@ interface SaleTab {
 }
 
 /** Tipos que exigen CUIT del cliente cargado antes de poder emitirse (DT server-side, sales.ts). */
-const FISCAL_INVOICE_TYPES: DocumentType[] = ['factura_a', 'factura_b', 'factura_c'];
+const FISCAL_INVOICE_TYPES: DocumentType[] = [
+  'factura_a',
+  'factura_b',
+  'factura_c',
+  'factura_m',
+  'nota_credito_a',
+  'nota_credito_m',
+  'nota_debito_a',
+  'nota_debito_m',
+];
 
-/**
- * Tipos que se emiten DESDE el carrito como venta (afectan stock/caja).
- * Remito/Presupuesto/Nota de crédito NO son ventas: se emiten como acciones
- * separadas del carrito (botones), con su propia semántica — no pasan por
- * `addSale`. Por eso el selector "Tipo de comprobante" del carrito se acota
- * a estos 4.
- */
-const SALE_DOCUMENT_TYPES: DocumentType[] = ['ticket', 'factura_a', 'factura_b', 'factura_c'];
+const DOC_ICONS: Record<DocumentType, string> = {
+  ticket: '🎫',
+  factura_a: '📑',
+  factura_b: '📑',
+  factura_c: '📑',
+  factura_m: '📑',
+  nota_credito_a: '🧾',
+  nota_credito_b: '🧾',
+  nota_credito_c: '🧾',
+  nota_credito_m: '🧾',
+  nota_debito_a: '📄',
+  nota_debito_b: '📄',
+  nota_debito_c: '📄',
+  nota_debito_m: '📄',
+  presupuesto: '📋',
+  remito: '🚚',
+};
 
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   ticket: 'Ticket',
   factura_a: 'Factura A',
   factura_b: 'Factura B',
   factura_c: 'Factura C',
-  nota_credito: 'Nota de Crédito',
+  factura_m: 'Factura M',
+  nota_credito_a: 'Nota de Crédito A',
+  nota_credito_b: 'Nota de Crédito B',
+  nota_credito_c: 'Nota de Crédito C',
+  nota_credito_m: 'Nota de Crédito M',
+  nota_debito_a: 'Nota de Débito A',
+  nota_debito_b: 'Nota de Débito B',
+  nota_debito_c: 'Nota de Débito C',
+  nota_debito_m: 'Nota de Débito M',
   remito: 'Remito',
   presupuesto: 'Presupuesto',
 };
@@ -142,21 +167,22 @@ export const POSView: React.FC = () => {
     return s ? s.enabled : true;
   };
 
-  // Emisión de comprobantes no-venta (Remito/Presupuesto/Nota de crédito) desde
-  // el carrito: se abren como modales por encima del POS, reusando los mismos
-  // modales que antes vivían en el panel "Comprobantes" (eliminado del nav).
-  const [openDocumentModal, setOpenDocumentModal] = useState<'remito' | 'presupuesto' | 'nota_credito' | null>(null);
-  const [documentMenuOpen, setDocumentMenuOpen] = useState(false);
+  const [showDocSelectorModal, setShowDocSelectorModal] = useState(false);
 
   // DT-13: tipos habilitados en la sucursal activa. Si el fetch todavía no
   // resolvió o falló (sin red), `documentSettings` queda vacío — en ese caso
   // tratamos como "solo ticket habilitado" para NUNCA bloquear la venta.
-  // Solo los tipos de VENTA participan del selector del carrito; remito,
-  // presupuesto y nota de crédito se emiten por acción separada.
   const enabledDocumentTypes = documentSettings.filter(d => d.enabled).map(d => d.document_type);
-  const enabledSaleDocumentTypes = enabledDocumentTypes.filter(dt => SALE_DOCUMENT_TYPES.includes(dt));
-  const availableDocumentTypes: DocumentType[] = enabledSaleDocumentTypes.length > 0 ? enabledSaleDocumentTypes : ['ticket'];
-  const showDocumentTypeSelector = availableDocumentTypes.length > 1;
+  const availableDocumentTypes: DocumentType[] = enabledDocumentTypes.length > 0 ? enabledDocumentTypes : ['ticket'];
+
+  // Resuelve el comprobante predeterminado configurado en posSettings (con fallback a availableDocumentTypes o ticket)
+  const resolveDefaultDocumentType = (): DocumentType => {
+    const configured = posSettings.pos?.defaultDocumentType;
+    if (configured && (availableDocumentTypes.length === 0 || availableDocumentTypes.includes(configured))) {
+      return configured;
+    }
+    return availableDocumentTypes[0] ?? 'ticket';
+  };
 
   const activeDiscountSystem = posSettings.discountConfig?.activeDiscountSystem ?? 'none';
   const offersEnabled = activeDiscountSystem === 'offers';
@@ -185,7 +211,7 @@ export const POSView: React.FC = () => {
     customerDoc: '',
     selectedCustomerId: null,
     fiscalType: 'consumidor_final' as const,
-    documentType: 'ticket' as const,
+    documentType: (posSettings.pos?.defaultDocumentType as DocumentType) || 'ticket',
   }]);
   const [activeTabId, setActiveTabId] = useState('tab_1');
 
@@ -224,11 +250,11 @@ export const POSView: React.FC = () => {
 
   // DT-13: si el tipo seleccionado del tab activo deja de estar habilitado
   // (deshabilitado desde Configuración, o el tab se creó antes de que
-  // documentSettings resolviera), lo corregimos automáticamente al primero
-  // disponible — nunca dejar seleccionado un tipo que ya no se puede emitir.
+  // documentSettings resolviera), lo corregimos automáticamente al predeterminado
+  // o al primero disponible — nunca dejar seleccionado un tipo que ya no se puede emitir.
   useEffect(() => {
-    if (!availableDocumentTypes.includes(activeTab.documentType)) {
-      updateActiveTab({ documentType: availableDocumentTypes[0] });
+    if (availableDocumentTypes.length > 0 && !availableDocumentTypes.includes(activeTab.documentType)) {
+      updateActiveTab({ documentType: resolveDefaultDocumentType() });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo reacciona a cambios de tipos disponibles/tab activo; updateActiveTab es estable por closure de setTabs
   }, [availableDocumentTypes.join(','), activeTabId]);
@@ -249,7 +275,7 @@ export const POSView: React.FC = () => {
       customerDoc: '',
       selectedCustomerId: null,
       fiscalType: 'consumidor_final' as const,
-      documentType: availableDocumentTypes[0] ?? ('ticket' as const),
+      documentType: resolveDefaultDocumentType(),
     }]);
     setActiveTabId(id);
   };
@@ -588,6 +614,25 @@ export const POSView: React.FC = () => {
       setModalSearchVisible(false);
       setModalFiltersOpen(false);
     }
+  }, [showSelectionModal]);
+
+  // Cerrar el modal de búsqueda / selección con tecla Escape y limpiar foco
+  useEffect(() => {
+    if (!showSelectionModal) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowSelectionModal(false);
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
   }, [showSelectionModal]);
 
   if (!currentCashSession) {
@@ -1178,6 +1223,121 @@ export const POSView: React.FC = () => {
       return;
     }
 
+    // Emisión formal de Remito desde los productos del carrito
+    if (documentType === 'remito') {
+      setIsProcessingPayment(true);
+      setProcessingStatusText('Generando remito...');
+      playBeep(520, 0.1);
+      try {
+        const result = await createRemito({
+          customer_id: selectedCustomerId || undefined,
+          items: cart.map(i => ({
+            product_id: i.product.id,
+            quantity: i.quantity,
+            description: i.product.name,
+          })),
+          notes: observaciones || undefined,
+        });
+        setIsProcessingPayment(false);
+        if (result.ok && result.data) {
+          addSystemNotification('Remito creado', `Remito #${result.data.document_number} generado con éxito.`, 'success');
+          void printDocument('remito', {
+            documentNumber: result.data.document_number,
+            items: cart.map(it => ({
+              name: it.product.name,
+              quantity: it.quantity,
+              price: 0,
+            })),
+            operatorName: activeUser.name,
+            customerName: customerName || undefined,
+            customerDoc: customerDoc || undefined,
+            customization: getCustomization('remito'),
+          });
+          updateActiveTab({
+            cart: [],
+            customerName: '',
+            customerDoc: '',
+            selectedCustomerId: null,
+            selectedDiscount: 0,
+            documentType: resolveDefaultDocumentType(),
+          });
+          setCustomerSearch('');
+          setCuilSearch('');
+          setObservaciones('');
+          setParaLlevar(false);
+          setShowConfigPanel(false);
+          setCustomerHistory(null);
+        } else {
+          addSystemNotification('❌ Error al crear remito', result.error ?? 'No se pudo generar el remito.', 'error');
+        }
+      } catch (e) {
+        setIsProcessingPayment(false);
+        addSystemNotification('❌ Error al crear remito', e instanceof Error ? e.message : 'Error inesperado', 'error');
+      }
+      return;
+    }
+
+    // Emisión formal de Presupuesto desde los productos del carrito
+    if (documentType === 'presupuesto') {
+      setIsProcessingPayment(true);
+      setProcessingStatusText('Generando presupuesto...');
+      playBeep(520, 0.1);
+      try {
+        const days = presupuestoValidDays ?? 15;
+        const d = new Date();
+        d.setDate(d.getDate() + days);
+        const validUntil = d.toISOString().split('T')[0];
+        const result = await createBudget({
+          customer_id: selectedCustomerId || undefined,
+          items: cart.map(i => ({
+            product_id: i.product.id,
+            quantity: i.quantity,
+            unit_price: i.unitPrice,
+          })),
+          valid_until: validUntil,
+        });
+        setIsProcessingPayment(false);
+        if (result.ok && result.data) {
+          addSystemNotification('Presupuesto creado', `Presupuesto #${result.data.document_number} generado con éxito.`, 'success');
+          void printDocument('presupuesto', {
+            documentNumber: result.data.document_number,
+            items: cart.map(it => ({
+              name: it.product.name,
+              quantity: it.quantity,
+              price: it.unitPrice,
+            })),
+            operatorName: activeUser.name,
+            customerName: customerName || undefined,
+            customerDoc: customerDoc || undefined,
+            subtotal: cartTotal,
+            total: cartTotal,
+            validUntil,
+            customization: getCustomization('presupuesto'),
+          });
+          updateActiveTab({
+            cart: [],
+            customerName: '',
+            customerDoc: '',
+            selectedCustomerId: null,
+            selectedDiscount: 0,
+            documentType: resolveDefaultDocumentType(),
+          });
+          setCustomerSearch('');
+          setCuilSearch('');
+          setObservaciones('');
+          setParaLlevar(false);
+          setShowConfigPanel(false);
+          setCustomerHistory(null);
+        } else {
+          addSystemNotification('❌ Error al crear presupuesto', result.error ?? 'No se pudo generar el presupuesto.', 'error');
+        }
+      } catch (e) {
+        setIsProcessingPayment(false);
+        addSystemNotification('❌ Error al crear presupuesto', e instanceof Error ? e.message : 'Error inesperado', 'error');
+      }
+      return;
+    }
+
     // Snapshot cart before delays — prevents race condition if user modifies cart during processing
     const cartSnapshot = cart.map(item => ({
       productId: item.product.id,
@@ -1253,7 +1413,7 @@ export const POSView: React.FC = () => {
             customerDoc: '',
             selectedCustomerId: null,
             selectedDiscount: 0,
-            documentType: availableDocumentTypes[0] ?? 'ticket',
+            documentType: resolveDefaultDocumentType(),
           });
           setCustomerSearch('');
           setCuilSearch('');
@@ -1415,49 +1575,7 @@ export const POSView: React.FC = () => {
               </button>
             </div>
 
-            {/* Comprobantes no-venta: remito / presupuesto / nota de crédito */}
-            <div className="relative shrink-0">
-              <button
-                onClick={() => setDocumentMenuOpen(v => !v)}
-                className={`shrink-0 p-2 sm:px-2.5 sm:py-1.5 rounded-full sm:rounded-lg border text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
-                  documentMenuOpen
-                    ? 'border-amber-400 bg-amber-500 text-black dark:text-black'
-                    : 'border-amber-400 bg-amber-500 text-white sm:border-amber-200 dark:sm:border-zinc-700 sm:bg-amber-50 sm:hover:bg-amber-100 dark:sm:bg-amber-950/20 dark:sm:hover:bg-amber-950/40 sm:text-amber-700 dark:sm:text-amber-400'
-                }`}
-                title="Emitir comprobante (remito, presupuesto, nota de crédito)"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Comprobantes</span>
-              </button>
-              {documentMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setDocumentMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl overflow-hidden">
-                    <button
-                      onClick={() => { setOpenDocumentModal('remito'); setDocumentMenuOpen(false); }}
-                      disabled={!isDocumentTypeEnabled('remito')}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <Truck className="h-4 w-4 text-amber-500" /> Remito
-                    </button>
-                    <button
-                      onClick={() => { setOpenDocumentModal('presupuesto'); setDocumentMenuOpen(false); }}
-                      disabled={!isDocumentTypeEnabled('presupuesto')}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <FileText className="h-4 w-4 text-amber-500" /> Presupuesto
-                    </button>
-                    <button
-                      onClick={() => { setOpenDocumentModal('nota_credito'); setDocumentMenuOpen(false); }}
-                      disabled={!isDocumentTypeEnabled('nota_credito')}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <Receipt className="h-4 w-4 text-red-500" /> Nota de crédito
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+
 
             <span className="hidden sm:block text-[9px] bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold px-2 py-1 rounded-full whitespace-nowrap">
               Auto-Gen
@@ -1583,34 +1701,18 @@ export const POSView: React.FC = () => {
           {/* ── IZQUIERDA: campos + COBRAR ── */}
           <div className="flex-1 min-w-0 px-2 py-2 flex flex-col gap-1.5 justify-center relative">
 
-            {/* Fila 1: Comprobante (botones) | Tipo | Pago | Lista de precios */}
+            {/* Fila 1: Comprobante (selector estructurado) | Tipo | Pago | Lista de precios */}
             <div className="hidden md:flex items-center gap-1.5">
-              {showDocumentTypeSelector && (
-                <div className="flex items-center gap-0.5 bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-lg px-0.5 py-0.5">
-                  {availableDocumentTypes.map(dt => {
-                    const isActive = documentType === dt;
-                    const isFiscal = dt === 'factura_a' || dt === 'factura_b' || dt === 'factura_c';
-                    return (
-                      <button
-                        key={dt}
-                        onClick={() => setDocumentType(dt)}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md cursor-pointer transition-colors whitespace-nowrap ${
-                          isActive
-                            ? isFiscal
-                              ? 'bg-emerald-500 text-white'
-                              : dt === 'nota_credito'
-                                ? 'bg-red-500 text-white'
-                                : 'bg-amber-500 text-white'
-                            : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800'
-                        }`}
-                        title={dt.replace(/_/g, ' ').toUpperCase()}
-                      >
-                        {DOCUMENT_TYPE_LABELS[dt]}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowDocSelectorModal(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold bg-white dark:bg-zinc-950 border border-amber-300 dark:border-amber-700/60 hover:border-amber-500 rounded-lg shadow-2xs hover:bg-amber-50/50 dark:hover:bg-amber-950/20 text-gray-800 dark:text-zinc-100 transition-colors cursor-pointer shrink-0"
+                title="Cambiar tipo de comprobante"
+              >
+                <span className="text-amber-500 font-extrabold">{DOC_ICONS[documentType] || '🎫'}</span>
+                <span>{DOCUMENT_TYPE_LABELS[documentType] || 'Ticket'}</span>
+                <ChevronDown className="h-3 w-3 text-gray-400 ml-0.5" />
+              </button>
               <select
                 value={fiscalType}
                 onChange={e => setFiscalType(e.target.value as typeof fiscalType)}
@@ -1798,7 +1900,7 @@ export const POSView: React.FC = () => {
               )}
             </div>
 
-            {/* Fila 3: COBRAR */}
+            {/* Fila 3: COBRAR / EMITIR */}
             <button
               id="btn-pos-checkout"
               onClick={handlePayment}
@@ -1812,8 +1914,18 @@ export const POSView: React.FC = () => {
             >
               {isProcessingPayment ? (
                 <><Cpu className="h-4 w-4 animate-spin" /><span>{processingStatusText}</span></>
+              ) : documentType === 'remito' ? (
+                <><Truck className="h-4 w-4" /><span>EMITIR REMITO ({cart.length} ítem{cart.length !== 1 ? 's' : ''})</span></>
+              ) : documentType === 'presupuesto' ? (
+                <><FileText className="h-4 w-4" /><span>EMITIR PRESUPUESTO {formatCurrency(cartTotal)}</span></>
+              ) : documentType.startsWith('nota_credito') ? (
+                <><Receipt className="h-4 w-4" /><span>EMITIR NOTA DE CRÉDITO {formatCurrency(cartTotal)}</span></>
+              ) : documentType.startsWith('nota_debito') ? (
+                <><FileText className="h-4 w-4" /><span>EMITIR NOTA DE DÉBITO {formatCurrency(cartTotal)}</span></>
+              ) : documentType.startsWith('factura') ? (
+                <><FileText className="h-4 w-4" /><span>EMITIR {DOCUMENT_TYPE_LABELS[documentType].toUpperCase()} {formatCurrency(cartTotal)}</span></>
               ) : (
-                <><CreditCard className="h-4 w-4" />COBRAR {formatCurrency(cartTotal)}</>
+                <><CreditCard className="h-4 w-4" /><span>COBRAR {formatCurrency(cartTotal)}</span></>
               )}
             </button>
 
@@ -2370,67 +2482,14 @@ export const POSView: React.FC = () => {
         />
       )}
 
-      {/* COMPROBANTES NO-VENTA: modales de emisión desde el carrito */}
-      {openDocumentModal === 'remito' && (
-        <CreateRemitoModal
-          onClose={() => setOpenDocumentModal(null)}
-          onCreate={createRemito}
-          onCreated={(result, printItems, customerName) => {
-            setOpenDocumentModal(null);
-            addSystemNotification('Remito creado', `Remito #${result.document_number} generado con éxito.`, 'success');
-            void printDocument('remito', {
-              documentNumber: result.document_number,
-              items: printItems,
-              operatorName: activeUser.name,
-              customerName,
-              customization: getCustomization('remito'),
-            });
-          }}
-        />
-      )}
-
-      {openDocumentModal === 'presupuesto' && (
-        <CreateBudgetModal
-          onClose={() => setOpenDocumentModal(null)}
-          onCreate={createBudget}
-          defaultValidDays={presupuestoValidDays}
-          onCreated={(result, printItems, customerName) => {
-            setOpenDocumentModal(null);
-            addSystemNotification('Presupuesto creado', `Presupuesto #${result.document_number} generado con éxito.`, 'success');
-            void printDocument('presupuesto', {
-              documentNumber: result.document_number,
-              items: printItems,
-              operatorName: activeUser.name,
-              customerName,
-              total: result.total,
-              subtotal: result.subtotal,
-              validUntil: result.valid_until,
-              customization: getCustomization('presupuesto'),
-            });
-          }}
-        />
-      )}
-
-      {openDocumentModal === 'nota_credito' && (
-        <CreateCreditNoteModal
-          onClose={() => setOpenDocumentModal(null)}
-          onCreate={createCreditNote}
-          requireReason={notaCreditoRequireReason}
-          onCreated={(result, originalDocumentNumber, printItems) => {
-            setOpenDocumentModal(null);
-            addSystemNotification('Nota de crédito creada', `Nota de crédito #${result.document_number} generada con éxito.`, 'success');
-            void printDocument('nota_credito', {
-              documentNumber: result.document_number,
-              items: printItems ?? [],
-              operatorName: activeUser.name,
-              total: result.amount,
-              creditNoteReason: result.reason,
-              originalDocumentNumber: originalDocumentNumber ?? undefined,
-              customization: getCustomization('nota_credito'),
-            });
-          }}
-        />
-      )}
+      {/* Modal estructurado de selector de comprobantes y variantes */}
+      <DocumentTypeSelectorModal
+        isOpen={showDocSelectorModal}
+        onClose={() => setShowDocSelectorModal(false)}
+        selectedType={documentType}
+        onSelect={dt => setDocumentType(dt)}
+        isTypeEnabled={isDocumentTypeEnabled}
+      />
 
       {/* MODAL: Nuevo Cliente */}
       {/* MODAL: Confirmar cierre de tab con ítems */}
@@ -2587,40 +2646,30 @@ export const POSView: React.FC = () => {
         {/* Scroll content */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
 
-          {/* Tipo de comprobante (DT-13: solo si hay >1 habilitado) */}
-          {showDocumentTypeSelector && (
-            <div>
-              <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Tipo de comprobante</label>
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {availableDocumentTypes.map(dt => {
-                  const isActive = documentType === dt;
-                  const isFiscal = dt === 'factura_a' || dt === 'factura_b' || dt === 'factura_c';
-                  return (
-                    <button
-                      key={dt}
-                      onClick={() => setDocumentType(dt)}
-                      className={`px-3 py-2 text-xs font-bold rounded-xl cursor-pointer transition-colors ${
-                        isActive
-                          ? isFiscal
-                            ? 'bg-emerald-500 text-white'
-                            : dt === 'nota_credito'
-                              ? 'bg-red-500 text-white'
-                              : 'bg-amber-500 text-white'
-                          : 'bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 text-gray-600 dark:text-zinc-400 hover:border-amber-300'
-                      }`}
-                    >
-                      {DOCUMENT_TYPE_LABELS[dt]}
-                    </button>
-                  );
-                })}
-              </div>
-              {cuitMissingForInvoice && (
-                <p className="mt-1 text-xs font-bold text-red-600 dark:text-red-400">
-                  ⚠️ Requiere CUIT del cliente cargado.
-                </p>
-              )}
+          {/* Tipo de comprobante */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">
+              Tipo de comprobante
+            </label>
+            <div className="mt-1.5">
+              <button
+                type="button"
+                onClick={() => setShowDocSelectorModal(true)}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs font-bold bg-white dark:bg-zinc-850 border border-amber-300 dark:border-amber-700/60 rounded-xl text-gray-800 dark:text-zinc-100 cursor-pointer shadow-2xs hover:bg-amber-50/40 dark:hover:bg-zinc-800 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-base">{DOC_ICONS[documentType] || '🎫'}</span>
+                  <span className="font-extrabold">{DOCUMENT_TYPE_LABELS[documentType] || 'Ticket'}</span>
+                </span>
+                <span className="text-xs text-amber-600 dark:text-amber-400 font-extrabold">Cambiar →</span>
+              </button>
             </div>
-          )}
+            {cuitMissingForInvoice && (
+              <p className="mt-1 text-xs font-bold text-red-600 dark:text-red-400">
+                ⚠️ Requiere CUIT del cliente cargado.
+              </p>
+            )}
+          </div>
 
           {/* Tipo de cliente */}
           <div>
@@ -2844,19 +2893,33 @@ export const POSView: React.FC = () => {
           </div>
         </div>
 
-        {/* Footer con COBRAR */}
+        {/* Footer con COBRAR / EMITIR */}
         <div className="px-4 py-3 border-t border-gray-100 dark:border-zinc-800 shrink-0">
           <button
             onClick={() => { setShowConfigPanel(false); handlePayment(); }}
             disabled={cart.length === 0 || isProcessingPayment || cuitMissingForInvoice}
+            title={cuitMissingForInvoice ? `${DOCUMENT_TYPE_LABELS[documentType]} requiere CUIT del cliente cargado.` : undefined}
             className={`w-full py-3 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 transition-all ${
               cart.length === 0 || cuitMissingForInvoice
                 ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 cursor-not-allowed'
                 : 'bg-[#D97706] hover:bg-[#B45309] text-white border-b-4 border-[#92400E]'
             }`}
           >
-            <CreditCard className="h-4 w-4" />
-            COBRAR {formatCurrency(cartTotal)}
+            {isProcessingPayment ? (
+              <><Cpu className="h-4 w-4 animate-spin" /><span>{processingStatusText}</span></>
+            ) : documentType === 'remito' ? (
+              <><Truck className="h-4 w-4" /><span>EMITIR REMITO ({cart.length} ítem{cart.length !== 1 ? 's' : ''})</span></>
+            ) : documentType === 'presupuesto' ? (
+              <><FileText className="h-4 w-4" /><span>EMITIR PRESUPUESTO {formatCurrency(cartTotal)}</span></>
+            ) : documentType.startsWith('nota_credito') ? (
+              <><Receipt className="h-4 w-4" /><span>EMITIR NOTA DE CRÉDITO {formatCurrency(cartTotal)}</span></>
+            ) : documentType.startsWith('nota_debito') ? (
+              <><FileText className="h-4 w-4" /><span>EMITIR NOTA DE DÉBITO {formatCurrency(cartTotal)}</span></>
+            ) : documentType.startsWith('factura') ? (
+              <><FileText className="h-4 w-4" /><span>EMITIR {DOCUMENT_TYPE_LABELS[documentType].toUpperCase()} {formatCurrency(cartTotal)}</span></>
+            ) : (
+              <><CreditCard className="h-4 w-4" /><span>COBRAR {formatCurrency(cartTotal)}</span></>
+            )}
           </button>
         </div>
       </div>

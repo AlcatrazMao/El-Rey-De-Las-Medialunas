@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import type { DocumentType } from '../types';
+
 export interface BusinessSettings {
   businessName: string;
   cuit: string;
@@ -129,6 +131,8 @@ export interface PosSettings {
   defaultViewMode: 'visual' | 'list';
   /** Si está en false, Enter en el buscador rápido NO agrega el producto al carrito (solo navegación por flechas). */
   enterAddsToCart: boolean;
+  /** Tipo de comprobante predeterminado para ventas nuevas (default: 'ticket'). */
+  defaultDocumentType?: DocumentType;
 }
 
 export interface AppSettings {
@@ -204,6 +208,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     defaultPaymentMethod: 'efectivo',
     defaultViewMode: 'visual',
     enterAddsToCart: true,
+    defaultDocumentType: 'ticket',
   },
   printer: {
     useBridge: false,
@@ -322,7 +327,11 @@ export function getSettings(): AppSettings {
           activeDiscountSystem: safeAds,
         };
       })(),
-      pos: { ...DEFAULT_SETTINGS.pos, ...(parsed.pos ?? {}) },
+      pos: {
+        ...DEFAULT_SETTINGS.pos,
+        ...(parsed.pos ?? {}),
+        defaultDocumentType: (parsed.pos?.defaultDocumentType as DocumentType) || 'ticket',
+      },
       printer: { ...DEFAULT_SETTINGS.printer, ...(parsed.printer ?? {}) },
       categories: parsed.categories ?? [...DEFAULT_SETTINGS.categories],
       installments: parsed.installments ?? [...DEFAULT_SETTINGS.installments],

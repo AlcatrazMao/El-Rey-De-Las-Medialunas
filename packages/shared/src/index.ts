@@ -1,3 +1,4 @@
+export * from "./constants/document-types";
 export * from "./types/enums";
 export * from "./types/api";
 export * from "./constants/roles";

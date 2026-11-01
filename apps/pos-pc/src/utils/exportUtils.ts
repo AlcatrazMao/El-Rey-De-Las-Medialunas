@@ -10,7 +10,7 @@ const BRIDGE_TIMEOUT_MS = 1500;
 
 /** Leyenda obligatoria (DT-14) — SOLO para factura_a/b/c, nunca para el resto. Mismo texto que POSView. */
 const FISCAL_DISCLAIMER = 'SIN VALOR FISCAL — CAE PENDIENTE';
-const FISCAL_INVOICE_TYPES: NonNullable<Sale['documentType']>[] = ['factura_a', 'factura_b', 'factura_c'];
+const FISCAL_INVOICE_TYPES: NonNullable<Sale['documentType']>[] = ['factura_a', 'factura_b', 'factura_c', 'factura_m'];
 
 /** Copia deliberada del contrato `PrintCustomization` de apps/print-bridge/src/types.ts (migración 0025). */
 export interface PrintCustomization {

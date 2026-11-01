@@ -423,15 +423,16 @@ export async function fetchCustomersFromD1(): Promise<Record<string, unknown>[]>
 
 export async function syncCashSessionToD1(session: {
   id: string;
-  branch_id: string;
+  branch_id?: string;
   opening_amount: number;
   status: string;
   notes?: string;
 }): Promise<void> {
   if (session.status !== "open") return;
+  const branchId = session.branch_id ?? getActiveBranchId() ?? getSettings().business.branchId;
   const payload = {
     id: session.id,
-    branch_id: session.branch_id,
+    branch_id: branchId,
     opening_amount: session.opening_amount,
     notes: session.notes ?? null,
   };
@@ -458,7 +459,16 @@ export async function syncCashSessionCloseToD1(
       expected_amount: expectedAmount,
       notes: notes ?? null,
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (
+      err?.status === 404 ||
+      err?.statusCode === 404 ||
+      err?.message?.includes?.("404") ||
+      err?.code === "NOT_FOUND"
+    ) {
+      console.warn(`[d1-sync] Cash session ${sessionId} close returned 404; continuing with local close.`, err);
+      return;
+    }
     if (isNetworkError(err)) {
       await enqueue("close_session", {
         id: sessionId,

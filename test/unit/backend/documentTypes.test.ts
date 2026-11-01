@@ -296,7 +296,16 @@ const DOCUMENT_TYPES = [
   'factura_a',
   'factura_b',
   'factura_c',
+  'factura_m',
   'nota_credito',
+  'nota_credito_a',
+  'nota_credito_b',
+  'nota_credito_c',
+  'nota_credito_m',
+  'nota_debito_a',
+  'nota_debito_b',
+  'nota_debito_c',
+  'nota_debito_m',
   'remito',
   'presupuesto',
 ] as const;
@@ -336,7 +345,21 @@ async function nextSequence(db: FakeDb, branchId: string, documentType: string):
     .first<{ last_number: number }>();
   if (!row) {
     throw new Error(
-      `document_sequences no tiene seed para branch_id=${branchId} document_type=${documentType} — revisar migración 0023`,
+      `document_sequences no tiene seed para branch_id=${branchId} document_type=${documentType} — revisar migración 0029`,
+    );
+  }
+  return row.last_number;
+}
+
+// Réplica de getDocumentSequence() (workers/api/src/lib/document-sequences.ts)
+async function getDocumentSequence(db: FakeDb, branchId: string, documentType: string): Promise<number> {
+  const row = await db
+    .prepare(`SELECT last_number FROM document_sequences WHERE branch_id = ? AND document_type = ?`)
+    .bind(branchId, documentType)
+    .first<{ last_number: number }>();
+  if (!row) {
+    throw new Error(
+      `document_sequences no tiene seed para branch_id=${branchId} document_type=${documentType} — revisar migración 0029`,
     );
   }
   return row.last_number;
@@ -347,6 +370,7 @@ async function bootstrap(
   db: FakeDb,
   branchId: string,
   lastNumber: number,
+  documentType: string = 'ticket',
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const now = '2026-01-01 00:00:01';
   const result = await db
@@ -355,12 +379,12 @@ async function bootstrap(
           SET last_number = MAX(last_number, ?), updated_at = ?
         WHERE branch_id = ? AND document_type = ? AND last_number < ?`,
     )
-    .bind(lastNumber, now, branchId, 'ticket', lastNumber)
+    .bind(lastNumber, now, branchId, documentType, lastNumber)
     .run();
 
   const row = await db
     .prepare(`SELECT last_number FROM document_sequences WHERE branch_id = ? AND document_type = ?`)
-    .bind(branchId, 'ticket')
+    .bind(branchId, documentType)
     .first<{ last_number: number }>();
 
   if (!row) {
@@ -371,7 +395,7 @@ async function bootstrap(
     status: 200,
     body: {
       success: true,
-      data: { document_type: 'ticket', last_number: row.last_number, updated: result.meta.changes > 0 },
+      data: { document_type: documentType, last_number: row.last_number, updated: result.meta.changes > 0 },
     },
   };
 }
@@ -481,7 +505,12 @@ async function createSale(
     };
   }
 
-  if (documentType === 'factura_a' || documentType === 'factura_b' || documentType === 'factura_c') {
+  if (
+    documentType.startsWith('factura_') ||
+    documentType.startsWith('nota_credito_') ||
+    documentType.startsWith('nota_debito_') ||
+    documentType === 'nota_credito'
+  ) {
     if (!customerId) {
       return { status: 400, body: { success: false, error: { code: 'VALIDATION_ERROR', message: 'requiere CUIT' } } };
     }
@@ -697,7 +726,23 @@ describe('4.2 — bootstrap de secuencia legacy — MAX monótono', () => {
 // ============================================================================
 
 describe('4.3 — tipos sin numeración legacy arrancan en 1', () => {
-  it.each(['factura_a', 'factura_b', 'factura_c', 'nota_credito', 'remito', 'presupuesto'] as const)(
+  it.each([
+    'factura_a',
+    'factura_b',
+    'factura_c',
+    'factura_m',
+    'nota_credito',
+    'nota_credito_a',
+    'nota_credito_b',
+    'nota_credito_c',
+    'nota_credito_m',
+    'nota_debito_a',
+    'nota_debito_b',
+    'nota_debito_c',
+    'nota_debito_m',
+    'remito',
+    'presupuesto',
+  ] as const)(
     'el primer %s de una sucursal nueva numera 1 (no 0, no continúa de otro tipo)',
     async (documentType) => {
       const seed = seedBranch('branch_1', { enabledTypes: [documentType] });
@@ -941,6 +986,70 @@ describe('4.8 — CUIT obligatorio para factura_a/b/c, sin gastar numeración en
     expect(result.status).toBe(201);
     expect((result.body.data as { document_number: number }).document_number).toBe(1);
   });
+
+  it('factura_m exige CUIT y no gasta número si falta o es DNI', async () => {
+    const seed = seedBranch('branch_1', { enabledTypes: ['factura_m'] });
+    const localDb = makeFakeDb({
+      documentSequences: seed.documentSequences,
+      documentTypeSettings: seed.documentTypeSettings,
+      sales: [],
+      creditNotes: [],
+      customers: [
+        { id: 'cust_dni', document_type: 'dni', document_number: '30111222' },
+        { id: 'cust_cuit', document_type: 'cuit', document_number: '20304050607' },
+      ],
+    });
+
+    const resNoCust = await createSale(localDb, 'branch_1', 'factura_m', undefined);
+    expect(resNoCust.status).toBe(400);
+
+    const resDni = await createSale(localDb, 'branch_1', 'factura_m', 'cust_dni');
+    expect(resDni.status).toBe(400);
+
+    const seqBefore = await getDocumentSequence(localDb, 'branch_1', 'factura_m');
+    expect(seqBefore).toBe(0);
+
+    const resOk = await createSale(localDb, 'branch_1', 'factura_m', 'cust_cuit');
+    expect(resOk.status).toBe(201);
+    expect((resOk.body.data as { document_number: number }).document_number).toBe(1);
+
+    const seqAfter = await getDocumentSequence(localDb, 'branch_1', 'factura_m');
+    expect(seqAfter).toBe(1);
+  });
+
+  it('nota_credito_a y nota_debito_a exigen CUIT al emitir vía sales/sync', async () => {
+    const seed = seedBranch('branch_1', { enabledTypes: ['nota_credito_a', 'nota_debito_a'] });
+    const localDb = makeFakeDb({
+      documentSequences: seed.documentSequences,
+      documentTypeSettings: seed.documentTypeSettings,
+      sales: [],
+      creditNotes: [],
+      customers: [
+        { id: 'cust_dni', document_type: 'dni', document_number: '30111222' },
+        { id: 'cust_cuit', document_type: 'cuit', document_number: '20304050607' },
+      ],
+    });
+
+    // nota_credito_a sin CUIT
+    const resNcFail = await createSale(localDb, 'branch_1', 'nota_credito_a', 'cust_dni');
+    expect(resNcFail.status).toBe(400);
+    expect(await getDocumentSequence(localDb, 'branch_1', 'nota_credito_a')).toBe(0);
+
+    // nota_credito_a con CUIT
+    const resNcOk = await createSale(localDb, 'branch_1', 'nota_credito_a', 'cust_cuit');
+    expect(resNcOk.status).toBe(201);
+    expect(await getDocumentSequence(localDb, 'branch_1', 'nota_credito_a')).toBe(1);
+
+    // nota_debito_a sin CUIT
+    const resNdFail = await createSale(localDb, 'branch_1', 'nota_debito_a', undefined);
+    expect(resNdFail.status).toBe(400);
+    expect(await getDocumentSequence(localDb, 'branch_1', 'nota_debito_a')).toBe(0);
+
+    // nota_debito_a con CUIT
+    const resNdOk = await createSale(localDb, 'branch_1', 'nota_debito_a', 'cust_cuit');
+    expect(resNdOk.status).toBe(201);
+    expect(await getDocumentSequence(localDb, 'branch_1', 'nota_debito_a')).toBe(1);
+  });
 });
 
 // ============================================================================
@@ -1100,5 +1209,48 @@ describe('4.10 — rollout end-to-end simulado', () => {
     // Verificación final de estado consistente:
     expect(db._state.sales.filter((s) => s.document_type === 'ticket')).toHaveLength(2);
     expect(db._state.sales.filter((s) => s.document_type === 'factura_a')).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// 4.11 — getDocumentSequence: consulta de secuencia actual sin avanzar el contador
+// ============================================================================
+
+describe('4.11 — getDocumentSequence: consulta de secuencia actual sin avanzar el contador', () => {
+  let db: FakeDb;
+
+  beforeEach(() => {
+    const seed = seedBranch('branch_1', { enabledTypes: ['factura_m', 'nota_credito_a', 'nota_debito_a'] });
+    db = makeFakeDb({
+      documentSequences: seed.documentSequences,
+      documentTypeSettings: seed.documentTypeSettings,
+      sales: [],
+      creditNotes: [],
+      customers: [],
+    });
+  });
+
+  it('devuelve 0 para una secuencia recién creada/seeded', async () => {
+    const current = await getDocumentSequence(db, 'branch_1', 'factura_m');
+    expect(current).toBe(0);
+  });
+
+  it('devuelve el last_number correcto tras incrementos sucesivos sin alterar el contador', async () => {
+    await nextSequence(db, 'branch_1', 'nota_credito_a');
+    await nextSequence(db, 'branch_1', 'nota_credito_a');
+    await nextSequence(db, 'branch_1', 'nota_credito_a');
+
+    const seq1 = await getDocumentSequence(db, 'branch_1', 'nota_credito_a');
+    expect(seq1).toBe(3);
+
+    // Múltiples lecturas son idempotentes y no incrementan
+    const seq2 = await getDocumentSequence(db, 'branch_1', 'nota_credito_a');
+    expect(seq2).toBe(3);
+  });
+
+  it('arroja error si la sucursal o tipo de documento no tiene seed', async () => {
+    await expect(getDocumentSequence(db, 'branch_inexistente', 'factura_m')).rejects.toThrow(
+      /document_sequences no tiene seed/,
+    );
   });
 });

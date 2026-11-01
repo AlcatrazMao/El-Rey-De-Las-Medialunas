@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../AppContext';
 import { API_URL, fetchWithAuth } from '../services/api';
 
+import { resolveFallbackBranchId } from './useSettings';
 import type { DocumentType } from './useDocumentSettings';
 
 /**
@@ -49,7 +50,13 @@ export function useDocumentCustomizations() {
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/v2/document-customizations`);
+      const branch = activeBranchId ?? resolveFallbackBranchId();
+      const url = branch
+        ? `${API_URL}/api/v2/document-customizations?branch_id=${encodeURIComponent(branch)}`
+        : `${API_URL}/api/v2/document-customizations`;
+      const res = await fetchWithAuth(url, {
+        headers: branch ? { 'X-Branch-Id': branch } : undefined,
+      });
       if (!res.ok) throw new Error(`status ${res.status}`);
       const body = (await res.json()) as DocumentCustomizationsResponse;
       if (body.success && Array.isArray(body.data)) {
@@ -60,11 +67,11 @@ export function useDocumentCustomizations() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [activeBranchId]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh, activeBranchId]);
+  }, [refresh]);
 
   const updateCustomization = async (
     documentType: DocumentType,
@@ -72,9 +79,16 @@ export function useDocumentCustomizations() {
   ): Promise<boolean> => {
     const previous = data;
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/v2/document-customizations/${documentType}`, {
+      const branch = activeBranchId ?? resolveFallbackBranchId();
+      const url = branch
+        ? `${API_URL}/api/v2/document-customizations/${documentType}?branch_id=${encodeURIComponent(branch)}`
+        : `${API_URL}/api/v2/document-customizations/${documentType}`;
+      const res = await fetchWithAuth(url, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(branch ? { 'X-Branch-Id': branch } : {}),
+        },
         body: JSON.stringify(patch),
       });
       if (!res.ok) throw new Error(`status ${res.status}`);

@@ -13,6 +13,7 @@ import type {
   ProductionBatchStatus,
   PurchaseOrderStatus,
   InventoryMethod,
+  CustomerDocumentType,
   DocumentType,
 } from "./enums";
 
@@ -174,7 +175,7 @@ export interface StockMovement {
 }
 
 export interface Sale {
-  document_type?: string;
+  document_type?: DocumentType;
   document_number?: string | number;
   id: string;
   client_id?: string | null;
@@ -231,7 +232,7 @@ export interface Customer extends Timestamps {
   name: string;
   email?: string | null;
   phone?: string | null;
-  document_type?: DocumentType | null;
+  document_type?: CustomerDocumentType | null;
   document_number?: string | null;
   type: CustomerType;
   credit_limit: number;

@@ -18,13 +18,22 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   factura_a: 'FACTURA A',
   factura_b: 'FACTURA B',
   factura_c: 'FACTURA C',
+  factura_m: 'FACTURA M',
   nota_credito: 'NOTA DE CRÉDITO',
+  nota_credito_a: 'NOTA DE CRÉDITO A',
+  nota_credito_b: 'NOTA DE CRÉDITO B',
+  nota_credito_c: 'NOTA DE CRÉDITO C',
+  nota_credito_m: 'NOTA DE CRÉDITO M',
+  nota_debito_a: 'NOTA DE DÉBITO A',
+  nota_debito_b: 'NOTA DE DÉBITO B',
+  nota_debito_c: 'NOTA DE DÉBITO C',
+  nota_debito_m: 'NOTA DE DÉBITO M',
   remito: 'REMITO',
   presupuesto: 'PRESUPUESTO',
 };
 
 /** Tipos de comprobante fiscal (factura). Únicos donde puede aparecer `fiscal_disclaimer`. */
-const FISCAL_DOCUMENT_TYPES: ReadonlySet<DocumentType> = new Set(['factura_a', 'factura_b', 'factura_c']);
+const FISCAL_DOCUMENT_TYPES: ReadonlySet<DocumentType> = new Set(['factura_a', 'factura_b', 'factura_c', 'factura_m']);
 
 function documentTypeLabel(documentType: DocumentType): string {
   return DOCUMENT_TYPE_LABELS[documentType];
@@ -63,7 +72,7 @@ export function estimateReceiptHeight(sale: PrintSale): number {
     (sale.surchargeAmount ? 1 : 0) +
     (shouldShowFiscalDisclaimer(sale) ? 3 : 0) + // separador + leyenda (puede wrappear) + separador
     (sale.document_type === 'presupuesto' && sale.valid_until ? 1 : 0) +
-    (sale.document_type === 'nota_credito' ? 2 : 0); // referencia a venta original + motivo
+    (sale.document_type === 'nota_credito' || sale.document_type.startsWith('nota_credito') ? 2 : 0); // referencia a venta original + motivo
   const lineHeight = 13;
   const margins = 60;
   const minHeight = 320;
@@ -80,7 +89,7 @@ export function drawTicketPdf(doc: PDFKit.PDFDocument, sale: PrintSale, style: T
   const isReceipt = style === 'receipt';
   const isRemito = sale.document_type === 'remito';
   const isPresupuesto = sale.document_type === 'presupuesto';
-  const isNotaCredito = sale.document_type === 'nota_credito';
+  const isNotaCredito = sale.document_type === 'nota_credito' || sale.document_type.startsWith('nota_credito');
   const custom = sale.customization;
   const showPrices = custom?.show_prices !== false;
   const showTax = custom?.show_tax !== false;
@@ -239,7 +248,7 @@ export function drawTicketPdf(doc: PDFKit.PDFDocument, sale: PrintSale, style: T
 export function buildThermalTicket(printer: ThermalPrinter, sale: PrintSale, _style: TicketStyle): void {
   const isRemito = sale.document_type === 'remito';
   const isPresupuesto = sale.document_type === 'presupuesto';
-  const isNotaCredito = sale.document_type === 'nota_credito';
+  const isNotaCredito = sale.document_type === 'nota_credito' || sale.document_type.startsWith('nota_credito');
   const custom = sale.customization;
   const showPrices = custom?.show_prices !== false;
   const showTax = custom?.show_tax !== false;

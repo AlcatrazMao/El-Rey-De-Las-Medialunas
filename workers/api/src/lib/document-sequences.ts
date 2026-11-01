@@ -3,20 +3,26 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { nowSqliteTs } from "../utils/time";
 
 /**
- * 7 tipos de comprobante soportados (migración 0023). Usado tanto para el
- * CHECK de document_sequences/document_type_settings como para validar
- * inputs de rutas que aceptan cualquiera de los 7 (document-settings,
- * document-sequences/bootstrap). Las rutas de `sales` solo permiten un
- * subconjunto de 4 (ver DOCUMENT_TYPES_SALES en routes/sales.ts).
+ * 15 tipos de comprobantes AFIP/ARCA y operativos soportados (migración 0029).
+ * Usado para CHECK de document_sequences / document_type_settings / document_type_customizations
+ * y para validar inputs en todas las rutas del sistema.
  */
 export const DOCUMENT_TYPES = [
   "ticket",
   "factura_a",
   "factura_b",
   "factura_c",
-  "nota_credito",
-  "remito",
+  "factura_m",
+  "nota_credito_a",
+  "nota_credito_b",
+  "nota_credito_c",
+  "nota_credito_m",
+  "nota_debito_a",
+  "nota_debito_b",
+  "nota_debito_c",
+  "nota_debito_m",
   "presupuesto",
+  "remito",
 ] as const;
 
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
@@ -25,16 +31,8 @@ export type DocumentType = (typeof DOCUMENT_TYPES)[number];
  * Helper compartido de numeración correlativa por (branch_id, document_type).
  *
  * Atómico a nivel de sentencia D1 vía UPDATE...RETURNING: no hace falta
- * retry-loop (a diferencia de sales.sale_number legacy, que usa
- * SELECT MAX+1 + retry porque no tenía una tabla de secuencia dedicada).
- * Bajo concurrencia, D1/SQLite serializa los UPDATE sobre la misma fila, así
- * que dos llamadas simultáneas para el mismo branch+tipo nunca devuelven el
- * mismo last_number (DT-1, DT-2).
- *
- * Si no devuelve fila, significa que falta el seed para esa combinación
- * branch/tipo — no debería pasar si la migración 0023 corrió bien (siembra
- * las 7 combinaciones por cada branch existente). Lanzamos para que el
- * caller no numere "en el aire" sin persistencia real.
+ * retry-loop. Bajo concurrencia, D1/SQLite serializa los UPDATE sobre la misma fila,
+ * garantizando correlatividad estricta sin huecos ni colisiones.
  */
 export async function nextSequence(
   db: D1Database,
@@ -54,7 +52,31 @@ export async function nextSequence(
 
   if (!row) {
     throw new Error(
-      `document_sequences no tiene seed para branch_id=${branchId} document_type=${documentType} — revisar migración 0023`,
+      `document_sequences no tiene seed para branch_id=${branchId} document_type=${documentType} — revisar migración 0029`,
+    );
+  }
+
+  return row.last_number;
+}
+
+/**
+ * Helper de solo lectura de la secuencia actual por (branch_id, document_type).
+ */
+export async function getDocumentSequence(
+  db: D1Database,
+  branchId: string,
+  documentType: DocumentType,
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT last_number FROM document_sequences WHERE branch_id = ? AND document_type = ?`,
+    )
+    .bind(branchId, documentType)
+    .first<{ last_number: number }>();
+
+  if (!row) {
+    throw new Error(
+      `document_sequences no tiene seed para branch_id=${branchId} document_type=${documentType} — revisar migración 0029`,
     );
   }
 

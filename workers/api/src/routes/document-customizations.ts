@@ -2,6 +2,7 @@ import type { Role } from "@medialunas/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { DOCUMENT_TYPES } from "../lib/document-sequences";
 import { validate } from "../middleware/validate";
 import type { Env, Variables } from "../types/bindings";
@@ -121,11 +122,12 @@ function resolveField<T>(branch: T | null, global: T | null, fallback: T): T {
 // GET / — personalización resuelta para los 7 tipos, de la sucursal activa.
 documentCustomizationsRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.get("branchId");
-
-  if (!branchId) {
-    return c.json(errBody("VALIDATION_ERROR", "No se pudo resolver la sucursal activa"), 400);
-  }
+  const branchId =
+    c.get("branchId") ||
+    c.req.query("branch_id") ||
+    c.req.header("X-Branch-Id") ||
+    c.get("userDefaultBranch") ||
+    DEFAULT_BRANCH_ID;
 
   const globalRows = await db
     .prepare(`SELECT * FROM document_type_customizations`)
@@ -176,12 +178,14 @@ documentCustomizationsRoutes.patch(
   validate({ params: documentTypeParamSchema, body: patchCustomizationSchema }),
   async (c) => {
     const db = c.env.DB;
-    const branchId = c.get("branchId");
+    const branchId =
+      c.get("branchId") ||
+      c.req.query("branch_id") ||
+      c.req.header("X-Branch-Id") ||
+      c.get("userDefaultBranch") ||
+      DEFAULT_BRANCH_ID;
     const userRole = c.get("userRole") as Role | undefined;
 
-    if (!branchId) {
-      return c.json(errBody("VALIDATION_ERROR", "No se pudo resolver la sucursal activa"), 400);
-    }
     if (!userRole || !ADMIN_ROLES.has(userRole)) {
       return c.json(errBody("FORBIDDEN", "No tenés permisos para modificar la personalización de comprobantes"), 403);
     }

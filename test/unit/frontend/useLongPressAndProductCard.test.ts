@@ -190,7 +190,9 @@ describe('useLongPress Hook', () => {
 
     const btn = container.querySelector<HTMLButtonElement>('#test-btn')!;
     const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
-    btn.dispatchEvent(event);
+    act(() => {
+      btn.dispatchEvent(event);
+    });
 
     expect(event.defaultPrevented).toBe(true);
   });
@@ -300,5 +302,228 @@ describe('ProductCard Component con Long-Press', () => {
 
     expect(onDecreaseQuantity).toHaveBeenCalledWith('prod-medialuna');
     expect(onAddToCart).not.toHaveBeenCalled();
+  });
+
+  it('al soltar el mouse tras long-press de 500ms NO suma al carrito (evento click suprimido)', async () => {
+    const onAddToCart = vi.fn();
+    const onDecreaseQuantity = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(ProductCard, {
+          product: mockProduct,
+          quantityInCart: 2,
+          onAddToCart,
+          onDecreaseQuantity,
+        })
+      );
+    });
+
+    const card = container.querySelector<HTMLButtonElement>('#product-card-prod-medialuna')!;
+
+    act(() => {
+      card.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }));
+      vi.advanceTimersByTime(500);
+      card.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 100, clientY: 100 }));
+      card.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    });
+
+    expect(onDecreaseQuantity).toHaveBeenCalledWith('prod-medialuna');
+    expect(onAddToCart).not.toHaveBeenCalled();
+  });
+
+  it('click derecho (button === 2) descuenta inmediatamente 1 unidad y previene menú contextual', async () => {
+    const onAddToCart = vi.fn();
+    const onDecreaseQuantity = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(ProductCard, {
+          product: mockProduct,
+          quantityInCart: 3,
+          onAddToCart,
+          onDecreaseQuantity,
+        })
+      );
+    });
+
+    const card = container.querySelector<HTMLButtonElement>('#product-card-prod-medialuna')!;
+
+    let mousedownEvt!: MouseEvent;
+    act(() => {
+      mousedownEvt = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 });
+      card.dispatchEvent(mousedownEvt);
+    });
+
+    expect(onDecreaseQuantity).toHaveBeenCalledWith('prod-medialuna');
+    expect(onAddToCart).not.toHaveBeenCalled();
+    expect(mousedownEvt.defaultPrevented).toBe(true);
+
+    // Evento contextmenu posterior no debe duplicar el decremento
+    let ctxEvt!: MouseEvent;
+    act(() => {
+      ctxEvt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      card.dispatchEvent(ctxEvt);
+    });
+    expect(ctxEvt.defaultPrevented).toBe(true);
+    expect(onDecreaseQuantity).toHaveBeenCalledTimes(1);
+  });
+
+  it('evento contextmenu directo descuenta 1 unidad y llama preventDefault', async () => {
+    const onAddToCart = vi.fn();
+    const onDecreaseQuantity = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(ProductCard, {
+          product: mockProduct,
+          quantityInCart: 1,
+          onAddToCart,
+          onDecreaseQuantity,
+        })
+      );
+    });
+
+    const card = container.querySelector<HTMLButtonElement>('#product-card-prod-medialuna')!;
+
+    let ctxEvt!: MouseEvent;
+    act(() => {
+      ctxEvt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      card.dispatchEvent(ctxEvt);
+    });
+
+    expect(onDecreaseQuantity).toHaveBeenCalledWith('prod-medialuna');
+    expect(ctxEvt.defaultPrevented).toBe(true);
+  });
+
+  it('tolera micro-movimientos de mouse (<15px) en PC durante el long-press', async () => {
+    const onAddToCart = vi.fn();
+    const onDecreaseQuantity = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(ProductCard, {
+          product: mockProduct,
+          quantityInCart: 2,
+          onAddToCart,
+          onDecreaseQuantity,
+        })
+      );
+    });
+
+    const card = container.querySelector<HTMLButtonElement>('#product-card-prod-medialuna')!;
+
+    act(() => {
+      card.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }));
+      vi.advanceTimersByTime(200);
+      card.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 105, clientY: 104 }));
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(onDecreaseQuantity).toHaveBeenCalledWith('prod-medialuna');
+  });
+
+  it('cancela el long-press si el mouse se desplaza más de 15px (intención de arrastre)', async () => {
+    const onAddToCart = vi.fn();
+    const onDecreaseQuantity = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(ProductCard, {
+          product: mockProduct,
+          quantityInCart: 2,
+          onAddToCart,
+          onDecreaseQuantity,
+        })
+      );
+    });
+
+    const card = container.querySelector<HTMLButtonElement>('#product-card-prod-medialuna')!;
+
+    act(() => {
+      card.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }));
+      vi.advanceTimersByTime(200);
+      card.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 130, clientY: 100 }));
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(onDecreaseQuantity).not.toHaveBeenCalled();
+  });
+});
+
+describe('Modal de Búsqueda / Selección: Cierre con Escape (Esc)', () => {
+  let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+
+  function EscapeModalHarness({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+    const { useEffect } = require('react');
+
+    useEffect(() => {
+      if (!isOpen) return;
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
+        }
+      };
+      window.addEventListener('keydown', handleEscape, true);
+      return () => window.removeEventListener('keydown', handleEscape, true);
+    }, [isOpen, onClose]);
+
+    if (!isOpen) return null;
+    return createElement(
+      'div',
+      { id: 'search-modal' },
+      createElement('input', { id: 'search-input', autoFocus: true })
+    );
+  }
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('al presionar Escape cierra el modal y desenfoca el input', async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      root.render(createElement(EscapeModalHarness, { isOpen: true, onClose }));
+    });
+
+    const input = container.querySelector<HTMLInputElement>('#search-input')!;
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('no dispara onClose si el modal está cerrado', async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      root.render(createElement(EscapeModalHarness, { isOpen: false, onClose }));
+    });
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

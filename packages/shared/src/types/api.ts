@@ -20,6 +20,7 @@ import type {
   AuditEntry,
   SyncLog,
 } from "./models";
+import type { DocumentType } from "../constants/document-types";
 
 export interface PaginationParams {
   page?: number;
@@ -150,6 +151,7 @@ export interface CreateSaleRequest {
   id?: string;
   branch_id: string;
   customer_id?: string;
+  document_type?: DocumentType;
   items: CreateSaleItemRequest[];
   payments: CreateSalePaymentRequest[];
   notes?: string;

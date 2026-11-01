@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { DOCUMENT_TYPES } from "../lib/document-sequences";
 import { validate } from "../middleware/validate";
 import type { Env, Variables } from "../types/bindings";
 import { nowSqliteTs } from "../utils/time";
@@ -43,7 +44,7 @@ const errBody = (code: string, message: string) => ({
 });
 
 const bootstrapSchema = z.object({
-  document_type: z.literal("ticket"),
+  document_type: z.enum(DOCUMENT_TYPES).default("ticket"),
   last_number: z.number().int().nonnegative(),
 });
 
@@ -79,7 +80,7 @@ documentSequencesRoutes.post("/bootstrap", validate({ body: bootstrapSchema }), 
     .first<{ last_number: number }>();
 
   if (!row) {
-    return c.json(errBody("NOT_FOUND", "No existe secuencia para esa sucursal/tipo — revisar migración 0023"), 404);
+    return c.json(errBody("NOT_FOUND", "No existe secuencia para esa sucursal/tipo — revisar migración 0029"), 404);
   }
 
   return c.json({

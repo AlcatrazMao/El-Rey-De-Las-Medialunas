@@ -3,6 +3,18 @@ import { Hono } from "hono";
 import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { createCatalogProduct, validateProductDetails, PRODUCT_DETAIL_TEXT_FIELDS } from '../lib/catalog-product';
 import { resolveUser } from "../lib/resolve-user";
+import { DOCUMENT_TYPES, type DocumentType } from "../lib/document-sequences";
+
+function documentTypeRequiresCuit(dt: string): boolean {
+  return (
+    dt === "factura_a" ||
+    dt === "factura_b" ||
+    dt === "factura_c" ||
+    dt === "factura_m" ||
+    dt.endsWith("_a") ||
+    dt.endsWith("_m")
+  );
+}
 import type { Env, Variables } from "../types/bindings";
 import { genId } from "../utils/id";
 import { nowSqliteTs } from "../utils/time";
@@ -422,7 +434,20 @@ async function applyOperation(
       const MAX_SALE_NUMBER_RETRIES = 5;
       let attempts = 0;
       let inserted = false;
-      const documentType = typeof d.document_type === 'string' && ['ticket', 'factura_a', 'factura_b', 'factura_c'].includes(d.document_type) ? d.document_type : 'ticket';
+      const documentType = typeof d.document_type === 'string' && (DOCUMENT_TYPES as readonly string[]).includes(d.document_type) ? d.document_type : 'ticket';
+
+      if (documentTypeRequiresCuit(documentType)) {
+        if (!d.customer_id) {
+          throw new Error(`VALIDATION_ERROR: El comprobante '${documentType}' requiere un cliente con CUIT`);
+        }
+        const customer = await db
+          .prepare("SELECT document_type, document_number FROM customers WHERE id = ? LIMIT 1")
+          .bind(d.customer_id)
+          .first<{ document_type: string | null; document_number: string | null }>();
+        if (!customer || customer.document_type !== "cuit" || !customer.document_number?.trim()) {
+          throw new Error(`VALIDATION_ERROR: El comprobante '${documentType}' requiere un cliente con document_type='cuit' y document_number cargado`);
+        }
+      }
       const clientId = typeof d.client_id === 'string' ? d.client_id : (typeof d.id === 'string' ? d.id : id);
 
       while (attempts < MAX_SALE_NUMBER_RETRIES && !inserted) {

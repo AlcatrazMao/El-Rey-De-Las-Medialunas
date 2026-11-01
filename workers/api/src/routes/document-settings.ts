@@ -2,6 +2,7 @@ import type { Role } from "@medialunas/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { DEFAULT_BRANCH_ID } from "../config/constants";
 import { DOCUMENT_TYPES } from "../lib/document-sequences";
 import { validate } from "../middleware/validate";
 import type { Env, Variables } from "../types/bindings";
@@ -40,11 +41,12 @@ const documentTypeParamSchema = z.object({
 // resuelto por resolveBranchScope, montado globalmente en app.ts).
 documentSettingsRoutes.get("/", async (c) => {
   const db = c.env.DB;
-  const branchId = c.get("branchId");
-
-  if (!branchId) {
-    return c.json(errBody("VALIDATION_ERROR", "No se pudo resolver la sucursal activa"), 400);
-  }
+  const branchId =
+    c.get("branchId") ||
+    c.req.query("branch_id") ||
+    c.req.header("X-Branch-Id") ||
+    c.get("userDefaultBranch") ||
+    DEFAULT_BRANCH_ID;
 
   const rows = await db
     .prepare(
@@ -53,9 +55,10 @@ documentSettingsRoutes.get("/", async (c) => {
     .bind(branchId)
     .all<{ document_type: string; enabled: number }>();
 
-  const data = (rows.results ?? []).map((r) => ({
-    document_type: r.document_type,
-    enabled: r.enabled === 1,
+  const foundMap = new Map((rows.results ?? []).map((r) => [r.document_type, r.enabled === 1]));
+  const data = DOCUMENT_TYPES.map((dt) => ({
+    document_type: dt,
+    enabled: foundMap.has(dt) ? foundMap.get(dt)! : true,
   }));
 
   return c.json({ success: true, data });
@@ -68,13 +71,14 @@ documentSettingsRoutes.patch(
   validate({ params: documentTypeParamSchema, body: patchSettingSchema }),
   async (c) => {
     const db = c.env.DB;
-    const branchId = c.get("branchId");
+    const branchId =
+      c.get("branchId") ||
+      c.req.query("branch_id") ||
+      c.req.header("X-Branch-Id") ||
+      c.get("userDefaultBranch") ||
+      DEFAULT_BRANCH_ID;
     const userId = c.get("userId") ?? "";
     const userRole = c.get("userRole") as Role | undefined;
-
-    if (!branchId) {
-      return c.json(errBody("VALIDATION_ERROR", "No se pudo resolver la sucursal activa"), 400);
-    }
 
     if (!userRole || !ADMIN_ROLES.has(userRole)) {
       return c.json(errBody("FORBIDDEN", "No tenés permisos para modificar tipos de comprobante"), 403);
@@ -96,7 +100,14 @@ documentSettingsRoutes.patch(
       .run();
 
     if (result.meta.changes === 0) {
-      return c.json(errBody("NOT_FOUND", "No existe configuración para ese tipo de comprobante en esta sucursal"), 404);
+      // Upsert defensivo si la sucursal no tenía la fila sembrada
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO document_type_settings (branch_id, document_type, enabled, updated_at, updated_by)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .bind(branchId, documentType, enabled ? 1 : 0, now, userId)
+        .run();
     }
 
     return c.json({ success: true, data: { document_type: documentType, enabled } });

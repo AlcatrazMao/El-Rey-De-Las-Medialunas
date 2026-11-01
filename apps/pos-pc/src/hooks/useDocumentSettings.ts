@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 
 import { useApp } from '../AppContext';
 import { API_URL, fetchWithAuth } from '../services/api';
+import { resolveFallbackBranchId } from './useSettings';
 
 /**
  * Los 7 tipos de comprobante emitibles (change "Document Types / Comprobantes").
@@ -13,9 +14,17 @@ export type DocumentType =
   | 'factura_a'
   | 'factura_b'
   | 'factura_c'
-  | 'nota_credito'
-  | 'remito'
-  | 'presupuesto';
+  | 'factura_m'
+  | 'nota_credito_a'
+  | 'nota_credito_b'
+  | 'nota_credito_c'
+  | 'nota_credito_m'
+  | 'nota_debito_a'
+  | 'nota_debito_b'
+  | 'nota_debito_c'
+  | 'nota_debito_m'
+  | 'presupuesto'
+  | 'remito';
 
 export interface DocumentTypeSetting {
   document_type: DocumentType;
@@ -47,7 +56,13 @@ export function useDocumentSettings() {
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/v2/document-settings`);
+      const branch = activeBranchId ?? resolveFallbackBranchId();
+      const url = branch
+        ? `${API_URL}/api/v2/document-settings?branch_id=${encodeURIComponent(branch)}`
+        : `${API_URL}/api/v2/document-settings`;
+      const res = await fetchWithAuth(url, {
+        headers: branch ? { 'X-Branch-Id': branch } : undefined,
+      });
       if (!res.ok) throw new Error(`status ${res.status}`);
       const body = (await res.json()) as DocumentSettingsResponse;
       if (body.success && Array.isArray(body.data)) {
@@ -59,11 +74,11 @@ export function useDocumentSettings() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [activeBranchId]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh, activeBranchId]);
+  }, [refresh]);
 
   /**
    * Actualiza el flag enabled/disabled de un tipo. Optimista: refleja el
@@ -74,9 +89,16 @@ export function useDocumentSettings() {
     const previous = data;
     setData(prev => prev.map(d => (d.document_type === documentType ? { ...d, enabled } : d)));
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/v2/document-settings/${documentType}`, {
+      const branch = activeBranchId ?? resolveFallbackBranchId();
+      const url = branch
+        ? `${API_URL}/api/v2/document-settings/${documentType}?branch_id=${encodeURIComponent(branch)}`
+        : `${API_URL}/api/v2/document-settings/${documentType}`;
+      const res = await fetchWithAuth(url, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(branch ? { 'X-Branch-Id': branch } : {}),
+        },
         body: JSON.stringify({ enabled }),
       });
       if (!res.ok) throw new Error(`status ${res.status}`);

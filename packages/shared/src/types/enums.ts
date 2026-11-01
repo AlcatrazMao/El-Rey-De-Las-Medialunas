@@ -49,4 +49,5 @@ export type PurchaseOrderStatus =
 
 export type InventoryMethod = "FIFO" | "LIFO";
 
-export type DocumentType = "dni" | "cuit" | "cuil" | "passport";
+export type CustomerDocumentType = "dni" | "cuit" | "cuil" | "passport";
+export type { DocumentType, SaleDocumentType } from "../constants/document-types";

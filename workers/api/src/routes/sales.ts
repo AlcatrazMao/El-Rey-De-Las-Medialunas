@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { DEFAULT_BRANCH_ID } from "../config/constants";
+import { DOCUMENT_TYPES, type DocumentType } from "../lib/document-sequences";
 import { resolveUser } from "../lib/resolve-user";
 import type { Env, Variables } from "../types/bindings";
 import { genId, normalizeClientSaleId } from "../utils/id";
@@ -10,15 +11,22 @@ export const salesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 export const MAX_SALE_NUMBER_RETRIES = 15;
 
-// Subconjunto de DOCUMENT_TYPES que puede emitirse como parte de una venta
-// (sales.document_type CHECK, migración 0023). nota_credito/remito/presupuesto
-// viven en tablas propias y tienen sus propias rutas (credit-notes.ts,
-// remitos.ts, budgets.ts) — no pasan por acá.
-const DOCUMENT_TYPES_SALES = ["ticket", "factura_a", "factura_b", "factura_c"] as const;
-type SalesDocumentType = (typeof DOCUMENT_TYPES_SALES)[number];
+const DOCUMENT_TYPES_SALES = DOCUMENT_TYPES;
+type SalesDocumentType = DocumentType;
 
 function isSalesDocumentType(value: unknown): value is SalesDocumentType {
-  return typeof value === "string" && (DOCUMENT_TYPES_SALES as readonly string[]).includes(value);
+  return typeof value === "string" && (DOCUMENT_TYPES as readonly string[]).includes(value as DocumentType);
+}
+
+function documentTypeRequiresCuit(dt: string): boolean {
+  return (
+    dt === "factura_a" ||
+    dt === "factura_b" ||
+    dt === "factura_c" ||
+    dt === "factura_m" ||
+    dt.endsWith("_a") ||
+    dt.endsWith("_m")
+  );
 }
 
 /**
@@ -339,12 +347,12 @@ salesRoutes.post("/", async (c) => {
     );
   }
 
-  // DT-7: Factura A/B/C requiere customer con document_type='cuit' y
+  // Comprobantes fiscales A / M / facturas requieren customer con document_type='cuit' y
   // document_number no vacío. Se valida server-side, no solo en la UI.
-  if (documentType === "factura_a" || documentType === "factura_b" || documentType === "factura_c") {
+  if (documentTypeRequiresCuit(documentType)) {
     if (!body.customer_id) {
       return c.json(
-        { success: false, error: { code: "VALIDATION_ERROR", message: "Factura A/B/C requiere un cliente con CUIT" } },
+        { success: false, error: { code: "VALIDATION_ERROR", message: `El comprobante '${documentType}' requiere un cliente con CUIT` } },
         400,
       );
     }
@@ -356,7 +364,7 @@ salesRoutes.post("/", async (c) => {
       return c.json(
         {
           success: false,
-          error: { code: "VALIDATION_ERROR", message: "Factura A/B/C requiere un cliente con document_type='cuit' y document_number cargado" },
+          error: { code: "VALIDATION_ERROR", message: `El comprobante '${documentType}' requiere un cliente con document_type='cuit' y document_number cargado` },
         },
         400,
       );

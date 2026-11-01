@@ -63,6 +63,25 @@ export interface SaleItem {
   admite_acum_desc?: 0 | 1; // si el grupo admite descuento acumulado adicional
 }
 
+export type DocumentType =
+  | 'ticket'
+  | 'factura_a'
+  | 'factura_b'
+  | 'factura_c'
+  | 'factura_m'
+  | 'nota_credito_a'
+  | 'nota_credito_b'
+  | 'nota_credito_c'
+  | 'nota_credito_m'
+  | 'nota_debito_a'
+  | 'nota_debito_b'
+  | 'nota_debito_c'
+  | 'nota_debito_m'
+  | 'presupuesto'
+  | 'remito';
+
+export type SaleDocumentType = DocumentType;
+
 export interface Sale {
   branchId?: string;
   id: string;
@@ -75,10 +94,10 @@ export interface Sale {
    */
   invoiceNumber: string;
   /**
-   * Tipo de comprobante emitido (change "Document Types"). Default 'ticket'
+   * Tipo de comprobante emitido (AFIP/ARCA). Default 'ticket'
    * si no se especifica al llamar `addSale`.
    */
-  documentType?: 'ticket' | 'factura_a' | 'factura_b' | 'factura_c' | 'nota_credito' | 'remito' | 'presupuesto';
+  documentType?: DocumentType;
   /**
    * Número correlativo POR TIPO Y SUCURSAL (`document_sequences`, ver
    * `workers/api/src/lib/document-sequences.ts::nextSequence`). Es el número

@@ -114,6 +114,9 @@ export const AppProvider: React.FC<{
   // singleton de services/api.ts para que fetchWithAuth mande X-Branch-Id en
   // TODOS los requests salientes sin tener que prop-drillear el valor hasta
   // cada hook que llama fetchWithAuth.
+  if (usr.activeBranchId) {
+    setApiActiveBranchId(usr.activeBranchId);
+  }
   useEffect(() => {
     setApiActiveBranchId(usr.activeBranchId);
   }, [usr.activeBranchId]);
@@ -143,7 +146,11 @@ export const AppProvider: React.FC<{
   const cash = useCashSession({
     notify: notif.addSystemNotification,
     getActiveUser: () => usr.activeUser,
-    onCashClose: () => { void syncOnCashCloseFn(); },
+    onCashClose: () => {
+      void syncOnCashCloseFn().catch((err) => {
+        console.warn('[AppContext] onCashClose sync failed:', err);
+      });
+    },
   });
   const sup = useSupplyRequests({ notify: notif.addSystemNotification, getActiveUser: () => usr.activeUser, ingredients: inv.ingredients, products: inv.products });
   const sal = useSales();

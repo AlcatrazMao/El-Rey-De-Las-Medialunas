@@ -8,10 +8,10 @@ import { nowSqliteTs } from "../utils/time";
 
 export const cashRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// GET /sessions
-cashRoutes.get("/sessions", async (c) => {
+// GET /sessions and GET /
+const listSessionsHandler = async (c: any) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
+  const branchId = c.req.query("branch_id") ?? c.get("branchId") ?? DEFAULT_BRANCH_ID;
   const status = c.req.query("status");
   // Cursor-based pagination: el cliente pasa el opened_at de la última sesión
   // vista como cursor. Usar opened_at en vez de id evita saltos/duplicados cuando
@@ -51,12 +51,14 @@ cashRoutes.get("/sessions", async (c) => {
   const nextCursor = rows.length === limit && lastSession ? lastSession.opened_at : null;
 
   return c.json({ success: true, data: rows, nextCursor });
-});
+};
+cashRoutes.get("/sessions", listSessionsHandler);
+cashRoutes.get("/", listSessionsHandler);
 
-// GET /sessions/current
-cashRoutes.get("/sessions/current", async (c) => {
+// GET /sessions/current and GET /current
+const currentSessionHandler = async (c: any) => {
   const db = c.env.DB;
-  const branchId = c.req.query("branch_id") ?? DEFAULT_BRANCH_ID;
+  const branchId = c.req.query("branch_id") ?? c.get("branchId") ?? DEFAULT_BRANCH_ID;
 
   const session = await db
     .prepare(
@@ -66,7 +68,28 @@ cashRoutes.get("/sessions/current", async (c) => {
     .first();
 
   return c.json({ success: true, data: session ?? null });
-});
+};
+cashRoutes.get("/sessions/current", currentSessionHandler);
+cashRoutes.get("/current", currentSessionHandler);
+
+// GET /sessions/:id
+const getSessionByIdHandler = async (c: any) => {
+  const db = c.env.DB;
+  const sessionId = c.req.param("id");
+  if (sessionId === "current") return currentSessionHandler(c);
+  const session = await db
+    .prepare("SELECT * FROM cash_sessions WHERE id = ? LIMIT 1")
+    .bind(sessionId)
+    .first();
+  if (!session) {
+    return c.json(
+      { success: false, error: { code: "NOT_FOUND", message: "Sesión de caja no encontrada" } },
+      404
+    );
+  }
+  return c.json({ success: true, data: session });
+};
+cashRoutes.get("/sessions/:id", getSessionByIdHandler);
 
 // SECURITY: cap monetary amounts so a malicious or buggy client cannot
 // poison cash session totals with Infinity-adjacent values.
@@ -119,8 +142,8 @@ export function deriveExpectedAmount(params: {
 // Roles que pueden operar la caja (abrir y cerrar sesiones).
 const CASH_ALLOWED_ROLES = new Set(['cashier', 'supervisor', 'admin', 'owner']);
 
-// POST /sessions/open
-cashRoutes.post("/sessions/open", async (c) => {
+// POST /sessions/open and POST /open
+const openSessionHandler = async (c: any) => {
   const db = c.env.DB;
 
   // SECURITY: solo cajeros y roles superiores pueden abrir caja.
@@ -151,7 +174,7 @@ cashRoutes.post("/sessions/open", async (c) => {
     );
   }
 
-  const branchId = body.branch_id ?? DEFAULT_BRANCH_ID;
+  const branchId = body.branch_id ?? c.get("branchId") ?? c.get("userDefaultBranch") ?? DEFAULT_BRANCH_ID;
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
   if (!user) {
@@ -184,6 +207,11 @@ cashRoutes.post("/sessions/open", async (c) => {
 
   let autoClosed = false;
   if (existing) {
+    // Si la sesión ya existe con el mismo ID (idempotencia en reintento de red), retornar éxito
+    if (body.id && existing.id === body.id) {
+      return c.json({ success: true, data: { id: existing.id, opened_at: existing.opened_at, auto_closed_previous: false } }, 200);
+    }
+
     // Si la sesión abierta es de un día anterior (en hora Argentina, UTC-3),
     // cerrarla automáticamente. Comparamos la fecha *comercial* argentina:
     //   - opened_at está en UTC → convertimos a ARG con '-3 hours'
@@ -233,10 +261,12 @@ cashRoutes.post("/sessions/open", async (c) => {
     .run();
 
   return c.json({ success: true, data: { id, opened_at: openedAt, auto_closed_previous: autoClosed } }, 201);
-});
+};
+cashRoutes.post("/sessions/open", openSessionHandler);
+cashRoutes.post("/open", openSessionHandler);
 
-// POST /sessions/:id/close
-cashRoutes.post("/sessions/:id/close", async (c) => {
+// POST /sessions/:id/close, POST /:id/close, POST /sessions/close, POST /close
+const closeSessionHandler = async (c: any) => {
   const db = c.env.DB;
 
   // SECURITY: solo cajeros y roles superiores pueden cerrar caja.
@@ -248,12 +278,18 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
     );
   }
 
-  const sessionId = c.req.param("id");
   const body = await c.req.json<{
+    id?: string;
+    session_id?: string;
     closing_amount: number | null;
     expected_amount?: number;
     notes?: string;
-  }>();
+  }>().catch(() => ({ closing_amount: null }));
+
+  const rawParamId = c.req.param("id");
+  const sessionId = (rawParamId && rawParamId !== 'close' && rawParamId !== 'sessions')
+    ? rawParamId
+    : (body.id || body.session_id || 'current');
 
   const userId = c.get("userId") ?? "";
   const user = await resolveUser(c.env.DB, userId);
@@ -268,39 +304,51 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
   // Supervisores, admins y owners pueden cerrar cualquier sesión de su sucursal.
   let session: { id: string; opening_amount: number; branch_id: string; opened_at: string } | null = null;
   if (closeUserRole === 'cashier') {
-    session = await db
-      .prepare(
-        "SELECT id, opening_amount, branch_id, opened_at FROM cash_sessions WHERE id = ? AND user_id = ? AND status = 'open' LIMIT 1"
-      )
-      .bind(sessionId, userId)
-      .first<{ id: string; opening_amount: number; branch_id: string; opened_at: string }>();
+    if (sessionId && sessionId !== 'current' && sessionId !== 'close') {
+      session = await db
+        .prepare(
+          "SELECT id, opening_amount, branch_id, opened_at FROM cash_sessions WHERE id = ? AND user_id = ? AND status = 'open' LIMIT 1"
+        )
+        .bind(sessionId, userId)
+        .first<{ id: string; opening_amount: number; branch_id: string; opened_at: string }>();
+    }
 
     if (!session) {
-      return c.json(
-        { success: false, error: { code: "NOT_FOUND", message: "Sesión de caja abierta no encontrada o no pertenece a tu usuario" } },
-        404
-      );
+      // Fallback: si no se encontró por ID exacto (ej. ID local que no sincronizó el open, o 'current'),
+      // buscar la última sesión abierta del cajero
+      session = await db
+        .prepare(
+          "SELECT id, opening_amount, branch_id, opened_at FROM cash_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC LIMIT 1"
+        )
+        .bind(userId)
+        .first<{ id: string; opening_amount: number; branch_id: string; opened_at: string }>();
     }
   } else {
     // supervisor / admin / owner: pueden cerrar cualquier sesión, pero
     // solo de sucursales a las que pertenecen (excepto admin/owner que
     // tienen acceso global).
-    session = await db
-      .prepare(
-        "SELECT id, opening_amount, branch_id, opened_at FROM cash_sessions WHERE id = ? AND status = 'open' LIMIT 1"
-      )
-      .bind(sessionId)
-      .first<{ id: string; opening_amount: number; branch_id: string; opened_at: string }>();
+    if (sessionId && sessionId !== 'current' && sessionId !== 'close') {
+      session = await db
+        .prepare(
+          "SELECT id, opening_amount, branch_id, opened_at FROM cash_sessions WHERE id = ? AND status = 'open' LIMIT 1"
+        )
+        .bind(sessionId)
+        .first<{ id: string; opening_amount: number; branch_id: string; opened_at: string }>();
+    }
 
     if (!session) {
-      return c.json(
-        { success: false, error: { code: "NOT_FOUND", message: "Sesión de caja abierta no encontrada" } },
-        404
-      );
+      // Fallback: buscar la sesión abierta para la sucursal activa
+      const resolvedBranch = c.get("branchId") || c.req.query("branch_id") || c.get("userDefaultBranch") || DEFAULT_BRANCH_ID;
+      session = await db
+        .prepare(
+          "SELECT id, opening_amount, branch_id, opened_at FROM cash_sessions WHERE (branch_id = ? OR ? = '') AND status = 'open' ORDER BY opened_at DESC LIMIT 1"
+        )
+        .bind(resolvedBranch, resolvedBranch)
+        .first<{ id: string; opening_amount: number; branch_id: string; opened_at: string }>();
     }
 
     // admin y owner tienen acceso global a todas las sucursales.
-    if (closeUserRole !== 'admin' && closeUserRole !== 'owner') {
+    if (session && closeUserRole !== 'admin' && closeUserRole !== 'owner') {
       const branchRow = await db
         .prepare("SELECT 1 FROM user_branches WHERE user_id = ? AND branch_id = ? LIMIT 1")
         .bind(userId, session.branch_id)
@@ -313,6 +361,45 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
       }
     }
   }
+
+  if (!session) {
+    // Idempotencia: si la sesión no está abierta, verificar si ya fue cerrada antes
+    if (sessionId && sessionId !== 'current' && sessionId !== 'close') {
+      const alreadyClosed = await db
+        .prepare(
+          "SELECT id, difference, closed_at FROM cash_sessions WHERE id = ? AND status IN ('closed', 'auto_closed') LIMIT 1"
+        )
+        .bind(sessionId)
+        .first<{ id: string; difference: number | null; closed_at: string }>();
+
+      if (alreadyClosed) {
+        return c.json({
+          success: true,
+          data: {
+            id: alreadyClosed.id,
+            difference: alreadyClosed.difference,
+            closed_at: alreadyClosed.closed_at,
+            already_closed: true,
+          },
+        });
+      }
+    }
+
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "NOT_FOUND",
+          message: closeUserRole === 'cashier'
+            ? "Sesión de caja abierta no encontrada o no pertenece a tu usuario"
+            : "Sesión de caja abierta no encontrada",
+        },
+      },
+      404
+    );
+  }
+
+  const targetSessionId = session.id;
 
   // closing_amount es null cuando el cierre es automático (auto_closed por apertura
   // del día siguiente). En ese caso no validamos ni calculamos diferencia.
@@ -375,7 +462,7 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
     .prepare(
       "SELECT type, amount FROM cash_movements WHERE cash_session_id = ?"
     )
-    .bind(sessionId)
+    .bind(targetSessionId)
     .all<{ type: string; amount: number }>();
   const movements = movementsResult.results ?? [];
 
@@ -419,17 +506,21 @@ cashRoutes.post("/sessions/:id/close", async (c) => {
       closeStatus,
       closeNotes,
       closedAt,
-      sessionId
+      targetSessionId
     )
     .run();
 
-  return c.json({ success: true, data: { id: sessionId, difference, closed_at: closedAt } });
-});
+  return c.json({ success: true, data: { id: targetSessionId, difference, closed_at: closedAt } });
+};
+cashRoutes.post("/sessions/:id/close", closeSessionHandler);
+cashRoutes.post("/:id/close", closeSessionHandler);
+cashRoutes.post("/sessions/close", closeSessionHandler);
+cashRoutes.post("/close", closeSessionHandler);
 
-// GET /movements
-cashRoutes.get("/movements", async (c) => {
+// GET /movements and GET /sessions/:id/movements
+const getMovementsHandler = async (c: any) => {
   const db = c.env.DB;
-  const sessionId = c.req.query("session_id");
+  const sessionId = c.req.param("id") || c.req.query("session_id");
 
   if (!sessionId) {
     return c.json(
@@ -446,20 +537,25 @@ cashRoutes.get("/movements", async (c) => {
     .all();
 
   return c.json({ success: true, data: results.results ?? [] });
-});
+};
+cashRoutes.get("/movements", getMovementsHandler);
+cashRoutes.get("/sessions/:id/movements", getMovementsHandler);
 
-// POST /movements
-cashRoutes.post("/movements", async (c) => {
+// POST /movements and POST /sessions/:id/movements
+const addMovementHandler = async (c: any) => {
   const db = c.env.DB;
+  const paramSessionId = c.req.param("id");
   const body = await c.req.json<{
-    cash_session_id: string;
+    cash_session_id?: string;
     type: string;
     amount: number;
     description?: string;
     category?: string;
   }>();
 
-  if (!body.cash_session_id || typeof body.cash_session_id !== 'string') {
+  const cashSessionId = paramSessionId || body.cash_session_id;
+
+  if (!cashSessionId || typeof cashSessionId !== 'string') {
     return c.json(
       { success: false, error: { code: "VALIDATION_ERROR", message: "cash_session_id es requerido" } },
       400
@@ -490,7 +586,7 @@ cashRoutes.post("/movements", async (c) => {
 
   const session = await db
     .prepare("SELECT id, status FROM cash_sessions WHERE id = ? LIMIT 1")
-    .bind(body.cash_session_id)
+    .bind(cashSessionId)
     .first<{ id: string; status: string }>();
 
   if (!session) {
@@ -543,7 +639,7 @@ cashRoutes.post("/movements", async (c) => {
     )
     .bind(
       id,
-      body.cash_session_id,
+      cashSessionId,
       user.id,
       body.type,
       body.amount,
@@ -553,5 +649,7 @@ cashRoutes.post("/movements", async (c) => {
     )
     .run();
 
-  return c.json({ success: true, data: { id } }, 201);
-});
+  return c.json({ success: true, data: { id, cash_session_id: cashSessionId, type: body.type, amount: body.amount, description: body.description, category: body.category, created_at: createdAt } }, 201);
+};
+cashRoutes.post("/movements", addMovementHandler);
+cashRoutes.post("/sessions/:id/movements", addMovementHandler);

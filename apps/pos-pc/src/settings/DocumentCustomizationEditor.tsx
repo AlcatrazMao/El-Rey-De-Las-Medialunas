@@ -10,12 +10,36 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   factura_a: 'Factura A',
   factura_b: 'Factura B',
   factura_c: 'Factura C',
-  nota_credito: 'Nota de Crédito',
-  remito: 'Remito',
+  factura_m: 'Factura M',
+  nota_credito_a: 'Nota de Crédito A',
+  nota_credito_b: 'Nota de Crédito B',
+  nota_credito_c: 'Nota de Crédito C',
+  nota_credito_m: 'Nota de Crédito M',
+  nota_debito_a: 'Nota de Débito A',
+  nota_debito_b: 'Nota de Débito B',
+  nota_debito_c: 'Nota de Débito C',
+  nota_debito_m: 'Nota de Débito M',
   presupuesto: 'Presupuesto',
+  remito: 'Remito',
 };
 
-const ALL_TYPES: DocumentType[] = ['ticket', 'factura_a', 'factura_b', 'factura_c', 'nota_credito', 'remito', 'presupuesto'];
+const ALL_TYPES: DocumentType[] = [
+  'ticket',
+  'factura_a',
+  'factura_b',
+  'factura_c',
+  'factura_m',
+  'nota_credito_a',
+  'nota_credito_b',
+  'nota_credito_c',
+  'nota_credito_m',
+  'nota_debito_a',
+  'nota_debito_b',
+  'nota_debito_c',
+  'nota_debito_m',
+  'presupuesto',
+  'remito',
+];
 
 interface EditableState {
   title: string;
@@ -180,14 +204,14 @@ export const DocumentCustomizationEditor: React.FC = () => {
                   className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-gray-900 dark:text-zinc-100" />
               </label>
             )}
-            {selectedType === 'nota_credito' && (
+            {selectedType.startsWith('nota_credito') && (
               <label className="flex items-center gap-2 text-xs font-semibold text-gray-600 dark:text-zinc-300">
                 <input type="checkbox" checked={edit.nota_credito_require_reason} onChange={e => setEdit({ ...edit, nota_credito_require_reason: e.target.checked })}
                   className="h-3.5 w-3.5 accent-amber-500 cursor-pointer" />
                 Requerir motivo obligatorio
               </label>
             )}
-            {(selectedType === 'factura_a' || selectedType === 'factura_b' || selectedType === 'factura_c') && (
+            {selectedType.startsWith('factura_') && (
               <label className="block">
                 <span className="text-xs font-semibold text-gray-700 dark:text-zinc-300">Leyenda fiscal</span>
                 <input value={edit.factura_fiscal_legend} onChange={e => setEdit({ ...edit, factura_fiscal_legend: e.target.value })}

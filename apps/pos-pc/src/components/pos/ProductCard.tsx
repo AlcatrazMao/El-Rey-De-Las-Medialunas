@@ -32,12 +32,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       onDecreaseQuantity(product.id);
       playBeep?.(400, 0.08);
     },
+    onRightClick: () => {
+      onDecreaseQuantity(product.id);
+      playBeep?.(400, 0.08);
+    },
   });
 
   return (
     <button
       type="button"
       id={`product-card-${product.id}`}
+      title={`${product.name} (Click: sumar | Mantener o click derecho: restar)`}
       {...handlers}
       className={`relative flex flex-col justify-between text-left p-3 rounded-2xl border transition-all cursor-pointer select-none group ${
         isDiscounting

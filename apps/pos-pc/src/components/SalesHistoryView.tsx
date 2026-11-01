@@ -25,6 +25,17 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   factura_a: 'Factura A',
   factura_b: 'Factura B',
   factura_c: 'Factura C',
+  factura_m: 'Factura M',
+  nota_credito_a: 'Nota de Crédito A',
+  nota_credito_b: 'Nota de Crédito B',
+  nota_credito_c: 'Nota de Crédito C',
+  nota_credito_m: 'Nota de Crédito M',
+  nota_debito_a: 'Nota de Débito A',
+  nota_debito_b: 'Nota de Débito B',
+  nota_debito_c: 'Nota de Débito C',
+  nota_debito_m: 'Nota de Débito M',
+  remito: 'Remito',
+  presupuesto: 'Presupuesto',
 };
 
 // Número REAL (document_number correlativo por tipo+sucursal). Cae al legacy

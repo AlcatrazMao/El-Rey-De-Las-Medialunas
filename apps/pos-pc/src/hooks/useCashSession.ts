@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 
+import { getActiveBranchId } from '../services/api';
 import { syncCashSessionToD1, syncCashSessionCloseToD1, fetchCashSessionsFromD1 } from '../services/d1-sync';
 import type { CashSession } from '../types';
 import { formatCurrency } from '../utils/format';
 import { safeSetItem, safeRemoveItem } from '../utils/safeStorage';
 
-import { getSettings } from './useSettings';
+import { getSettings, resolveFallbackBranchId } from './useSettings';
 
 /**
  * Valida el shape de un objeto crudo leído de localStorage antes de usarlo
@@ -221,9 +222,10 @@ export function useCashSession({ notify, getActiveUser, onCashClose }: UseCashSe
       `Se abrió la caja con un saldo inicial de ${formatCurrency(initialAmount)} por ${activeUser.name}.`,
       'success',
     );
+    const effectiveBranchId = getActiveBranchId() ?? resolveFallbackBranchId() ?? getSettings().business.branchId;
     syncCashSessionToD1({
       id: newSession.id,
-      branch_id: getSettings().business.branchId,
+      branch_id: effectiveBranchId,
       opening_amount: initialAmount,
       status: 'open',
       notes: note ?? '',
