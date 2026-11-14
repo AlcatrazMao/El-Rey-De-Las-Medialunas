@@ -352,6 +352,8 @@ export async function syncStockMovementToD1(movement: {
   movement_type: string;
   quantity: number;
   reason: string;
+  notes?: string;
+  unit_cost_at_time?: number;
 }): Promise<void> {
   // idempotency_key compartido entre el POST online y la cola offline: si un
   // timeout hace que el movimiento se re-encola tras haberse aplicado, el
@@ -362,6 +364,8 @@ export async function syncStockMovementToD1(movement: {
     movement_type: movement.movement_type,
     quantity: movement.quantity,
     reason: movement.reason,
+    notes: movement.notes,
+    unit_cost_at_time: movement.unit_cost_at_time,
     idempotency_key: crypto.randomUUID(),
   };
   try {

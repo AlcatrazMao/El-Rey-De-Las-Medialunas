@@ -14,9 +14,11 @@ vi.mock('../../../apps/pos-pc/src/AppContext', () => ({ useApp: () => ({
   products: state.products, ingredients: [], batches: [], activeUser: { role: 'admin' },
   updateProduct: state.updateProduct, addProduct: state.addProduct, addSystemNotification: vi.fn(),
 }) }));
+vi.mock('../../../apps/pos-pc/src/config/firebase', () => ({ auth: { currentUser: null }, db: {} }));
 vi.mock('../../../apps/pos-pc/src/hooks/useRequests', () => ({ useRequests: () => ({ requests: [] }) }));
 vi.mock('../../../apps/pos-pc/src/components/ImagePicker', () => ({ ImagePicker: () => null }));
 vi.mock('../../../apps/pos-pc/src/components/inventory/BatchPanel', () => ({ BatchPanel: () => null }));
+vi.mock('../../../apps/pos-pc/src/components/inventory/KardexPanel', () => ({ KardexPanel: () => null }));
 vi.mock('../../../apps/pos-pc/src/components/ProductGroupsEditor', () => ({ ProductGroupsEditor: () => null }));
 vi.mock('../../../apps/pos-pc/src/services/d1-sync', () => ({ syncStockMovementToD1: vi.fn().mockResolvedValue({}) }));
 import { InventoryView } from '../../../apps/pos-pc/src/components/InventoryView';

@@ -15,7 +15,9 @@ import {
   Table,
   SlidersHorizontal,
   ArrowUpDown,
-  CheckCircle2
+  CheckCircle2,
+  History,
+  ArrowLeftRight
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect, useMemo } from 'react';
@@ -24,12 +26,13 @@ import { useApp } from '../AppContext';
 import { useProductForm } from '../hooks/useProductForm';
 import { useRequests } from '../hooks/useRequests';
 import { syncStockMovementToD1 } from '../services/d1-sync';
-import type { Ingredient, Product, ProductGroup, CategoryType} from '../types';
+import type { Ingredient, Product, ProductGroup, CategoryType, ProductBatch } from '../types';
 import { exportIngredientsToCSV } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
 
 import { ImagePicker } from './ImagePicker';
 import { BatchPanel } from './inventory/BatchPanel';
+import { KardexPanel } from './inventory/KardexPanel';
 import { ProductGroupsEditor } from './ProductGroupsEditor';
 
 // SECURITY/UX: gateo del botón "Editar" de insumos según la matriz real de
@@ -65,7 +68,7 @@ export const InventoryView: React.FC = () => {
   // tab de mermas es sólo lectura (monitoreo + KPIs).
   const { requests: erpRequests } = useRequests();
 
-  const [activeSubTab, setActiveSubTab] = useState<'insumos' | 'productos' | 'caducidad' | 'mermas'>('insumos');
+  const [activeSubTab, setActiveSubTab] = useState<'insumos' | 'productos' | 'kardex' | 'caducidad' | 'mermas'>('insumos');
   const [selectedProductForBatches, setSelectedProductForBatches] = useState<Product | null>(null);
   const [expandedGroupsFor, setExpandedGroupsFor] = useState<string | null>(null);
   const [mermasFilter, setMermasFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -132,25 +135,33 @@ export const InventoryView: React.FC = () => {
     physicalQty: string;
     reason: 'Conteo físico' | 'Ingreso de producción' | 'Merma / Desecho' | 'Rotura' | 'Ajuste administrativo';
     notes: string;
+    batchId?: string;
   }
   const [adjustingStock, setAdjustingStock] = useState<AdjustStockState | null>(null);
   const [adjustFeedbackId, setAdjustFeedbackId] = useState<string | null>(null);
   const [isSubmittingAdjust, setIsSubmittingAdjust] = useState(false);
 
-  const openAdjustStockModal = (prod: Product, defaultReason?: AdjustStockState['reason']) => {
+  const openAdjustStockModal = (
+    prod: Product,
+    defaultReason?: AdjustStockState['reason'],
+    defaultDelta?: number,
+    defaultNotes?: string,
+    batchId?: string
+  ) => {
     setAdjustingStock({
       product: prod,
       type: 'delta',
-      deltaQty: '10',
+      deltaQty: defaultDelta !== undefined ? String(defaultDelta) : '10',
       physicalQty: String(prod.stock),
       reason: defaultReason ?? 'Conteo físico',
-      notes: '',
+      notes: defaultNotes ?? '',
+      batchId,
     });
   };
 
   const handleConfirmAdjustStock = async () => {
     if (!adjustingStock) return;
-    const { product, type, deltaQty, physicalQty, reason, notes } = adjustingStock;
+    const { product, type, deltaQty, physicalQty, reason, notes, batchId } = adjustingStock;
 
     let delta = 0;
     let newStock = product.stock;
@@ -181,8 +192,23 @@ export const InventoryView: React.FC = () => {
 
     setIsSubmittingAdjust(true);
     try {
-      // 1. Optimistic update local
+      // 1. Optimistic update local product stock
       updateProductStock(product.id, newStock);
+
+      // 1.1 If adjusting a specific batch, update the batch's stock too
+      if (batchId) {
+        setBatches(prev => prev.map(b => {
+          if (b.id === batchId) {
+            const updatedStock = Math.max(0, b.stock + delta);
+            return {
+              ...b,
+              stock: updatedStock,
+              status: updatedStock === 0 ? 'withdrawn' : b.status,
+            };
+          }
+          return b;
+        }));
+      }
 
       // 2. Map reason to movement_type
       let movementType = 'adjustment_in';
@@ -248,6 +274,64 @@ export const InventoryView: React.FC = () => {
     localStorage.setItem('pan_erp_alert_days', safeDays.toString());
     localStorage.setItem('pan_erp_prio_cat', cat);
     if (notify) addSystemNotification('⚙️ Prioridades Guardadas', `Se priorizaron alertas de caducidad por: ${criteria.toUpperCase()}`, 'success');
+  };
+
+  const getBatchExpiryDays = (batch: ProductBatch) => {
+    if (!batch.expiryDate) return 999;
+    const expDateObj = new Date(batch.expiryDate + 'T00:00:00');
+    if (isNaN(expDateObj.getTime())) return 999;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffTime = expDateObj.getTime() - today.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const getBatchLifeProgress = (batch: ProductBatch, prod?: Product) => {
+    const elab = batch.elaborationDate ? new Date(batch.elaborationDate + 'T00:00:00') : new Date();
+    const exp = batch.expiryDate ? new Date(batch.expiryDate + 'T00:00:00') : new Date();
+    const totalDays = Math.max(1, Math.round((exp.getTime() - elab.getTime()) / (1000 * 60 * 60 * 24)));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const elapsedDays = Math.round((today.getTime() - elab.getTime()) / (1000 * 60 * 60 * 24));
+    const percent = Math.min(100, Math.max(0, Math.round((elapsedDays / totalDays) * 100)));
+    return {
+      totalDays,
+      elapsedDays,
+      percent,
+    };
+  };
+
+  const getPrioritizedBatches = () => {
+    // Lotes activos con stock > 0 o en estado activo
+    const activeBatches = batches.filter(
+      (b) => (b.stock > 0 || b.status === 'active') && b.status !== 'withdrawn'
+    );
+
+    activeBatches.sort((a, b) => {
+      const daysA = getBatchExpiryDays(a);
+      const daysB = getBatchExpiryDays(b);
+
+      if (daysA !== daysB) {
+        return daysA - daysB; // Vencidos y por vencer primero
+      }
+
+      const prodA = products.find((p) => p.id === a.productId);
+      const prodB = products.find((p) => p.id === b.productId);
+
+      if (priorityCriteria === 'precio') {
+        return (prodB?.price ?? 0) - (prodA?.price ?? 0);
+      } else if (priorityCriteria === 'unidades') {
+        return b.stock - a.stock;
+      } else if (priorityCriteria === 'categoria') {
+        const isA_Prio = prodA?.category === priorityCategory ? 1 : 0;
+        const isB_Prio = prodB?.category === priorityCategory ? 1 : 0;
+        return isB_Prio - isA_Prio;
+      }
+
+      return 0;
+    });
+
+    return activeBatches;
   };
 
   const getProductExpiryDays = (prod: Product) => {
@@ -750,6 +834,18 @@ export const InventoryView: React.FC = () => {
             }`}
           >
             Productos / Reventa
+          </button>
+          <button
+            id="btn-subtab-kardex"
+            onClick={() => setActiveSubTab('kardex')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeSubTab === 'kardex'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-gray-500 dark:text-zinc-400 hover:text-gray-700'
+            }`}
+          >
+            <History className="h-3.5 w-3.5" />
+            Kardex / Movimientos
           </button>
           <button
             id="btn-subtab-caducidad"
@@ -1437,6 +1533,10 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
+      {activeSubTab === 'kardex' && (
+        <KardexPanel onAdjustStock={openAdjustStockModal} />
+      )}
+
       {activeSubTab === 'caducidad' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
           
@@ -1446,8 +1546,8 @@ export const InventoryView: React.FC = () => {
             <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 p-5 rounded-2xl shadow-xs">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2 pb-3 border-b border-gray-100 dark:border-zinc-800">
                 <div>
-                  <h3 className="font-extrabold text-sm text-gray-800 dark:text-zinc-100 uppercase tracking-wider">Línea de Alerta por Vencimiento</h3>
-                  <p className="text-[11px] text-gray-450 mt-0.5">Control de vida útil ordenado según criterio de prioridad actual.</p>
+                  <h3 className="font-extrabold text-sm text-gray-800 dark:text-zinc-100 uppercase tracking-wider">Línea de Alerta por Vencimiento de Lotes Reales</h3>
+                  <p className="text-[11px] text-gray-450 mt-0.5">Control de vida útil FEFO de lotes activos ordenado según criterio de prioridad.</p>
                 </div>
                 <div className="flex items-center gap-1.5 select-none">
                   <span className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 uppercase tracking-wider">
@@ -1459,151 +1559,209 @@ export const InventoryView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Products Table */}
+              {/* Batches Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-gray-50/50 dark:bg-zinc-950 text-[10px] uppercase font-bold text-gray-400 select-none">
                     <tr className="border-b border-gray-100 dark:border-zinc-850">
                       <th className="py-3 px-2">Producto</th>
-                      <th className="py-3 px-2 text-center">Duración</th>
+                      <th className="py-3 px-2">Lote</th>
+                      <th className="py-3 px-2 text-center">Stock</th>
                       <th className="py-3 px-2">Elaborado</th>
-                      <th className="py-3 px-2">Margen</th>
+                      <th className="py-3 px-2">Vencimiento</th>
+                      <th className="py-3 px-2">Vida Útil (Progreso)</th>
                       <th className="py-3 px-2">Estado</th>
-                      <th className="py-3 px-2 text-right">Acciones</th>
+                      <th className="py-3 px-2 text-right">Acciones Rápidas</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60 font-semibold text-gray-800 dark:text-zinc-200">
                     {(() => {
-                      const expiryProducts = getPrioritizedExpiryProducts();
-                      return expiryProducts.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="text-center py-12 text-zinc-400 font-bold">
-                          No hay productos elaborados registrados con control de caducidad.
-                        </td>
-                      </tr>
-                    ) : (
-                      expiryProducts
-                        .filter(prod => prod.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                        .map(prod => {
-                          const daysLeft = getProductExpiryDays(prod);
-                          const isExpired = daysLeft < 0;
-                          const isCriticalRange = daysLeft >= 0 && daysLeft <= priorityAlertDays;
-              
-                          return (
-                            <tr
-                              key={prod.id}
-                              id={`item-expiry-row-${prod.id}`}
-                              className={`hover:bg-gray-50/50 dark:hover:bg-zinc-850/20 ${
-                                isExpired
-                                  ? 'bg-red-50/10 dark:bg-red-950/10'
-                                  : isCriticalRange
-                                  ? 'bg-amber-50/10 dark:bg-amber-950/10'
-                                  : ''
-                              }`}
-                            >
-                              <td className="py-4 px-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xl inline-block" role="img" aria-label={prod.name}>{prod.image}</span>
-                                  <div>
-                                    <p className="font-extrabold text-gray-850 dark:text-zinc-100 leading-none">{prod.name}</p>
-                                    <p className="text-[9px] text-gray-400 font-mono mt-1">Urgente por {prod.category.toUpperCase()} • Qda: {prod.stock} u.</p>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="py-4 px-2 text-center text-gray-500 font-semibold">{prod.durabilityDays} días</td>
-                              <td className="py-4 px-2 text-gray-550 dark:text-zinc-400 font-mono italic text-[11px]">{prod.elaborationDate}</td>
-                              <td className="py-4 px-2 font-mono">
-                                <span className={isExpired ? 'text-red-500 font-extrabold' : isCriticalRange ? 'text-amber-500 font-extrabold' : 'text-emerald-600'}>
-                                  {isExpired ? `${Math.abs(daysLeft)}d Vencido` : daysLeft === 0 ? '¡Vence hoy!' : `${daysLeft} días`}
+                      const prioritizedBatches = getPrioritizedBatches();
+                      const filteredBatches = prioritizedBatches.filter((batch) => {
+                        if (!searchQuery.trim()) return true;
+                        const prod = products.find((p) => p.id === batch.productId);
+                        const matchProd = prod?.name.toLowerCase().includes(searchQuery.toLowerCase());
+                        const matchBatch = batch.batchNumber.toLowerCase().includes(searchQuery.toLowerCase());
+                        return matchProd || matchBatch;
+                      });
+
+                      if (filteredBatches.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={8} className="text-center py-12 text-zinc-400 font-bold">
+                              <div className="flex flex-col items-center justify-center gap-2">
+                                <Package className="h-8 w-8 text-gray-300 dark:text-zinc-700" />
+                                <p className="text-sm">No hay lotes activos registrados con control de caducidad.</p>
+                                <p className="text-[11px] text-gray-400 font-normal">
+                                  Los lotes horneados o producidos aparecerán aquí para control de vida útil FEFO.
+                                </p>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return filteredBatches.map((batch) => {
+                        const prod = products.find((p) => p.id === batch.productId);
+                        const daysLeft = getBatchExpiryDays(batch);
+                        const isExpired = daysLeft < 0;
+                        const isCriticalRange = daysLeft >= 0 && daysLeft <= priorityAlertDays;
+                        const { percent } = getBatchLifeProgress(batch, prod);
+
+                        return (
+                          <tr
+                            key={batch.id}
+                            id={`batch-expiry-row-${batch.id}`}
+                            className={`hover:bg-gray-50/50 dark:hover:bg-zinc-850/20 ${
+                              isExpired
+                                ? 'bg-red-50/10 dark:bg-red-950/10'
+                                : isCriticalRange
+                                ? 'bg-amber-50/10 dark:bg-amber-950/10'
+                                : ''
+                            }`}
+                          >
+                            {/* Producto */}
+                            <td className="py-4 px-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xl inline-block" role="img" aria-label={prod?.name || 'Producto'}>
+                                  {prod?.image || '📦'}
                                 </span>
-                              </td>
-                              <td className="py-4 px-2">
-                                <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-extrabold ${
+                                <div>
+                                  <p className="font-extrabold text-gray-850 dark:text-zinc-100 leading-none">
+                                    {prod?.name || 'Producto no identificado'}
+                                  </p>
+                                  {prod?.category && (
+                                    <p className="text-[9px] text-gray-400 font-mono mt-1">
+                                      {prod.category.toUpperCase()}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Lote */}
+                            <td className="py-4 px-2">
+                              <span className="inline-block px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 border border-gray-200 dark:border-zinc-700">
+                                {batch.batchNumber}
+                              </span>
+                            </td>
+
+                            {/* Stock del lote */}
+                            <td className="py-4 px-2 text-center font-mono font-bold text-xs text-gray-800 dark:text-zinc-200">
+                              {batch.stock} <span className="text-[10px] font-sans text-gray-400">{prod?.unit ?? 'u'}</span>
+                            </td>
+
+                            {/* Elaborado */}
+                            <td className="py-4 px-2 text-gray-550 dark:text-zinc-400 font-mono italic text-[11px]">
+                              {batch.elaborationDate || '—'}
+                            </td>
+
+                            {/* Vencimiento */}
+                            <td className="py-4 px-2 text-gray-600 dark:text-zinc-300 font-mono font-bold text-[11px]">
+                              {batch.expiryDate || '—'}
+                            </td>
+
+                            {/* Barra de progreso de vida útil */}
+                            <td className="py-4 px-2">
+                              <div className="w-36 space-y-1 select-none">
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span
+                                    className={`font-mono font-extrabold ${
+                                      isExpired
+                                        ? 'text-red-500'
+                                        : isCriticalRange
+                                        ? 'text-amber-500'
+                                        : 'text-emerald-600'
+                                    }`}
+                                  >
+                                    {isExpired
+                                      ? `${Math.abs(daysLeft)}d Vencido`
+                                      : daysLeft === 0
+                                      ? '¡Vence hoy!'
+                                      : `${daysLeft}d restantes`}
+                                  </span>
+                                  <span className="text-gray-400 font-mono text-[9px]">{percent}%</span>
+                                </div>
+                                <div className="w-full bg-gray-100 dark:bg-zinc-800 rounded-full h-2 overflow-hidden border border-gray-200 dark:border-zinc-700/60">
+                                  <div
+                                    className={`h-full transition-all duration-300 rounded-full ${
+                                      isExpired
+                                        ? 'bg-red-500'
+                                        : isCriticalRange
+                                        ? 'bg-amber-500'
+                                        : 'bg-emerald-500'
+                                    }`}
+                                    style={{ width: `${Math.min(100, Math.max(8, percent))}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Estado Badge */}
+                            <td className="py-4 px-2">
+                              <span
+                                className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-extrabold whitespace-nowrap ${
                                   isExpired
                                     ? 'bg-red-100 text-red-700 dark:bg-red-950/30'
                                     : isCriticalRange
                                     ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30'
                                     : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/20'
-                                }`}>
-                                  {isExpired ? '🚨 DESECHAR' : isCriticalRange ? '⏳ RELEVAR' : ' FRESCO'}
-                                </span>
-                              </td>
-                              <td className="py-4 px-2 text-right">
-                                <div className="flex justify-end gap-1.5 select-none">
-                                  {prod.stock > 0 ? (
-                                    <>
-                                      <button
-                                        onClick={() => {
-                                          const discountedPrice = prod.price * 0.5;
-                                          // FEFO: find the batch with the nearest expiry and deduct 1 from it
-                                          const activeBatchesForProd = batches.filter(b => b.productId === prod.id && b.status === 'active' && b.stock > 0);
-                                          if (activeBatchesForProd.length > 0) {
-                                            const fefoB = [...activeBatchesForProd].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0];
-                                            setBatches(prev => prev.map(b => b.id === fefoB.id ? { ...b, stock: Math.max(0, b.stock - 1) } : b));
-                                          } else {
-                                            setBatches(prev => prev.map(b => b.productId === prod.id ? { ...b, stock: 0 } : b));
-                                          }
-                                          updateProductStock(prod.id, Math.max(0, prod.stock - 1));
-                                          addSystemNotification(
-                                            '💰 Liquidación 50%',
-                                            `Venta Promo -50%: ${prod.name} relevado a ${formatCurrency(discountedPrice)} por fecha límite.`,
-                                            'success'
-                                          );
-                                        }}
-                                        className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-[9px] font-extrabold cursor-pointer transition-transform duration-100 transform active:scale-95 shadow-xs"
-                                        title="Simula una orden de venta rápida a mitad de precio"
-                                      >
-                                        Oferta -50%
-                                      </button>
+                                }`}
+                              >
+                                {isExpired ? '🚨 VENCIDO' : isCriticalRange ? '⏳ POR VENCER' : '✅ FRESCO'}
+                              </span>
+                            </td>
 
-                                      <button
-                                        onClick={() => {
-                                          const productBatches = batches.filter(b => b.productId === prod.id && b.status === 'active' && b.stock > 0);
-                                          if (productBatches.length > 0) {
-                                            const oldest = [...productBatches].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0];
-                                            void requestBatchWithdrawal(oldest.id, oldest.stock, 'Merma por vencimiento de caducidad — solicitud generada automáticamente.').catch(() =>
-                                              addSystemNotification('⚠️ Merma no registrada', `No se pudo registrar la baja de "${prod.name}". Reintentá.`, 'warning'),
-                                            );
-                                          } else {
-                                            // Zero out any remaining batches for this product to keep state in sync
-                                            setBatches(prev => prev.map(b => b.productId === prod.id ? { ...b, stock: 0 } : b));
-                                            updateProductStock(prod.id, 0);
-                                            addSystemNotification('🗑️ Merma Descontada', `Se registraron ${prod.stock} u. de merma desperdiciada para "${prod.name}".`, 'warning');
-                                          }
-                                        }}
-                                        className="px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-700 dark:text-zinc-200 rounded text-[9px] font-extrabold cursor-pointer transition-transform duration-100 transform active:scale-95"
-                                        title="Dar de baja unidades restantes por merma de caducidad (requiere aprobación de admin)"
-                                      >
-                                        Desechar
-                                      </button>
-                                    </>
-                                  ) : (
+                            {/* Acciones Rápidas */}
+                            <td className="py-4 px-2 text-right">
+                              <div className="flex justify-end items-center gap-1.5 select-none">
+                                {batch.stock > 0 && prod ? (
+                                  <>
                                     <button
+                                      id={`btn-offer-batch-${batch.id}`}
                                       onClick={() => {
-                                        const today = new Date().toISOString().split('T')[0];
-                                        const exp = new Date();
-                                        exp.setDate(exp.getDate() + (prod.durabilityDays ?? 3));
-                                        addBatch({
-                                          productId: prod.id,
-                                          batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`,
-                                          quantity: 50,
-                                          stock: 50,
-                                          elaborationDate: today,
-                                          expiryDate: exp.toISOString().split('T')[0],
-                                          withdrawalMode: 'automatic',
-                                        });
+                                        const discountedPrice = prod.price * 0.5;
+                                        setBatches(prev =>
+                                          prev.map(b => (b.id === batch.id ? { ...b, stock: Math.max(0, b.stock - 1) } : b))
+                                        );
+                                        updateProductStock(prod.id, Math.max(0, prod.stock - 1));
+                                        addSystemNotification(
+                                          '💰 Liquidación 50%',
+                                          `Venta Promo -50%: Lote ${batch.batchNumber} de "${prod.name}" relevado a ${formatCurrency(discountedPrice)} por fecha límite.`,
+                                          'success'
+                                        );
                                       }}
-                                      className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-[9px] font-extrabold cursor-pointer transition-transform duration-100 transform active:scale-95"
+                                      className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-[9px] font-extrabold cursor-pointer transition-transform duration-100 transform active:scale-95 shadow-xs whitespace-nowrap"
+                                      title="Simula una orden de venta rápida a mitad de precio para liquidar este lote"
                                     >
-                                      Hornear Nuevo
+                                      Oferta -50%
                                     </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                    );
+
+                                    <button
+                                      id={`btn-waste-batch-${batch.id}`}
+                                      onClick={() => {
+                                        openAdjustStockModal(
+                                          prod,
+                                          'Merma / Desecho',
+                                          -batch.stock,
+                                          `Merma por vencimiento del lote ${batch.batchNumber}`,
+                                          batch.id
+                                        );
+                                      }}
+                                      className="px-2 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/40 rounded text-[9px] font-extrabold cursor-pointer transition-transform duration-100 transform active:scale-95 whitespace-nowrap"
+                                      title="Abrir ajuste de stock para registrar merma por vencimiento de este lote"
+                                    >
+                                      Registrar merma
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-[10px] text-gray-400 font-medium">Lote agotado</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      });
                     })()}
                   </tbody>
                 </table>
@@ -2367,6 +2525,16 @@ export const InventoryView: React.FC = () => {
                 {adjustingStock.product.stock} {adjustingStock.product.unit ?? 'u'}
               </span>
             </div>
+
+            {/* Linked Batch Banner */}
+            {adjustingStock.batchId && (
+              <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/60 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                <span className="text-red-800 dark:text-red-300 font-bold">Lote Vinculado:</span>
+                <span className="font-mono font-extrabold text-red-900 dark:text-red-200">
+                  {batches.find(b => b.id === adjustingStock.batchId)?.batchNumber || adjustingStock.batchId}
+                </span>
+              </div>
+            )}
 
             {/* Mode Selector Tabs: Delta vs Conteo Físico */}
             <div className="bg-gray-100 dark:bg-zinc-950 p-1 rounded-xl flex border border-gray-200 dark:border-zinc-800 select-none">

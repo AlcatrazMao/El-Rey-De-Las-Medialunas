@@ -87,21 +87,48 @@ inventoryRoutes.get("/movements", async (c) => {
   const db = c.env.DB;
   const branchId = resolveScopedBranchId(c);
   const productId = c.req.query("product_id");
+  const movementType = c.req.query("movement_type");
+  const fromDate = c.req.query("from_date");
+  const toDate = c.req.query("to_date");
   const rawLimitMov = parseInt(c.req.query("limit") ?? "50", 10);
   const rawOffsetMov = parseInt(c.req.query("offset") ?? "0", 10);
+  const rawPage = parseInt(c.req.query("page") ?? "1", 10);
   const limit = Math.min(Math.max(isNaN(rawLimitMov) ? 50 : rawLimitMov, 1), 500);
-  const offset = Math.max(isNaN(rawOffsetMov) ? 0 : rawOffsetMov, 0);
+  const offset = c.req.query("offset") !== undefined
+    ? Math.max(isNaN(rawOffsetMov) ? 0 : rawOffsetMov, 0)
+    : Math.max(0, (rawPage - 1) * limit);
 
   let query =
-    "SELECT * FROM stock_movements WHERE branch_id = ?";
-  const bindings: (string | number)[] = [branchId];
+    "SELECT sm.*, p.name as product_name, p.code as product_code, p.unit as product_unit, u.name as user_name FROM stock_movements sm LEFT JOIN products p ON sm.product_id = p.id LEFT JOIN users u ON sm.user_id = u.id";
+  const whereClauses: string[] = [];
+  const bindings: (string | number)[] = [];
 
+  if (branchId) {
+    whereClauses.push("sm.branch_id = ?");
+    bindings.push(branchId);
+  }
   if (productId) {
-    query += " AND product_id = ?";
+    whereClauses.push("sm.product_id = ?");
     bindings.push(productId);
   }
+  if (movementType) {
+    whereClauses.push("sm.movement_type = ?");
+    bindings.push(movementType);
+  }
+  if (fromDate) {
+    whereClauses.push("sm.created_at >= ?");
+    bindings.push(fromDate);
+  }
+  if (toDate) {
+    whereClauses.push("sm.created_at <= ?");
+    bindings.push(toDate);
+  }
 
-  query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+  if (whereClauses.length > 0) {
+    query += " WHERE " + whereClauses.join(" AND ");
+  }
+
+  query += " ORDER BY sm.created_at DESC LIMIT ? OFFSET ?";
   bindings.push(limit, offset);
 
   const results = await db

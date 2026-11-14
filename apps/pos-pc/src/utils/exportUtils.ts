@@ -449,6 +449,48 @@ export const exportExpensesToCSV = (expenses: Expense[]) => {
   downloadCSV(headers, rows, `gastos_panaderia_${new Date().toISOString().slice(0,10)}`);
 };
 
+export interface KardexExportItem {
+  id: string;
+  createdAt: string;
+  productName: string;
+  productCode?: string;
+  movementType: string;
+  movementTypeLabel: string;
+  quantity: number;
+  unit?: string;
+  balance?: number | string;
+  reason?: string;
+  operatorName?: string;
+}
+
+export const exportKardexToCSV = (movements: KardexExportItem[]) => {
+  const headers = [
+    'ID',
+    'Fecha y Hora',
+    'Código',
+    'Producto / Insumo',
+    'Tipo Movimiento',
+    'Cantidad',
+    'Unidad',
+    'Balance Stock',
+    'Motivo / Referencia',
+    'Responsable'
+  ];
+  const rows = movements.map(m => [
+    m.id,
+    new Date(m.createdAt).toLocaleString('es-AR'),
+    m.productCode || '—',
+    m.productName,
+    m.movementTypeLabel,
+    m.quantity > 0 ? `+${m.quantity}` : `${m.quantity}`,
+    m.unit || 'u',
+    m.balance !== undefined && m.balance !== null ? String(m.balance) : '—',
+    m.reason || '—',
+    m.operatorName || '—'
+  ]);
+  downloadCSV(headers, rows, `kardex_movimientos_${new Date().toISOString().slice(0, 10)}`);
+};
+
 /**
  * Arma el HTML completo (documento standalone, con estilos inline) de un ticket/factura
  * para una venta dada. Factorizado desde printTicketOrInvoice para poder reusarlo tanto
