@@ -582,6 +582,11 @@ export const buildTicketHtml = (sale: Sale, style: 'receipt' | 'invoice' = 'rece
             <td>Descuento (-${sale.discountPercent ?? 0}%):</td>
             <td class="text-right">- $${sale.discountAmount.toFixed(2)}</td>
           </tr>` : ''}
+          ${showPrices && sale.promoDiscountAmount && sale.promoDiscountAmount > 0 ? `
+          <tr>
+            <td>Descuento Promoción:</td>
+            <td class="text-right">- $${sale.promoDiscountAmount.toFixed(2)}</td>
+          </tr>` : ''}
           ${showPrices && sale.surchargeAmount && sale.surchargeAmount > 0 ? `
           <tr>
             <td>Recargo (+${sale.surchargePercent ?? 0}%):</td>

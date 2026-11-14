@@ -18,7 +18,7 @@ type SetCart = React.Dispatch<React.SetStateAction<CartLine[]>>;
 interface CartItemListProps {
   cart: CartLine[];
   setCart: SetCart;
-  /** Resta una unidad de un item "libre" (sin presentation). */
+  /** Resta una unidad o delta fraccionario de un item libre (sin presentation). */
   decreaseQuantity: (productId: string) => void;
   /** Suma una unidad de un item "libre" (sin presentation). */
   addUnitToCart: (product: Product) => void;
@@ -30,12 +30,72 @@ interface CartItemListProps {
   activeOffers?: IDBOffer[];
 }
 
+interface WeighableQuantityInputProps {
+  quantity: number;
+  unit: string;
+  productName: string;
+  onCommitQuantity: (newQty: number) => void;
+}
+
+const WeighableQuantityInput: React.FC<WeighableQuantityInputProps> = ({
+  quantity,
+  unit,
+  productName,
+  onCommitQuantity,
+}) => {
+  const [localVal, setLocalVal] = React.useState<string>(() => String(quantity));
+  const isFocusedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!isFocusedRef.current) {
+      setLocalVal(String(quantity));
+    }
+  }, [quantity]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(',', '.');
+    setLocalVal(raw);
+    const parsed = parseFloat(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      onCommitQuantity(parsed);
+    }
+  };
+
+  const handleBlur = () => {
+    isFocusedRef.current = false;
+    const parsed = parseFloat(localVal);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      setLocalVal(String(parsed));
+      onCommitQuantity(parsed);
+    } else {
+      setLocalVal(String(quantity));
+    }
+  };
+
+  return (
+    <label className="text-xs flex items-center gap-1">
+      <input
+        aria-label={`Cantidad de ${productName} en ${unit}`}
+        type="number"
+        step="any"
+        min="0.001"
+        value={localVal}
+        onFocus={() => {
+          isFocusedRef.current = true;
+        }}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        className="w-20 px-1 bg-transparent font-bold text-gray-800 dark:text-zinc-100 outline-none text-center"
+      />
+      <span className="text-gray-500 dark:text-zinc-400 font-medium">{unit}</span>
+    </label>
+  );
+};
+
 /**
  * Lista de líneas del carrito + empty state.
- * Sin lógica propia: todas las mutaciones siguen viviendo en POSView vía setCart.
- *
- * El JSX y la semántica son idénticos al inline original. Si la cantidad cae a
- * 0 con `-`, la línea se elimina (preservando la UX previa).
+ * Manejo robusto de pesables (kg, g, l, ml) con inputs decimales estables y
+ * decremento fraccionario con el botón `-`.
  */
 export const CartItemList: React.FC<CartItemListProps> = ({
   cart,
@@ -78,6 +138,9 @@ export const CartItemList: React.FC<CartItemListProps> = ({
             const lineKey = `${item.product.id}::${item.presentation ?? ''}::${lineIdx}`;
             const lineSubtotal = item.unitPrice * item.quantity;
             const offerForLine = offersByProductId.get(item.product.id);
+            const isWeighable = !item.presentation && ['kg', 'g', 'l', 'ml'].includes(item.product.unit ?? '');
+            const weighableStep = ['g', 'ml'].includes(item.product.unit ?? '') ? 50 : 0.1;
+
             return (
               <div key={lineKey} className="py-2 flex items-center gap-3 min-w-0">
                 {/* Nombre + badges — ocupa espacio flexible a la izquierda */}
@@ -101,7 +164,9 @@ export const CartItemList: React.FC<CartItemListProps> = ({
                 <div className="hidden md:flex items-center gap-4 shrink-0">
                   <div className="text-right">
                     <span className="text-xs text-gray-400 block">Cant.</span>
-                    <span className="text-sm font-bold font-mono text-gray-800 dark:text-zinc-100">{item.quantity}</span>
+                    <span className="text-sm font-bold font-mono text-gray-800 dark:text-zinc-100">
+                      {isWeighable ? item.quantity.toFixed(3).replace(/\.?0+$/, '') : item.quantity}
+                    </span>
                   </div>
                   <div className="text-right">
                     <span className="text-xs text-gray-400 block">Precio</span>
@@ -124,7 +189,15 @@ export const CartItemList: React.FC<CartItemListProps> = ({
                     <button
                       id={`btn-cart-minus-${item.product.id}-${lineIdx}`}
                       onClick={() => {
-                        if (item.presentation || item.quantity <= 1) {
+                        if (isWeighable) {
+                          const newQty = parseFloat((item.quantity - weighableStep).toFixed(3));
+                          if (newQty <= 0) {
+                            setCart(prev => prev.filter((_, i) => i !== lineIdx));
+                          } else {
+                            setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity: newQty } : it));
+                          }
+                          playBeep(400, 0.05);
+                        } else if (item.presentation || item.quantity <= 1) {
                           setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity: Math.max(0, it.quantity - 1) } : it).filter(it => it.quantity > 0));
                           playBeep(400, 0.05);
                         } else {
@@ -132,28 +205,40 @@ export const CartItemList: React.FC<CartItemListProps> = ({
                         }
                       }}
                       className="p-1 text-gray-500 px-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 cursor-pointer"
+                      title={isWeighable ? `Restar ${weighableStep} ${item.product.unit ?? ''}` : "Restar 1 unidad"}
                     >
                       <Minus className="h-3 w-3" />
                     </button>
-                    {!item.presentation && ['kg', 'g', 'l', 'ml'].includes(item.product.unit ?? '') ? (
-                      <label className="text-xs flex items-center gap-1">
-                        <input aria-label={`Cantidad de ${item.product.name} en ${item.product.unit}`} type="number" min="0.001" step="0.001" value={item.quantity}
-                          onChange={e => { const quantity = Number(e.target.value); if (Number.isFinite(quantity) && quantity >= 0) setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity } : it)); }}
-                          className="w-20 px-1 bg-transparent font-bold text-gray-800 dark:text-zinc-100" />
-                        {item.product.unit}
-                      </label>
-                    ) : (<span className="px-2 font-bold font-mono text-gray-800 dark:text-zinc-100">{item.quantity}</span>)}
+
+                    {isWeighable ? (
+                      <WeighableQuantityInput
+                        quantity={item.quantity}
+                        unit={item.product.unit ?? 'kg'}
+                        productName={item.product.name}
+                        onCommitQuantity={(newQty) => {
+                          setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity: newQty } : it));
+                        }}
+                      />
+                    ) : (
+                      <span className="px-2 font-bold font-mono text-gray-800 dark:text-zinc-100">{item.quantity}</span>
+                    )}
+
                     <button
                       id={`btn-cart-plus-${item.product.id}-${lineIdx}`}
                       onClick={() => {
                         if (item.presentation) {
                           setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity: it.quantity + 1 } : it));
                           playBeep(1000, 0.05);
+                        } else if (isWeighable) {
+                          const newQty = parseFloat((item.quantity + weighableStep).toFixed(3));
+                          setCart(prev => prev.map((it, i) => i === lineIdx ? { ...it, quantity: newQty } : it));
+                          playBeep(1000, 0.05);
                         } else {
                           addUnitToCart(item.product);
                         }
                       }}
                       className="p-1 text-gray-500 px-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 cursor-pointer"
+                      title={isWeighable ? `Sumar ${weighableStep} ${item.product.unit ?? ''}` : "Sumar 1 unidad"}
                     >
                       <Plus className="h-3 w-3" />
                     </button>

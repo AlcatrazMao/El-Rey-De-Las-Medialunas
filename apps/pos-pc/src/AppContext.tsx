@@ -45,7 +45,7 @@ interface AppContextType {
   setActiveUserRole: (role: UserRole) => void;
   setActiveTab: (tab: string) => void;
   setBatches: React.Dispatch<React.SetStateAction<ProductBatch[]>>;
-  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent?: number, priceListDiscountPercent?: number, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar', documentType?: Sale['documentType']) => { success: boolean; invoice?: Sale; error?: { code: string; message: string } };
+  addSale: (items: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent?: number, priceListDiscountPercent?: number, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar', documentType?: Sale['documentType'], promoDiscountAmount?: number) => { success: boolean; invoice?: Sale; error?: { code: string; message: string } };
   addExpense: (expense: Omit<Expense, 'id' | 'date'>) => void;
   addIngredient: (ingredient: Omit<Ingredient, 'id'>) => void;
   updateIngredient: (id: string, changes: Partial<Pick<Ingredient, 'name' | 'unit' | 'unitCost' | 'minStock'>>) => void;
@@ -213,7 +213,7 @@ export const AppProvider: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the active branch changes
   }, [usr.activeBranchId]);
 
-  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar', documentType: Sale['documentType'] = 'ticket') => {
+  const addSale = (cartItems: { productId: string; quantity: number; unitPrice?: number; presentation?: string; admite_acum_desc?: 0 | 1 }[], paymentMethod: Sale['paymentMethod'], customDoc?: string, customName?: string, customerId?: string, sellerId?: string, discountPercent = 0, priceListDiscountPercent = 0, idempotencyKey?: string, notes?: string, deliveryType?: 'aqui' | 'llevar', documentType: Sale['documentType'] = 'ticket', promoDiscountAmount = 0) => {
     // Fix 2: prevent double-click / rapid-scanner from creating duplicate invoices.
     // The lock is synchronous: set before any async work, cleared in a finally-equivalent
     // position after all side-effects complete (or on early-exit).
@@ -348,7 +348,11 @@ export const AppProvider: React.FC<{
       paymentAdjustmentAmount = -parseFloat((afterPriceListTotal * adjustmentPercent / 100).toFixed(2));
     }
 
-    const totalFinal = parseFloat((afterPriceListTotal + paymentAdjustmentAmount).toFixed(2));
+    const effectivePromoDiscount = acumulaDescuentos && promoDiscountAmount > 0
+      ? parseFloat(promoDiscountAmount.toFixed(2))
+      : 0;
+
+    const totalFinal = Math.max(0, parseFloat((afterPriceListTotal + paymentAdjustmentAmount - effectivePromoDiscount).toFixed(2)));
     // discount_total SIEMPRE derivado de la identidad contable.
     const discountTotal = parseFloat((subtotalBruto - totalFinal).toFixed(2));
     const finalTax = parseFloat((totalFinal - totalFinal / (1 + ivaRate)).toFixed(2));
@@ -398,6 +402,7 @@ export const AppProvider: React.FC<{
       customerId: customerId || undefined,
       discountPercent: effectiveDiscountPercent > 0 ? effectiveDiscountPercent : undefined,
       discountAmount: discountAmount > 0 ? discountAmount : undefined,
+      promoDiscountAmount: effectivePromoDiscount > 0 ? effectivePromoDiscount : undefined,
       paymentAdjustmentType: adjustmentType !== 'none' && adjustmentPercent > 0 ? adjustmentType : undefined,
       paymentAdjustmentPercent: adjustmentType !== 'none' && adjustmentPercent > 0 ? adjustmentPercent : undefined,
       paymentAdjustmentAmount: paymentAdjustmentAmount !== 0 ? paymentAdjustmentAmount : undefined,

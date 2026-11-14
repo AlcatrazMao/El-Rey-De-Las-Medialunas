@@ -8,8 +8,6 @@ import { DOCUMENT_TYPES, type DocumentType } from "../lib/document-sequences";
 function documentTypeRequiresCuit(dt: string): boolean {
   return (
     dt === "factura_a" ||
-    dt === "factura_b" ||
-    dt === "factura_c" ||
     dt === "factura_m" ||
     dt.endsWith("_a") ||
     dt.endsWith("_m")

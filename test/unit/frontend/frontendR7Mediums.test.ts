@@ -171,8 +171,8 @@ describe('Fix 2 — batchNumberSuffix (InventoryView.tsx)', () => {
       const uuidSlice = crypto.randomUUID().slice(0, 4);
       generated.add(makeBatchNumber('CRO', sameMs, uuidSlice));
     }
-    // Con 100 UUIDs random de 4 hex chars (65536 posibilidades), prácticamente imposible colisionar
-    expect(generated.size).toBe(100);
+    // Con 100 UUIDs random de 4 hex chars (65536 posibilidades), por paradoja del cumpleaños puede haber colisión ocasional
+    expect(generated.size).toBeGreaterThanOrEqual(95);
   });
 });
 

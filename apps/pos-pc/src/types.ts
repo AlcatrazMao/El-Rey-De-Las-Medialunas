@@ -137,6 +137,7 @@ export interface Sale {
   sellerId?: string;
   discountPercent?: number;
   discountAmount?: number;
+  promoDiscountAmount?: number;
   surchargePercent?: number;
   surchargeAmount?: number;
   paymentAdjustmentType?: 'none' | 'recargo' | 'descuento';

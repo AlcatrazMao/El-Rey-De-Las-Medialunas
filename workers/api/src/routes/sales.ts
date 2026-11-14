@@ -21,8 +21,6 @@ function isSalesDocumentType(value: unknown): value is SalesDocumentType {
 function documentTypeRequiresCuit(dt: string): boolean {
   return (
     dt === "factura_a" ||
-    dt === "factura_b" ||
-    dt === "factura_c" ||
     dt === "factura_m" ||
     dt.endsWith("_a") ||
     dt.endsWith("_m")

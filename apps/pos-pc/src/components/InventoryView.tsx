@@ -10,7 +10,12 @@ import {
   Check,
   ShieldAlert,
   Layers,
-  Pencil
+  Pencil,
+  LayoutGrid,
+  Table,
+  SlidersHorizontal,
+  ArrowUpDown,
+  CheckCircle2
 } from 'lucide-react';
 import * as React from 'react'
 import { useState, useEffect, useMemo } from 'react';
@@ -18,6 +23,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../AppContext';
 import { useProductForm } from '../hooks/useProductForm';
 import { useRequests } from '../hooks/useRequests';
+import { syncStockMovementToD1 } from '../services/d1-sync';
 import type { Ingredient, Product, ProductGroup, CategoryType} from '../types';
 import { exportIngredientsToCSV } from '../utils/exportUtils';
 import { formatCurrency } from '../utils/format';
@@ -65,6 +71,160 @@ export const InventoryView: React.FC = () => {
   const [mermasFilter, setMermasFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [productKind, setProductKind] = useState('all');
+
+  // Selector de vista: Tarjetas vs Tabla Densa ERP
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>(() => {
+    try {
+      return (localStorage.getItem('pan_erp_inventory_view_mode') as 'cards' | 'table') || 'table';
+    } catch {
+      return 'table';
+    }
+  });
+
+  const handleSetViewMode = (mode: 'cards' | 'table') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('pan_erp_inventory_view_mode', mode);
+    } catch {}
+  };
+
+  // Filtros avanzados y ordenamiento
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'out_of_stock' | 'critical' | 'optimal'>('all');
+  const [sortBy, setSortBy] = useState<string>('name_asc');
+
+  // Edición rápida inline de precios y costos
+  const [inlineEditing, setInlineEditing] = useState<{ productId: string; price: string; cost: string } | null>(null);
+  const [inlineFeedbackId, setInlineFeedbackId] = useState<string | null>(null);
+
+  const startInlineEdit = (prod: Product) => {
+    setInlineEditing({
+      productId: prod.id,
+      price: String(prod.price),
+      cost: String(prod.cost),
+    });
+  };
+
+  const cancelInlineEdit = () => {
+    setInlineEditing(null);
+  };
+
+  const saveInlineEdit = (prod: Product) => {
+    if (!inlineEditing || inlineEditing.productId !== prod.id) return;
+    const numPrice = parseFloat(inlineEditing.price);
+    const numCost = parseFloat(inlineEditing.cost);
+    if (isNaN(numPrice) || numPrice < 0 || isNaN(numCost) || numCost < 0) {
+      addSystemNotification('Valores inválidos', 'Ingresá valores numéricos válidos mayores o iguales a 0.', 'warning');
+      return;
+    }
+    updateProduct(prod.id, { price: numPrice, cost: numCost });
+    setInlineEditing(null);
+    setInlineFeedbackId(prod.id);
+    setTimeout(() => setInlineFeedbackId(null), 2500);
+    addSystemNotification('Precios Actualizados', `Se actualizaron los precios de "${prod.name}" (Precio: ${formatCurrency(numPrice)}, Costo: ${formatCurrency(numCost)}).`, 'success');
+  };
+
+  // Modal de Ajustar Stock con Persistencia a D1
+  interface AdjustStockState {
+    product: Product;
+    type: 'delta' | 'physical';
+    deltaQty: string;
+    physicalQty: string;
+    reason: 'Conteo físico' | 'Ingreso de producción' | 'Merma / Desecho' | 'Rotura' | 'Ajuste administrativo';
+    notes: string;
+  }
+  const [adjustingStock, setAdjustingStock] = useState<AdjustStockState | null>(null);
+  const [adjustFeedbackId, setAdjustFeedbackId] = useState<string | null>(null);
+  const [isSubmittingAdjust, setIsSubmittingAdjust] = useState(false);
+
+  const openAdjustStockModal = (prod: Product, defaultReason?: AdjustStockState['reason']) => {
+    setAdjustingStock({
+      product: prod,
+      type: 'delta',
+      deltaQty: '10',
+      physicalQty: String(prod.stock),
+      reason: defaultReason ?? 'Conteo físico',
+      notes: '',
+    });
+  };
+
+  const handleConfirmAdjustStock = async () => {
+    if (!adjustingStock) return;
+    const { product, type, deltaQty, physicalQty, reason, notes } = adjustingStock;
+
+    let delta = 0;
+    let newStock = product.stock;
+
+    if (type === 'delta') {
+      const parsedDelta = parseFloat(deltaQty);
+      if (isNaN(parsedDelta) || parsedDelta === 0) {
+        addSystemNotification('Cantidad inválida', 'Ingresá una cantidad válida distinta de 0.', 'warning');
+        return;
+      }
+      delta = parsedDelta;
+      newStock = Math.max(0, parseFloat((product.stock + delta).toFixed(3)));
+    } else {
+      const parsedPhysical = parseFloat(physicalQty);
+      if (isNaN(parsedPhysical) || parsedPhysical < 0) {
+        addSystemNotification('Conteo inválido', 'Ingresá un conteo físico válido mayor o igual a 0.', 'warning');
+        return;
+      }
+      delta = parseFloat((parsedPhysical - product.stock).toFixed(3));
+      newStock = parsedPhysical;
+    }
+
+    if (delta === 0) {
+      addSystemNotification('Sin cambios', 'El stock físico coincide con el stock registrado.', 'info');
+      setAdjustingStock(null);
+      return;
+    }
+
+    setIsSubmittingAdjust(true);
+    try {
+      // 1. Optimistic update local
+      updateProductStock(product.id, newStock);
+
+      // 2. Map reason to movement_type
+      let movementType = 'adjustment_in';
+      if (reason === 'Ingreso de producción') {
+        movementType = 'production_in';
+      } else if (reason === 'Merma / Desecho' || reason === 'Rotura') {
+        movementType = 'waste_out';
+      } else if (delta < 0) {
+        movementType = 'adjustment_out';
+      }
+
+      // 3. Persist to D1 via syncStockMovementToD1
+      await syncStockMovementToD1({
+        product_id: product.id,
+        branch_id: activeUser.branchId || '',
+        movement_type: movementType,
+        quantity: Math.abs(delta),
+        reason,
+        notes: notes.trim() || undefined,
+        unit_cost_at_time: product.cost,
+      });
+
+      setAdjustFeedbackId(product.id);
+      setTimeout(() => setAdjustFeedbackId(null), 3000);
+
+      addSystemNotification(
+        'Stock Actualizado',
+        `Se ajustó el stock de "${product.name}" (${delta > 0 ? `+${delta}` : delta} ${product.unit ?? 'u'}). Nuevo stock: ${newStock} ${product.unit ?? 'u'}.`,
+        'success'
+      );
+      setAdjustingStock(null);
+    } catch {
+      addSystemNotification(
+        'Ajuste guardado localmente',
+        `El stock de "${product.name}" se actualizó localmente (${newStock} ${product.unit ?? 'u'}). Pendiente de sync con el servidor.`,
+        'info'
+      );
+      setAdjustingStock(null);
+    } finally {
+      setIsSubmittingAdjust(false);
+    }
+  };
 
   // Expiry Priority States
   const [priorityCriteria, setPriorityCriteria] = useState<'categoria' | 'precio' | 'unidades'>(() => {
@@ -345,6 +505,50 @@ export const InventoryView: React.FC = () => {
   const rawMaterials = products.filter(p => p.isRawMaterial === true);
   const finishedProducts = products.filter(p => !p.isRawMaterial);
 
+  const availableCategories = useMemo(() => {
+    const cats = new Set<string>();
+    finishedProducts.forEach(p => {
+      if (p.category && p.category.trim()) {
+        cats.add(p.category.trim());
+      }
+    });
+    return Array.from(cats).sort();
+  }, [finishedProducts]);
+
+  const filteredAndSortedProducts = useMemo(() => {
+    return finishedProducts
+      .filter(p => productKind === 'all' || (productKind === 'production' ? p.isProducible : !p.isProducible))
+      .filter(p => {
+        if (selectedCategoryFilter === 'all') return true;
+        return (p.category ?? '').toLowerCase() === selectedCategoryFilter.toLowerCase();
+      })
+      .filter(p => {
+        if (stockStatusFilter === 'all') return true;
+        if (stockStatusFilter === 'out_of_stock') return p.stock <= 0;
+        if (stockStatusFilter === 'critical') return p.stock > 0 && p.stock <= p.minStock;
+        if (stockStatusFilter === 'optimal') return p.stock > p.minStock;
+        return true;
+      })
+      .filter(p => [p.name, p.code, p.barcode, p.supplier].some(value => value?.toLowerCase().includes(searchQuery.toLowerCase())))
+      .sort((a, b) => {
+        const marginA = a.price > 0 ? ((a.price - a.cost) / a.price) * 100 : 0;
+        const marginB = b.price > 0 ? ((b.price - b.cost) / b.price) * 100 : 0;
+
+        switch (sortBy) {
+          case 'stock_asc': return a.stock - b.stock;
+          case 'stock_desc': return b.stock - a.stock;
+          case 'price_desc': return b.price - a.price;
+          case 'price_asc': return a.price - b.price;
+          case 'margin_desc': return marginB - marginA;
+          case 'margin_asc': return marginA - marginB;
+          case 'name_asc': return a.name.localeCompare(b.name);
+          case 'name_desc': return b.name.localeCompare(a.name);
+          case 'code_asc': return (a.code ?? '').localeCompare(b.code ?? '');
+          default: return 0;
+        }
+      });
+  }, [finishedProducts, productKind, selectedCategoryFilter, stockStatusFilter, searchQuery, sortBy]);
+
   // Insumos locales (array viejo) que todavía NO tienen equivalente creado en
   // `products` (match por nombre normalizado). Fuente pendiente de migración.
   const pendingMigrationIngredients = ingredients.filter(
@@ -585,12 +789,115 @@ export const InventoryView: React.FC = () => {
       </div>
 
       {activeSubTab === 'productos' && (
-        <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-zinc-300">
-          Clasificación:
-          <select aria-label="Filtrar clasificación" value={productKind} onChange={e => setProductKind(e.target.value)} className="border rounded-lg p-2 bg-white dark:bg-zinc-900">
-            <option value="all">Todos los productos</option><option value="production">Elaboración propia</option><option value="resale">Reventa / comprado</option>
-          </select>
-        </label>
+        <div className="bg-white dark:bg-zinc-900 border border-orange-100/30 dark:border-zinc-850 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs select-none">
+          {/* Filtros avanzados y ordenamiento */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-zinc-300">
+              <SlidersHorizontal className="h-3.5 w-3.5 text-amber-500" />
+              <span className="font-bold">Filtros:</span>
+            </div>
+
+            {/* Clasificación */}
+            <select
+              id="filter-product-kind"
+              aria-label="Filtrar clasificación"
+              value={productKind}
+              onChange={e => setProductKind(e.target.value)}
+              className="text-xs bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-lg py-1.5 px-2.5 text-gray-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-amber-500 outline-none"
+            >
+              <option value="all">Todos los tipos</option>
+              <option value="production">Elaboración propia</option>
+              <option value="resale">Reventa / comprado</option>
+            </select>
+
+            {/* Categoría */}
+            <select
+              id="filter-category"
+              aria-label="Filtrar por categoría"
+              value={selectedCategoryFilter}
+              onChange={e => setSelectedCategoryFilter(e.target.value)}
+              className="text-xs bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-lg py-1.5 px-2.5 text-gray-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-amber-500 outline-none"
+            >
+              <option value="all">Todas las categorías</option>
+              {availableCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+
+            {/* Estado de Stock */}
+            <select
+              id="filter-stock-status"
+              aria-label="Filtrar por estado de stock"
+              value={stockStatusFilter}
+              onChange={e => setStockStatusFilter(e.target.value as any)}
+              className="text-xs bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-lg py-1.5 px-2.5 text-gray-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-amber-500 outline-none"
+            >
+              <option value="all">Estado: Todos</option>
+              <option value="out_of_stock">⚠️ Agotados (Stock &le; 0)</option>
+              <option value="critical">⏳ Críticos (Stock &le; Mín)</option>
+              <option value="optimal">✅ Óptimos</option>
+            </select>
+
+            {/* Ordenamiento dinámico */}
+            <div className="flex items-center gap-1.5">
+              <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+              <select
+                id="select-sort-by"
+                aria-label="Ordenar productos"
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as any)}
+                className="text-xs bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-lg py-1.5 px-2.5 text-gray-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-amber-500 outline-none"
+              >
+                <option value="stock_asc">Menor stock primero</option>
+                <option value="stock_desc">Mayor stock primero</option>
+                <option value="price_desc">Mayor precio primero</option>
+                <option value="price_asc">Menor precio primero</option>
+                <option value="margin_desc">Mayor margen % primero</option>
+                <option value="margin_asc">Menor margen % primero</option>
+                <option value="name_asc">Nombre (A &rarr; Z)</option>
+                <option value="name_desc">Nombre (Z &rarr; A)</option>
+                <option value="code_asc">Código</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Selector de Vista: Tarjetas Visuales vs Tabla Densa ERP */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-gray-400 font-medium hidden sm:inline">
+              {filteredAndSortedProducts.length} productos
+            </span>
+            <div className="bg-gray-100 dark:bg-zinc-950 p-0.5 rounded-xl flex border border-gray-200 dark:border-zinc-800">
+              <button
+                id="btn-view-cards"
+                type="button"
+                onClick={() => handleSetViewMode('cards')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewMode === 'cards'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-gray-500 dark:text-zinc-400 hover:text-gray-800 dark:hover:text-zinc-200'
+                }`}
+                title="Vista de Tarjetas Visuales"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span>Tarjetas</span>
+              </button>
+              <button
+                id="btn-view-table"
+                type="button"
+                onClick={() => handleSetViewMode('table')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewMode === 'table'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-gray-500 dark:text-zinc-400 hover:text-gray-800 dark:hover:text-zinc-200'
+                }`}
+                title="Vista de Tabla Densa ERP"
+              >
+                <Table className="h-3.5 w-3.5" />
+                <span>Tabla Densa ERP</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* LIST OR CARDS VIEW IN REAL TIME */}
       {activeSubTab === 'insumos' && (
@@ -690,6 +997,14 @@ export const InventoryView: React.FC = () => {
                             >
                               +50 {unitLabel}
                             </button>
+                            <button
+                              id={`btn-adjust-stock-insumo-${prod.id}`}
+                              onClick={() => openAdjustStockModal(prod)}
+                              className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-[10px] font-bold text-white cursor-pointer ml-1 shadow-xs"
+                              title="Ajustar stock de insumo con persistencia a D1"
+                            >
+                              Ajustar Stock
+                            </button>
                           </div>
                         </td>
                         <td className="py-4 px-5 text-right">
@@ -714,160 +1029,411 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {activeSubTab === 'productos' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {finishedProducts
-            .filter(p => productKind === 'all' || (productKind === 'production' ? p.isProducible : !p.isProducible))
-            .filter(p => [p.name, p.code, p.barcode, p.supplier].some(value => value?.toLowerCase().includes(searchQuery.toLowerCase())))
-            .map(prod => {
-              const isAlert = prod.stock <= prod.minStock;
-              const hasRecipe = prod.ingredients && prod.ingredients.length > 0;
+      {/* TABLA DENSA ERP */}
+      {activeSubTab === 'productos' && viewMode === 'table' && (
+        <div className="bg-white dark:bg-zinc-900 border border-orange-100/40 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs" id="table-products-erp">
+              <thead className="bg-gray-50 dark:bg-zinc-950 text-[10px] font-bold text-gray-500 uppercase tracking-wider select-none border-b border-gray-100 dark:border-zinc-800">
+                <tr>
+                  <th className="py-3 px-4">Código</th>
+                  <th className="py-3 px-4">Producto</th>
+                  <th className="py-3 px-4">Categoría</th>
+                  <th className="py-3 px-4 text-right">Costo ($)</th>
+                  <th className="py-3 px-4 text-right">Precio ($)</th>
+                  <th className="py-3 px-4 text-center">Margen %</th>
+                  <th className="py-3 px-4 text-right">Stock Actual</th>
+                  <th className="py-3 px-4 text-right">Mínimo</th>
+                  <th className="py-3 px-4 text-center">Estado</th>
+                  <th className="py-3 px-4 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60 font-semibold text-gray-800 dark:text-zinc-200">
+                {filteredAndSortedProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-12 text-center text-gray-400 dark:text-zinc-500 font-medium">
+                      No se encontraron productos con los filtros seleccionados.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAndSortedProducts.map(prod => {
+                    const isOutOfStock = prod.stock <= 0;
+                    const isAlert = prod.stock <= prod.minStock;
+                    const isEditing = inlineEditing?.productId === prod.id;
+                    const isRecentlyUpdated = inlineFeedbackId === prod.id || adjustFeedbackId === prod.id;
 
-              return (
-                <div
-                  key={prod.id}
-                  className={`p-4 rounded-2xl border bg-white dark:bg-zinc-900 border-gray-100 dark:border-zinc-800 shadow-xs flex flex-col justify-between ${
-                    isAlert ? 'border-l-4 border-l-red-500' : ''
-                  }`}
-                >
-                  <div>
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl" role="img" aria-hidden="true">{prod.image}</span>
-                        <div>
-                          <h3 className="font-extrabold text-sm text-gray-855 dark:text-zinc-50">{prod.name}</h3>
-                          <span className="text-[10px] bg-amber-100/60 dark:bg-amber-950/20 text-amber-801 dark:text-amber-400 px-1.5 py-0.5 rounded uppercase font-bold text-[9px]">
+                    const effectiveCost = isEditing ? parseFloat(inlineEditing.cost) || 0 : prod.cost;
+                    const effectivePrice = isEditing ? parseFloat(inlineEditing.price) || 0 : prod.price;
+                    const margin = effectivePrice > 0 ? ((effectivePrice - effectiveCost) / effectivePrice) * 100 : 0;
+
+                    let marginBadgeColor = 'text-gray-400 bg-gray-100 dark:bg-zinc-800';
+                    if (effectivePrice > 0) {
+                      if (margin >= 40) marginBadgeColor = 'text-emerald-700 bg-emerald-100 dark:bg-emerald-950/30';
+                      else if (margin >= 20) marginBadgeColor = 'text-amber-700 bg-amber-100 dark:bg-amber-950/30';
+                      else marginBadgeColor = 'text-red-700 bg-red-100 dark:bg-red-950/30';
+                    }
+
+                    return (
+                      <tr
+                        key={prod.id}
+                        id={`product-erp-row-${prod.id}`}
+                        className={`hover:bg-gray-50/60 dark:hover:bg-zinc-850/40 transition-colors ${
+                          isRecentlyUpdated ? 'bg-emerald-50/30 dark:bg-emerald-950/20' : ''
+                        } ${isOutOfStock ? 'bg-red-50/20 dark:bg-red-950/10' : ''}`}
+                      >
+                        {/* Código */}
+                        <td className="py-3 px-4 font-mono text-[11px] text-gray-500 dark:text-zinc-400">
+                          {prod.code || prod.id.slice(0, 8)}
+                        </td>
+
+                        {/* Producto */}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl shrink-0" role="img" aria-hidden="true">{prod.image}</span>
+                            <div>
+                              <div className="font-bold text-gray-855 dark:text-zinc-100 flex items-center gap-1.5">
+                                <span>{prod.name}</span>
+                                {isRecentlyUpdated && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-600 font-extrabold bg-emerald-100 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full">
+                                    <CheckCircle2 className="h-2.5 w-2.5" /> Actualizado
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-gray-400 flex items-center gap-1.5">
+                                <span>{prod.isProducible ? 'Elaboración propia' : 'Reventa'}</span>
+                                {prod.barcode && <span>• EAN: {prod.barcode}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Categoría */}
+                        <td className="py-3 px-4">
+                          <span className="text-[10px] bg-amber-100/60 dark:bg-amber-950/20 text-amber-800 dark:text-amber-400 px-2 py-0.5 rounded uppercase font-bold">
                             {prod.category}
                           </span>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right flex items-start gap-1.5">
-                        <div>
-                          <p className="text-xs font-extrabold text-emerald-500">{formatCurrency(prod.price)} / {prod.unit ?? 'unit'}</p>
-                          <p className="text-[10px] text-gray-500">{prod.isProducible ? 'Elaboración propia' : 'Reventa'}</p>
-                          {prod.localOnly && <p className="text-[10px] font-bold text-amber-600" title="Este producto no está confirmado en D1. Revisá la cola de sincronización antes de seguir vendiéndolo.">Pendiente en D1</p>}
-                          <p className="text-[9px] text-gray-400 leading-tight">Costo: {formatCurrency(prod.cost)} / {prod.unit ?? 'unit'}</p>
-                        </div>
-                        {/* 'owner' no está en el tipo UserRole pero el backend lo emite — cast
-                            explícito para que la comparación no rompa el typecheck. */}
-                        {(activeUser.role === 'admin' || (activeUser.role as string) === 'owner') && (
-                          <button
-                            id={`btn-edit-product-${prod.id}`}
-                            onClick={() => openEditProductModal(prod)}
-                            className="p-1.5 rounded-lg bg-gray-50 hover:bg-amber-100 dark:bg-zinc-850 dark:hover:bg-amber-950/30 text-gray-500 hover:text-amber-700 dark:text-zinc-400 dark:hover:text-amber-400 cursor-pointer transition-colors"
-                            title="Editar producto"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                        </td>
 
-                    {/* Stock indicator row */}
-                    <div className="mt-4 flex items-center justify-between text-xs bg-gray-50 dark:bg-zinc-950/30 p-2 rounded-xl">
-                      <span className="text-gray-500">Stock Mostrador:</span>
-                      <div className="text-right font-mono">
-                        <span className={`font-extrabold ${isAlert ? 'text-red-500' : 'text-gray-800 dark:text-zinc-50'}`}>
-                          {prod.stock} {prod.unit ?? 'unit'}
+                        {/* Costo (Inline Editable) */}
+                        <td className="py-3 px-4 text-right font-mono">
+                          {isEditing ? (
+                            <input
+                              id={`input-inline-cost-${prod.id}`}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={inlineEditing.cost}
+                              onChange={e => setInlineEditing({ ...inlineEditing, cost: e.target.value })}
+                              className="w-20 text-right text-xs bg-amber-50 dark:bg-zinc-800 border border-amber-400 dark:border-amber-600 rounded px-1.5 py-1 font-mono focus:outline-none"
+                              autoFocus
+                            />
+                          ) : (
+                            <span
+                              onClick={() => startInlineEdit(prod)}
+                              className="cursor-pointer hover:underline hover:text-amber-600"
+                              title="Click para editar costo rápido"
+                            >
+                              {formatCurrency(prod.cost)}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Precio (Inline Editable) */}
+                        <td className="py-3 px-4 text-right font-mono">
+                          {isEditing ? (
+                            <input
+                              id={`input-inline-price-${prod.id}`}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={inlineEditing.price}
+                              onChange={e => setInlineEditing({ ...inlineEditing, price: e.target.value })}
+                              className="w-20 text-right text-xs bg-amber-50 dark:bg-zinc-800 border border-amber-400 dark:border-amber-600 rounded px-1.5 py-1 font-mono font-bold text-emerald-600 focus:outline-none"
+                            />
+                          ) : (
+                            <span
+                              onClick={() => startInlineEdit(prod)}
+                              className="cursor-pointer hover:underline font-extrabold text-emerald-600 dark:text-emerald-400"
+                              title="Click para editar precio rápido"
+                            >
+                              {formatCurrency(prod.price)}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Margen % */}
+                        <td className="py-3 px-4 text-center font-mono">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${marginBadgeColor}`}>
+                            {margin.toFixed(1)}%
+                          </span>
+                        </td>
+
+                        {/* Stock Actual */}
+                        <td className="py-3 px-4 text-right font-mono">
+                          <span className={`font-extrabold text-sm ${isOutOfStock ? 'text-red-600' : isAlert ? 'text-amber-600' : 'text-gray-800 dark:text-zinc-50'}`}>
+                            {prod.stock} {prod.unit ?? 'u'}
+                          </span>
+                        </td>
+
+                        {/* Stock Mínimo */}
+                        <td className="py-3 px-4 text-right font-mono text-gray-400 text-xs">
+                          {prod.minStock} {prod.unit ?? 'u'}
+                        </td>
+
+                        {/* Estado Semáforo */}
+                        <td className="py-3 px-4 text-center">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                            isOutOfStock
+                              ? 'bg-red-100 text-red-700 dark:bg-red-950/30'
+                              : isAlert
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30'
+                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/20'
+                          }`}>
+                            {isOutOfStock ? '🔴 AGOTADO' : isAlert ? '⚠️ CRÍTICO' : '🟢 ÓPTIMO'}
+                          </span>
+                        </td>
+
+                        {/* Acciones */}
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5 select-none">
+                            {isEditing ? (
+                              <>
+                                <button
+                                  id={`btn-save-inline-${prod.id}`}
+                                  onClick={() => saveInlineEdit(prod)}
+                                  className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white cursor-pointer shadow-xs"
+                                  title="Guardar precio y costo"
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  id={`btn-cancel-inline-${prod.id}`}
+                                  onClick={cancelInlineEdit}
+                                  className="p-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-zinc-700 text-gray-700 dark:text-zinc-200 cursor-pointer"
+                                  title="Cancelar edición"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  id={`btn-edit-inline-${prod.id}`}
+                                  onClick={() => startInlineEdit(prod)}
+                                  className="p-1.5 rounded-lg bg-gray-100 hover:bg-amber-100 dark:bg-zinc-800 dark:hover:bg-amber-950/30 text-gray-600 hover:text-amber-700 dark:text-zinc-300 dark:hover:text-amber-400 cursor-pointer"
+                                  title="Edición rápida de precio y costo"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  id={`btn-adjust-stock-${prod.id}`}
+                                  onClick={() => openAdjustStockModal(prod)}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50 border border-amber-300 dark:border-amber-800 text-[11px] font-bold text-amber-800 dark:text-amber-300 cursor-pointer"
+                                  title="Ajustar stock con persistencia en D1"
+                                >
+                                  Ajustar Stock
+                                </button>
+                                <button
+                                  id={`btn-manage-batches-${prod.id}`}
+                                  onClick={() => setSelectedProductForBatches(prod)}
+                                  className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 cursor-pointer"
+                                  title="Gestionar lotes FEFO"
+                                >
+                                  <Package className="h-3.5 w-3.5" />
+                                </button>
+                                {(activeUser.role === 'admin' || (activeUser.role as string) === 'owner') && (
+                                  <button
+                                    id={`btn-edit-product-${prod.id}`}
+                                    onClick={() => openEditProductModal(prod)}
+                                    className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 cursor-pointer"
+                                    title="Editar ficha completa"
+                                  >
+                                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TARJETAS VISUALES */}
+      {activeSubTab === 'productos' && viewMode === 'cards' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredAndSortedProducts.map(prod => {
+            const isAlert = prod.stock <= prod.minStock;
+            const hasRecipe = prod.ingredients && prod.ingredients.length > 0;
+            const isRecentlyUpdated = inlineFeedbackId === prod.id || adjustFeedbackId === prod.id;
+
+            return (
+              <div
+                key={prod.id}
+                className={`p-4 rounded-2xl border bg-white dark:bg-zinc-900 border-gray-100 dark:border-zinc-800 shadow-xs flex flex-col justify-between ${
+                  isAlert ? 'border-l-4 border-l-red-500' : ''
+                } ${isRecentlyUpdated ? 'ring-2 ring-emerald-500' : ''}`}
+              >
+                <div>
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl" role="img" aria-hidden="true">{prod.image}</span>
+                      <div>
+                        <h3 className="font-extrabold text-sm text-gray-855 dark:text-zinc-50 flex items-center gap-1.5">
+                          <span>{prod.name}</span>
+                          {isRecentlyUpdated && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-600 font-extrabold bg-emerald-100 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full">
+                              <CheckCircle2 className="h-2.5 w-2.5" /> Actualizado
+                            </span>
+                          )}
+                        </h3>
+                        <span className="text-[10px] bg-amber-100/60 dark:bg-amber-950/20 text-amber-801 dark:text-amber-400 px-1.5 py-0.5 rounded uppercase font-bold text-[9px]">
+                          {prod.category}
                         </span>
-                        <span className="text-[9px] text-gray-400 block font-sans">Crítico: {prod.minStock}</span>
                       </div>
                     </div>
-
-                    {/* Recipe lists info block */}
-                    <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mt-4">Ingredientes de Elaboración (Costo)</p>
-                    <div className="mt-1 space-y-1">
-                      {hasRecipe ? (
-                        prod.ingredients.map((recipe, idx) => {
-                          const originalIng = ingredients.find(i => i.id === recipe.ingredientId);
-                          return (
-                            <div key={idx} className="flex justify-between text-[11px] font-medium text-gray-600 dark:text-zinc-400">
-                              <span className="truncate">🌾 {originalIng?.name || 'Insumo Eliminado'}</span>
-                              <span className="font-mono text-zinc-400 shrink-0">
-                                {recipe.quantity} {originalIng?.unit ?? ''}
-                              </span>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <p className="text-[10px] text-gray-400 italic">No requiere insumos directos (venta directa de terceros)</p>
+                    
+                    <div className="text-right flex items-start gap-1.5">
+                      <div>
+                        <p className="text-xs font-extrabold text-emerald-500">{formatCurrency(prod.price)} / {prod.unit ?? 'unit'}</p>
+                        <p className="text-[10px] text-gray-500">{prod.isProducible ? 'Elaboración propia' : 'Reventa'}</p>
+                        {prod.localOnly && <p className="text-[10px] font-bold text-amber-600" title="Este producto no está confirmado en D1. Revisá la cola de sincronización antes de seguir vendiéndolo.">Pendiente en D1</p>}
+                        <p className="text-[9px] text-gray-400 leading-tight">Costo: {formatCurrency(prod.cost)} / {prod.unit ?? 'unit'}</p>
+                      </div>
+                      {/* 'owner' no está en el tipo UserRole pero el backend lo emite — cast
+                          explícito para que la comparación no rompa el typecheck. */}
+                      {(activeUser.role === 'admin' || (activeUser.role as string) === 'owner') && (
+                        <button
+                          id={`btn-edit-product-${prod.id}`}
+                          onClick={() => openEditProductModal(prod)}
+                          className="p-1.5 rounded-lg bg-gray-50 hover:bg-amber-100 dark:bg-zinc-850 dark:hover:bg-amber-950/30 text-gray-500 hover:text-amber-700 dark:text-zinc-400 dark:hover:text-amber-400 cursor-pointer transition-colors"
+                          title="Editar producto"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
                       )}
                     </div>
                   </div>
 
-                  <div className="mt-4 pt-1 select-none space-y-2">
-                    <button
-                      id={`btn-manage-batches-${prod.id}`}
-                      onClick={() => setSelectedProductForBatches(prod)}
-                      className="w-full py-2 px-3 text-center bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all active:scale-95 duration-200"
-                    >
-                      <Package className="h-3.5 w-3.5 animate-bounce" />
-                      Gestionar Lotes (Activos: {batches.filter(b => b.productId === prod.id && b.status === 'active' && b.stock > 0).length})
-                    </button>
+                  {/* Stock indicator row */}
+                  <div className="mt-4 flex items-center justify-between text-xs bg-gray-50 dark:bg-zinc-950/30 p-2 rounded-xl">
+                    <span className="text-gray-500">Stock Mostrador:</span>
+                    <div className="text-right font-mono">
+                      <span className={`font-extrabold ${isAlert ? 'text-red-500' : 'text-gray-800 dark:text-zinc-50'}`}>
+                        {prod.stock} {prod.unit ?? 'unit'}
+                      </span>
+                      <span className="text-[9px] text-gray-400 block font-sans">Crítico: {prod.minStock}</span>
+                    </div>
+                  </div>
 
-                    <button
-                      id={`btn-manage-groups-${prod.id}`}
-                      onClick={() => setExpandedGroupsFor(prev => (prev === prod.id ? null : prod.id))}
-                      className="w-full py-2 px-3 text-center bg-white dark:bg-zinc-850 border border-amber-300 dark:border-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 text-amber-700 dark:text-amber-400 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 duration-200"
-                    >
-                      <Layers className="h-3.5 w-3.5" />
-                      {expandedGroupsFor === prod.id ? 'Ocultar grupos' : 'Configurar grupos'}
-                      {(prod.groups?.length ?? 0) > 0 && (
-                        <span className="text-[9px] bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-full font-black">
-                          {prod.groups!.length}
-                        </span>
-                      )}
-                    </button>
-
-                    {expandedGroupsFor === prod.id && (
-                      <div className="bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-900/40 rounded-xl p-3 mt-2">
-                        <ProductGroupsEditor
-                          product={prod}
-                          onSave={(groups: ProductGroup[]) => {
-                            updateProductGroups(prod.id, groups);
-                            addSystemNotification(
-                              '✅ Grupos actualizados',
-                              `Se guardaron ${groups.length} presentación(es) para "${prod.name}".`,
-                              'success'
-                            );
-                            setExpandedGroupsFor(null);
-                          }}
-                        />
-                      </div>
+                  {/* Recipe lists info block */}
+                  <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mt-4">Ingredientes de Elaboración (Costo)</p>
+                  <div className="mt-1 space-y-1">
+                    {hasRecipe ? (
+                      prod.ingredients.map((recipe, idx) => {
+                        const originalIng = ingredients.find(i => i.id === recipe.ingredientId);
+                        return (
+                          <div key={idx} className="flex justify-between text-[11px] font-medium text-gray-600 dark:text-zinc-400">
+                            <span className="truncate">🌾 {originalIng?.name || 'Insumo Eliminado'}</span>
+                            <span className="font-mono text-zinc-400 shrink-0">
+                              {recipe.quantity} {originalIng?.unit ?? ''}
+                            </span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="text-[10px] text-gray-400 italic">No requiere insumos directos (venta directa de terceros)</p>
                     )}
                   </div>
-
-                  {/* Increment finished baked good stock counts directly */}
-                  <div className="mt-4 pt-3 border-t border-gray-150 dark:border-zinc-800 flex items-center gap-2 select-none">
-                    {([10, 50] as const).map(qty => (
-                      <button
-                        key={qty}
-                        id={`btn-prod-replenish-${qty}-${prod.id}`}
-                        onClick={() => {
-                          const today = new Date().toISOString().split('T')[0];
-                          const exp = new Date();
-                          exp.setDate(exp.getDate() + (prod.durabilityDays ?? 3));
-                          addBatch({
-                            productId: prod.id,
-                            batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`,
-                            quantity: qty,
-                            stock: qty,
-                            elaborationDate: today,
-                            expiryDate: exp.toISOString().split('T')[0],
-                            withdrawalMode: 'automatic',
-                          });
-                        }}
-                        className="flex-1 py-1 px-1 text-center bg-gray-50 hover:bg-gray-105 dark:bg-zinc-850 dark:hover:bg-zinc-800 rounded text-[10px] font-bold text-gray-700 dark:text-zinc-300 border border-gray-200 dark:border-zinc-750 cursor-pointer animate-btn"
-                        title={`Horneada: suma ${qty} unidades con nuevo lote FEFO`}
-                      >
-                        Sumar +{qty} {prod.image}
-                      </button>
-                    ))}
-                  </div>
                 </div>
-              );
-            })}
+
+                <div className="mt-4 pt-1 select-none space-y-2">
+                  <button
+                    id={`btn-adjust-stock-${prod.id}`}
+                    onClick={() => openAdjustStockModal(prod)}
+                    className="w-full py-2 px-3 text-center bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 duration-200"
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                    Ajustar Stock (D1)
+                  </button>
+
+                  <button
+                    id={`btn-manage-batches-${prod.id}`}
+                    onClick={() => setSelectedProductForBatches(prod)}
+                    className="w-full py-2 px-3 text-center bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all active:scale-95 duration-200"
+                  >
+                    <Package className="h-3.5 w-3.5 animate-bounce" />
+                    Gestionar Lotes (Activos: {batches.filter(b => b.productId === prod.id && b.status === 'active' && b.stock > 0).length})
+                  </button>
+
+                  <button
+                    id={`btn-manage-groups-${prod.id}`}
+                    onClick={() => setExpandedGroupsFor(prev => (prev === prod.id ? null : prod.id))}
+                    className="w-full py-2 px-3 text-center bg-white dark:bg-zinc-850 border border-amber-300 dark:border-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 text-amber-700 dark:text-amber-400 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 duration-200"
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    {expandedGroupsFor === prod.id ? 'Ocultar grupos' : 'Configurar grupos'}
+                    {(prod.groups?.length ?? 0) > 0 && (
+                      <span className="text-[9px] bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-full font-black">
+                        {prod.groups!.length}
+                      </span>
+                    )}
+                  </button>
+
+                  {expandedGroupsFor === prod.id && (
+                    <div className="bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-900/40 rounded-xl p-3 mt-2">
+                      <ProductGroupsEditor
+                        product={prod}
+                        onSave={(groups: ProductGroup[]) => {
+                          updateProductGroups(prod.id, groups);
+                          addSystemNotification(
+                            '✅ Grupos actualizados',
+                            `Se guardaron ${groups.length} presentación(es) para "${prod.name}".`,
+                            'success'
+                          );
+                          setExpandedGroupsFor(null);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Increment finished baked good stock counts directly */}
+                <div className="mt-4 pt-3 border-t border-gray-150 dark:border-zinc-800 flex items-center gap-2 select-none">
+                  {([10, 50] as const).map(qty => (
+                    <button
+                      key={qty}
+                      id={`btn-prod-replenish-${qty}-${prod.id}`}
+                      onClick={() => {
+                        const today = new Date().toISOString().split('T')[0];
+                        const exp = new Date();
+                        exp.setDate(exp.getDate() + (prod.durabilityDays ?? 3));
+                        addBatch({
+                          productId: prod.id,
+                          batchNumber: `L-${prod.name.slice(0, 3).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`,
+                          quantity: qty,
+                          stock: qty,
+                          elaborationDate: today,
+                          expiryDate: exp.toISOString().split('T')[0],
+                          withdrawalMode: 'automatic',
+                        });
+                      }}
+                      className="flex-1 py-1 px-1 text-center bg-gray-50 hover:bg-gray-105 dark:bg-zinc-850 dark:hover:bg-zinc-800 rounded text-[10px] font-bold text-gray-700 dark:text-zinc-300 border border-gray-200 dark:border-zinc-750 cursor-pointer animate-btn"
+                      title={`Horneada: suma ${qty} unidades con nuevo lote FEFO`}
+                    >
+                      Sumar +{qty} {prod.image}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1764,6 +2330,209 @@ export const InventoryView: React.FC = () => {
           product={selectedProductForBatches}
           onClose={() => setSelectedProductForBatches(null)}
         />
+      )}
+
+      {/* MODAL DE AJUSTE DE STOCK CON PERSISTENCIA A D1 */}
+      {adjustingStock && (
+        <div
+          id="modal-adjust-stock"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200"
+        >
+          <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between border-b pb-3 border-gray-100 dark:border-zinc-800">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl" role="img" aria-hidden="true">{adjustingStock.product.image}</span>
+                <div>
+                  <h3 className="font-extrabold text-base text-gray-855 dark:text-zinc-50 leading-tight">
+                    Ajustar Stock
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-zinc-400 font-medium">
+                    {adjustingStock.product.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                id="btn-close-adjust-modal"
+                onClick={() => setAdjustingStock(null)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Current Stock Banner */}
+            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/60 rounded-xl p-3 flex items-center justify-between">
+              <span className="text-xs text-amber-800 dark:text-amber-300 font-bold">Stock Actual en Sistema:</span>
+              <span className="text-sm font-extrabold font-mono text-amber-900 dark:text-amber-200">
+                {adjustingStock.product.stock} {adjustingStock.product.unit ?? 'u'}
+              </span>
+            </div>
+
+            {/* Mode Selector Tabs: Delta vs Conteo Físico */}
+            <div className="bg-gray-100 dark:bg-zinc-950 p-1 rounded-xl flex border border-gray-200 dark:border-zinc-800 select-none">
+              <button
+                id="tab-adjust-mode-delta"
+                type="button"
+                onClick={() => setAdjustingStock({ ...adjustingStock, type: 'delta' })}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer text-center ${
+                  adjustingStock.type === 'delta'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-gray-500 dark:text-zinc-400 hover:text-gray-800'
+                }`}
+              >
+                Ingreso / Egreso (&plusmn;)
+              </button>
+              <button
+                id="tab-adjust-mode-physical"
+                type="button"
+                onClick={() => setAdjustingStock({ ...adjustingStock, type: 'physical' })}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer text-center ${
+                  adjustingStock.type === 'physical'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-gray-500 dark:text-zinc-400 hover:text-gray-800'
+                }`}
+              >
+                Conteo Físico Real
+              </button>
+            </div>
+
+            {/* Input according to mode */}
+            {adjustingStock.type === 'delta' ? (
+              <div className="space-y-2">
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider block">
+                  Cantidad a Sumar o Restar ({adjustingStock.product.unit ?? 'u'})
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="input-adjust-delta-qty"
+                    type="number"
+                    step="any"
+                    value={adjustingStock.deltaQty}
+                    onChange={e => setAdjustingStock({ ...adjustingStock, deltaQty: e.target.value })}
+                    placeholder="Ej: +10 o -5"
+                    className="flex-1 text-sm bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-xl p-2.5 font-mono font-bold focus:ring-1 focus:ring-amber-500 outline-none text-gray-855 dark:text-zinc-100"
+                  />
+                  <div className="flex items-center gap-1">
+                    {[-10, -1, 10, 50].map(v => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setAdjustingStock({ ...adjustingStock, deltaQty: String(v) })}
+                        className="px-2 py-1.5 rounded-lg text-xs font-bold bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-200 hover:bg-amber-100 hover:text-amber-800 cursor-pointer border border-gray-200 dark:border-zinc-700"
+                      >
+                        {v > 0 ? `+${v}` : v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Resulting stock preview */}
+                {(() => {
+                  const d = parseFloat(adjustingStock.deltaQty);
+                  const result = isNaN(d) ? adjustingStock.product.stock : Math.max(0, adjustingStock.product.stock + d);
+                  return (
+                    <p className="text-[11px] text-gray-500 font-medium">
+                      Stock Resultante:&nbsp;
+                      <span className="font-extrabold font-mono text-gray-800 dark:text-zinc-200">
+                        {result.toFixed(2)} {adjustingStock.product.unit ?? 'u'}
+                      </span>
+                    </p>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider block">
+                  Conteo Físico Real Encontrado ({adjustingStock.product.unit ?? 'u'})
+                </label>
+                <input
+                  id="input-adjust-physical-qty"
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={adjustingStock.physicalQty}
+                  onChange={e => setAdjustingStock({ ...adjustingStock, physicalQty: e.target.value })}
+                  placeholder="0"
+                  className="w-full text-sm bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-xl p-2.5 font-mono font-bold focus:ring-1 focus:ring-amber-500 outline-none text-gray-855 dark:text-zinc-100"
+                />
+                {(() => {
+                  const p = parseFloat(adjustingStock.physicalQty);
+                  const diff = isNaN(p) ? 0 : parseFloat((p - adjustingStock.product.stock).toFixed(3));
+                  return (
+                    <p className="text-[11px] text-gray-500 font-medium">
+                      Diferencia de Ajuste:&nbsp;
+                      <span className={`font-extrabold font-mono ${diff < 0 ? 'text-red-500' : diff > 0 ? 'text-emerald-500' : 'text-gray-400'}`}>
+                        {diff > 0 ? `+${diff}` : diff} {adjustingStock.product.unit ?? 'u'}
+                      </span>
+                    </p>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Motivo Selector (Obligatorio) */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider block">
+                Motivo del Ajuste (Obligatorio)
+              </label>
+              <select
+                id="select-adjust-reason"
+                value={adjustingStock.reason}
+                onChange={e => setAdjustingStock({ ...adjustingStock, reason: e.target.value as any })}
+                className="w-full text-xs bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-xl p-2.5 font-semibold focus:ring-1 focus:ring-amber-500 outline-none text-gray-855 dark:text-zinc-100"
+              >
+                <option value="Conteo físico">Conteo físico</option>
+                <option value="Ingreso de producción">Ingreso de producción</option>
+                <option value="Merma / Desecho">Merma / Desecho</option>
+                <option value="Rotura">Rotura</option>
+                <option value="Ajuste administrativo">Ajuste administrativo</option>
+              </select>
+            </div>
+
+            {/* Observaciones (Opcional) */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider block">
+                Observaciones / Justificación (Opcional)
+              </label>
+              <input
+                id="input-adjust-notes"
+                type="text"
+                value={adjustingStock.notes}
+                onChange={e => setAdjustingStock({ ...adjustingStock, notes: e.target.value })}
+                placeholder="Detalle de auditoría o motivo del movimiento..."
+                className="w-full text-xs bg-gray-50 dark:bg-zinc-850 border border-gray-200 dark:border-zinc-800 rounded-xl p-2.5 focus:ring-1 focus:ring-amber-500 outline-none text-gray-855 dark:text-zinc-100"
+              />
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-2 border-t border-gray-100 dark:border-zinc-800 flex items-center gap-2">
+              <button
+                type="button"
+                id="btn-adjust-cancel"
+                onClick={() => setAdjustingStock(null)}
+                disabled={isSubmittingAdjust}
+                className="flex-1 py-2.5 text-xs font-bold ring-1 ring-gray-200 dark:ring-zinc-700 text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                id="btn-adjust-confirm"
+                onClick={handleConfirmAdjustStock}
+                disabled={isSubmittingAdjust}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+              >
+                {isSubmittingAdjust ? (
+                  <span>Guardando en D1...</span>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4" />
+                    <span>Confirmar Ajuste</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

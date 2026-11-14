@@ -43,6 +43,7 @@ import { calcularPrecioUnitarioGrupo } from '../utils/productGroups';
 import { GroupSelectorModal } from './GroupSelectorModal';
 import { CartItemList } from './pos/CartItemList';
 import { DocumentTypeSelectorModal } from './pos/DocumentTypeSelectorModal';
+import { useOnClickOutside } from '../hooks/useOnClickOutside';
 import { ProductCard } from './pos/ProductCard';
 
 interface CartLine {
@@ -65,17 +66,34 @@ interface SaleTab {
   fiscalType: 'consumidor_final' | 'exento' | 'responsable_inscripto' | 'monotributista';
   /** Tipo de comprobante a emitir (change "Document Types"). Default 'ticket'. */
   documentType: DocumentType;
+  selectedPriceListId: string;
+  observaciones: string;
+  paraLlevar: boolean;
 }
 
-/** Tipos que exigen CUIT del cliente cargado antes de poder emitirse (DT server-side, sales.ts). */
+/** Tipos de comprobante que exigen CUIT obligatorio del cliente (AFIP/ARCA Clase A y M). */
+const CUIT_REQUIRED_DOCUMENT_TYPES: DocumentType[] = [
+  'factura_a',
+  'factura_m',
+  'nota_credito_a',
+  'nota_credito_m',
+  'nota_debito_a',
+  'nota_debito_m',
+];
+
+/** Comprobantes fiscales con leyenda legal obligatoria AFIP en pantalla/ticket. */
 const FISCAL_INVOICE_TYPES: DocumentType[] = [
   'factura_a',
   'factura_b',
   'factura_c',
   'factura_m',
   'nota_credito_a',
+  'nota_credito_b',
+  'nota_credito_c',
   'nota_credito_m',
   'nota_debito_a',
+  'nota_debito_b',
+  'nota_debito_c',
   'nota_debito_m',
 ];
 
@@ -189,7 +207,6 @@ export const POSView: React.FC = () => {
   const promotionsEnabled = activeDiscountSystem === 'promotions';
 
   const defaultPriceListInit = posSettings.priceLists?.find(pl => pl.isDefault) ?? posSettings.priceLists?.[0];
-  const [selectedPriceListId, setSelectedPriceListId] = useState<string>(defaultPriceListInit?.id ?? '');
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedCategory, _setSelectedCategory] = useState<CategoryType | 'todos'>('todos');
@@ -198,6 +215,25 @@ export const POSView: React.FC = () => {
   const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [cuilSearch, setCuilSearch] = useState('');
+  const [confirmClearCart, setConfirmClearCart] = useState(false);
+
+  // Refs para detector de click fuera
+  const quickSearchContainerRef = useRef<HTMLDivElement>(null);
+  const customerDropdownContainerRef = useRef<HTMLDivElement>(null);
+
+  useOnClickOutside(quickSearchContainerRef, () => {
+    if (quickSearch.trim().length > 0 || quickSearchOpen) {
+      setQuickSearch('');
+      setQuickSearchHighlight(-1);
+      setQuickSearchOpen(false);
+    }
+  });
+
+  useOnClickOutside(customerDropdownContainerRef, () => {
+    if (showCustomerDropdown) {
+      setShowCustomerDropdown(false);
+    }
+  });
 
   // --- TAB STATE ---
   const defaultPm = (posSettings.pos?.defaultPaymentMethod as Sale['paymentMethod']) ?? 'efectivo';
@@ -212,6 +248,9 @@ export const POSView: React.FC = () => {
     selectedCustomerId: null,
     fiscalType: 'consumidor_final' as const,
     documentType: (posSettings.pos?.defaultDocumentType as DocumentType) || 'ticket',
+    selectedPriceListId: defaultPriceListInit?.id ?? '',
+    observaciones: '',
+    paraLlevar: false,
   }]);
   const [activeTabId, setActiveTabId] = useState('tab_1');
 
@@ -226,6 +265,9 @@ export const POSView: React.FC = () => {
   const selectedCustomerId = activeTab.selectedCustomerId;
   const fiscalType = activeTab.fiscalType;
   const documentType = activeTab.documentType;
+  const selectedPriceListId = activeTab.selectedPriceListId ?? (defaultPriceListInit?.id ?? '');
+  const observaciones = activeTab.observaciones ?? '';
+  const paraLlevar = activeTab.paraLlevar ?? false;
 
   // Helper
   const updateActiveTab = (patch: Partial<SaleTab>) => {
@@ -247,6 +289,15 @@ export const POSView: React.FC = () => {
   const setSelectedCustomerId = (id: string | null) => updateActiveTab({ selectedCustomerId: id });
   const setFiscalType = (ft: SaleTab['fiscalType']) => updateActiveTab({ fiscalType: ft });
   const setDocumentType = (dt: DocumentType) => updateActiveTab({ documentType: dt });
+  const setSelectedPriceListId = (id: string) => updateActiveTab({ selectedPriceListId: id });
+  const setObservaciones = (obs: string) => updateActiveTab({ observaciones: obs });
+  const setParaLlevar = (pl: boolean | ((prev: boolean) => boolean)) => {
+    setTabs(prev => prev.map(t => {
+      if (t.id !== activeTabId) return t;
+      const newVal = typeof pl === 'function' ? pl(t.paraLlevar ?? false) : pl;
+      return { ...t, paraLlevar: newVal };
+    }));
+  };
 
   // DT-13: si el tipo seleccionado del tab activo deja de estar habilitado
   // (deshabilitado desde Configuración, o el tab se creó antes de que
@@ -276,6 +327,9 @@ export const POSView: React.FC = () => {
       selectedCustomerId: null,
       fiscalType: 'consumidor_final' as const,
       documentType: resolveDefaultDocumentType(),
+      selectedPriceListId: defaultPriceListInit?.id ?? '',
+      observaciones: '',
+      paraLlevar: false,
     }]);
     setActiveTabId(id);
   };
@@ -320,8 +374,6 @@ export const POSView: React.FC = () => {
 
   // Mobile config panel
   const [showConfigPanel, setShowConfigPanel] = useState(false);
-  const [observaciones, setObservaciones] = useState('');
-  const [paraLlevar, setParaLlevar] = useState(false);
   const mainTouchStartXRef = useRef<number>(0);
   const panelTouchStartXRef = useRef<number>(0);
 
@@ -1053,11 +1105,14 @@ export const POSView: React.FC = () => {
       if (targetIdx < 0) return prev;
       const existing = prev[targetIdx];
       playBeep(400, 0.05);
-      if (existing.quantity <= 1) {
+      const isWeighable = !existing.presentation && ['kg', 'g', 'l', 'ml'].includes(existing.product.unit ?? '');
+      const step = isWeighable ? (['g', 'ml'].includes(existing.product.unit ?? '') ? 50 : 0.1) : 1;
+      const newQty = parseFloat((existing.quantity - step).toFixed(3));
+      if (newQty <= 0) {
         return prev.filter((_, i) => i !== targetIdx);
       }
       return prev.map((item, i) =>
-        i === targetIdx ? { ...item, quantity: item.quantity - 1 } : item
+        i === targetIdx ? { ...item, quantity: newQty } : item
       );
     });
   };
@@ -1140,14 +1195,10 @@ export const POSView: React.FC = () => {
   const cartTotal = Math.max(0, parseFloat((afterPriceList + paymentAdjustmentAmount - promoDiscountAmountFinal).toFixed(2)));
   const cartTax = parseFloat((cartTotal - cartTotal / (1 + cartIvaRate)).toFixed(2));
 
-  // DT-7/2.7 (backend, sales.ts): Factura A/B/C exige un cliente con CUIT
-  // cargado (`customers.document_type='cuit'` server-side). El frontend NO
-  // tiene ese campo distinguido en el objeto `Customer` local (solo `tax_id`
-  // genérico / `customerDoc` en el tab) — este guard es best-effort: bloquea
-  // si no hay ningún documento cargado. La validación AUTORITATIVA sigue
-  // siendo el 400 del backend (ver sales.ts línea ~310), que puede rechazar
-  // igual si el documento cargado no es realmente un CUIT.
-  const documentTypeNeedsCuit = FISCAL_INVOICE_TYPES.includes(documentType);
+  // DT-7/2.7 (backend, sales.ts): Factura A y M exigen un cliente con CUIT
+  // cargado (`customers.document_type='cuit'` server-side). Factura B y Factura C
+  // NO exigen CUIT (permiten Consumidor Final / DNI).
+  const documentTypeNeedsCuit = CUIT_REQUIRED_DOCUMENT_TYPES.includes(documentType);
   const cuitMissingForInvoice = documentTypeNeedsCuit && !customerDoc.trim();
 
   // Non-default config indicator (mobile panel pulse)
@@ -1393,6 +1444,7 @@ export const POSView: React.FC = () => {
           observaciones || undefined,
           paraLlevar ? 'llevar' : 'aqui',
           documentType,
+          promoDiscountAmountFinal,
         );
 
         setIsProcessingPayment(false);
@@ -1586,7 +1638,7 @@ export const POSView: React.FC = () => {
         {/* Buscador rápido inline (lupa fija de la barra) — filtra en vivo por
             nombre o código y agrega al carrito con un click */}
         {quickSearchOpen && (
-          <div className="shrink-0 px-3 py-2 relative border-b border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+          <div ref={quickSearchContainerRef} className="shrink-0 px-3 py-2 relative border-b border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
             <div className="flex items-center bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-700 rounded-xl px-3 py-2 gap-2 focus-within:border-amber-500 transition-colors">
               <Search className="h-4 w-4 text-gray-400 shrink-0" />
               <input
@@ -1669,6 +1721,45 @@ export const POSView: React.FC = () => {
           onTouchStart={handleMainTouchStart}
           onTouchEnd={handleMainTouchEnd}
         >
+          {cart.length > 0 && (
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-150 dark:border-zinc-800 shrink-0">
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                Orden actual ({cart.reduce((s, i) => s + (['kg', 'g', 'l', 'ml'].includes(i.product.unit ?? '') ? 1 : i.quantity), 0)} ítems)
+              </span>
+              {confirmClearCart ? (
+                <div className="flex items-center gap-1.5 animate-fade-in">
+                  <span className="text-[11px] font-bold text-red-600 dark:text-red-400">¿Vaciar?</span>
+                  <button
+                    id="btn-confirm-clear-cart"
+                    onClick={() => {
+                      setCart([]);
+                      setConfirmClearCart(false);
+                      playBeep(300, 0.1);
+                    }}
+                    className="px-2 py-0.5 text-[10px] font-bold bg-red-600 hover:bg-red-700 text-white rounded cursor-pointer"
+                  >
+                    Sí, vaciar
+                  </button>
+                  <button
+                    onClick={() => setConfirmClearCart(false)}
+                    className="px-2 py-0.5 text-[10px] font-medium bg-gray-200 dark:bg-zinc-700 hover:bg-gray-300 dark:hover:bg-zinc-600 text-gray-700 dark:text-zinc-200 rounded cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <button
+                  id="btn-clear-cart"
+                  onClick={() => setConfirmClearCart(true)}
+                  className="flex items-center gap-1 text-[11px] font-bold text-gray-400 hover:text-red-500 transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-red-50 dark:hover:bg-red-950/20"
+                  title="Vaciar todos los productos del carrito actual"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  <span>Vaciar carrito</span>
+                </button>
+              )}
+            </div>
+          )}
           <CartItemList
             cart={cart}
             setCart={setCart}
@@ -1799,7 +1890,7 @@ export const POSView: React.FC = () => {
               ) : (
                 <>
                   {/* Campo nombre de cliente */}
-                  <div className="flex-1 min-w-0 relative">
+                  <div ref={customerDropdownContainerRef} className="flex-1 min-w-0 relative">
                     <input
                       type="text"
                       placeholder="Cliente..."
@@ -2096,6 +2187,12 @@ export const POSView: React.FC = () => {
                   <span>Neto Gravado:</span>
                   <span>{formatCurrency(latestInvoice.total - latestInvoice.tax)}</span>
                 </div>
+                {latestInvoice.promoDiscountAmount ? (
+                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+                    <span>Descuento Promoción:</span>
+                    <span>-{formatCurrency(latestInvoice.promoDiscountAmount)}</span>
+                  </div>
+                ) : null}
                 <div className="flex justify-between">
                   <span>{`IVA Incluido (${(posSettings.fiscal.ivaRate * 100).toFixed(0)}%):`}</span>
                   <span>{formatCurrency(latestInvoice.tax)}</span>

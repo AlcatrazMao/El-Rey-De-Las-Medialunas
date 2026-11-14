@@ -18,6 +18,7 @@ vi.mock('../../../apps/pos-pc/src/hooks/useRequests', () => ({ useRequests: () =
 vi.mock('../../../apps/pos-pc/src/components/ImagePicker', () => ({ ImagePicker: () => null }));
 vi.mock('../../../apps/pos-pc/src/components/inventory/BatchPanel', () => ({ BatchPanel: () => null }));
 vi.mock('../../../apps/pos-pc/src/components/ProductGroupsEditor', () => ({ ProductGroupsEditor: () => null }));
+vi.mock('../../../apps/pos-pc/src/services/d1-sync', () => ({ syncStockMovementToD1: vi.fn().mockResolvedValue({}) }));
 import { InventoryView } from '../../../apps/pos-pc/src/components/InventoryView';
 import { CartItemList } from '../../../apps/pos-pc/src/components/pos/CartItemList';
 
@@ -62,6 +63,8 @@ describe('actual inventory form', () => {
     });
     expect(currentCart[0].quantity).toBe(.25);
     await click('#btn-cart-minus-p1-0');
+    expect(currentCart[0].quantity).toBe(.15);
+    await click('#btn-cart-remove-p1-0');
     expect(currentCart).toHaveLength(0);
     expect(container.textContent).toContain('Agregar');
   });
